@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Wmsfo.Api/Wmsfo.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Wmsfo.Api.IntegrationTests/Wmsfo.Api.IntegrationTests.csproj" />
+    <Project Path="tests/Wmsfo.Api.Tests/Wmsfo.Api.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Wmsfo.Migrate/Wmsfo.Migrate.csproj" />
+  </Folder>
+</Solution>

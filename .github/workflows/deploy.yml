@@ -1,0 +1,76 @@
+# docs/api.md section 19 and docs/platform.md section 9.1.
+name: deploy
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore
+      - run: dotnet build --no-restore -warnaserror
+      - run: dotnet test --no-build
+      # Contract check (api.md section 19 step 2) joins once contracts/ is produced:
+      # export openapi.json, git diff --exit-code contracts/, ef migrations has-pending-model-changes.
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and push
+        run: |
+          TAG="${GITHUB_SHA}-${{ github.ref_name == 'main' && 'prod' || 'dev' }}"
+          docker buildx build --platform linux/arm64,linux/amd64 \
+            -t "${{ secrets.ECR_REPOSITORY }}:${TAG}" --push .
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+      - name: Deploy through the gateway
+        run: |
+          TOKEN=$(curl -fsS -X POST "${{ secrets.GATEWAY_TOKEN_URL }}" \
+            -u "${{ secrets.GATEWAY_CLIENT_ID }}:${{ secrets.GATEWAY_CLIENT_SECRET }}" \
+            -d "grant_type=client_credentials&scope=mgmt/deploy" | jq -r .access_token)
+          DEPLOY=$(curl -fsS -X POST "${{ secrets.GATEWAY_BASE_URL }}/mgmt/services/${{ secrets.GATEWAY_SERVICE_NAME }}/deploy" \
+            -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+            -d "{\"tag\":\"${TAG}\"}")
+          ID=$(echo "$DEPLOY" | jq -r .deployId)
+          for i in $(seq 1 60); do
+            STATUS=$(curl -fsS "${{ secrets.GATEWAY_BASE_URL }}/mgmt/deploys/${ID}" -H "Authorization: Bearer ${TOKEN}" | jq -r .status)
+            echo "deploy ${ID}: ${STATUS}"
+            case "$STATUS" in
+              done) exit 0 ;;
+              failed|partial) exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "deploy did not finish within 10 minutes"; exit 1
