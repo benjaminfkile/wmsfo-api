@@ -8,6 +8,7 @@ internal static class TestPaths
 {
     public static string RepoRoot { get; } = FindRepoRoot();
     public static string IconsDir => Path.Combine(RepoRoot, "icons");
+    public static string ContractsDir => Path.Combine(RepoRoot, "contracts");
 
     private static string FindRepoRoot([CallerFilePath] string? here = null)
     {
