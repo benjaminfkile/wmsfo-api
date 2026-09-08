@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "integer"
+    },
+    "eventId": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "eventStatusId": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "pollIntervalMs": {
+      "type": "integer"
+    },
+    "snapshotUrl": {
+      "type": "string"
+    },
+    "cookieTally": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "seq": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "lat": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "lng": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "speedMps": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "altitudeM": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "headingDeg": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "accuracyM": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "recordedAt": true,
+    "receivedAt": true,
+    "publishedAt": true
+  },
+  "additionalProperties": false
+}
