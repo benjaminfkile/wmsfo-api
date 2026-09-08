@@ -26,6 +26,7 @@ public static class EndpointStubs
         includeAdminSettingsStubs: true,
         includeMeStubs: true,
         includePublicWriteStubs: true,
+        includePreviewStub: true,
         includeAdminCookiesStubs: true,
         includeAdminInboxStubs: true,
         includeAdminPagesStubs: true,
@@ -33,7 +34,7 @@ public static class EndpointStubs
         includeAdminSiteSettingsStubs: true,
         includeAdminContentStubs: true);
 
-    // A8/A9/A10/A15/A11/A12/A13: Program.cs registers real handlers for the endpoint
+    // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
     // leave the flags at their default so the exported document keeps every route.
     public static void MapAll(IEndpointRouteBuilder app,
@@ -49,6 +50,7 @@ public static class EndpointStubs
         bool includeAdminSettingsStubs = true,
         bool includeMeStubs = true,
         bool includePublicWriteStubs = true,
+        bool includePreviewStub = true,
         bool includeAdminCookiesStubs = true,
         bool includeAdminInboxStubs = true,
         bool includeAdminPagesStubs = true,
@@ -60,8 +62,8 @@ public static class EndpointStubs
         // the app connection; the stub remains only for hosts that do not do
         // that (EndpointStubTests).
         if (includeBeaconStubs) MapBeacons(app);
-        if (includePublicWriteStubs) MapPublic(app);
-        else MapPreviewOnly(app);
+        if (includePublicWriteStubs) MapPublic(app, includePreviewStub);
+        else if (includePreviewStub) MapPreviewOnly(app);
         if (includeMeStubs) MapMe(app);
         if (includeAdminEventsStubs) MapAdminEvents(app);
         if (includeAdminRoutesStubs) MapAdminRoutes(app);
@@ -126,7 +128,7 @@ public static class EndpointStubs
             .Produces<BeaconLogResponse>(StatusCodes.Status201Created);
     }
 
-    private static void MapPublic(IEndpointRouteBuilder app)
+    private static void MapPublic(IEndpointRouteBuilder app, bool includePreviewStub)
     {
         app.MapPost("/contact", NotImplemented)
             .WithTags("Public")
@@ -143,9 +145,12 @@ public static class EndpointStubs
             .Accepts<SubscriptionUnsubscribeRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent);
 
-        app.MapGet("/preview/document", NotImplemented)
-            .WithTags("Public")
-            .Produces<ContentBundleDto>(StatusCodes.Status200OK);
+        if (includePreviewStub)
+        {
+            app.MapGet("/preview/document", NotImplemented)
+                .WithTags("Public")
+                .Produces<ContentBundleDto>(StatusCodes.Status200OK);
+        }
     }
 
     private static void MapMe(IEndpointRouteBuilder app)

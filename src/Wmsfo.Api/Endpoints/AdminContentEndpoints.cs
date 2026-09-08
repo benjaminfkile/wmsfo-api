@@ -12,6 +12,7 @@ using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
+using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.Endpoints;
 
@@ -30,6 +31,9 @@ public static class AdminContentEndpoints
         MapItems(app);
         MapSiteSettings(app);
         MapContentDraftAndStatus(app);
+        MapPublishVersionsRestore(app);
+        MapPreviewToken(app);
+        MapPreviewDocument(app);
     }
 
     // --- GET /admin/content/kinds -------------------------------------------------
@@ -1070,6 +1074,240 @@ order by cv.id desc limit 1;", conn))
             .Produces<ContentStatusDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // --- POST /admin/content/publish, /admin/content/versions, restore ---
+
+    private static void MapPublishVersionsRestore(IEndpointRouteBuilder app)
+    {
+        // POST /admin/content/publish (contracts 4.5 Content, api.md 11a.3).
+        app.MapPost("/admin/content/publish",
+            async (PublishContentRequest? body, HttpContext ctx, Publisher publisher, CancellationToken ct) =>
+            {
+                var email = AdminHelpers.RequireAdminEmail(ctx);
+                var label = body?.Label;
+                if (label is not null)
+                {
+                    label = label.Trim();
+                    if (label.Length == 0) label = null;
+                    else if (label.Length > 200)
+                    {
+                        RequestValidation.Throw("label", "must be null or 1 to 200 characters");
+                    }
+                }
+                var result = await publisher.PublishAsync(email, label, ct);
+                return Results.Json(result.Version, statusCode: StatusCodes.Status201Created);
+            })
+            .WithTags("AdminContent")
+            .Accepts<PublishContentRequest>("application/json")
+            .Produces<ContentVersionInfoDto>(StatusCodes.Status201Created)
+            .WithBodyLimit(BodyLimits.JsonDefault)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+
+        // GET /admin/content/versions — the newest 50 rows (list, newest first).
+        app.MapGet("/admin/content/versions",
+            async (WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                var items = new List<ContentVersionInfoDto>();
+                await using var cmd = new NpgsqlCommand(@"
+select id, sha256, label, published_by, published_at, document
+from content_version order by id desc limit 50;", conn);
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    var docJson = reader.GetString(5);
+                    var (pc, sc) = CountPagesAndSections(docJson);
+                    items.Add(new ContentVersionInfoDto
+                    {
+                        Id = reader.GetInt64(0),
+                        Sha256 = reader.GetString(1).Trim(),
+                        Label = reader.IsDBNull(2) ? null : reader.GetString(2),
+                        PublishedBy = reader.GetString(3),
+                        PublishedAt = reader.GetFieldValue<DateTimeOffset>(4),
+                        PageCount = pc,
+                        SectionCount = sc,
+                    });
+                }
+                return Results.Ok(new ItemsResponse<ContentVersionInfoDto> { Items = items });
+            })
+            .WithTags("AdminContent")
+            .Produces<ItemsResponse<ContentVersionInfoDto>>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+
+        // GET /admin/content/versions/{id} — the full detail with the document.
+        app.MapGet("/admin/content/versions/{id:long}",
+            async (long id, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using var cmd = new NpgsqlCommand(@"
+select id, sha256, label, published_by, published_at, document
+from content_version where id = $1;", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                if (!await reader.ReadAsync(ct))
+                {
+                    throw NotFound($"content version `{id}` not found");
+                }
+                var docJson = reader.GetString(5);
+                var (pc, sc) = CountPagesAndSections(docJson);
+                var dto = new ContentVersionDetailDto
+                {
+                    Id = reader.GetInt64(0),
+                    Sha256 = reader.GetString(1).Trim(),
+                    Label = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    PublishedBy = reader.GetString(3),
+                    PublishedAt = reader.GetFieldValue<DateTimeOffset>(4),
+                    PageCount = pc,
+                    SectionCount = sc,
+                    Document = JsonElementFromString(docJson),
+                };
+                return Results.Ok(dto);
+            })
+            .WithTags("AdminContent")
+            .Produces<ContentVersionDetailDto>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+
+        // POST /admin/content/versions/{id}/restore (sql.md 8.20).
+        app.MapPost("/admin/content/versions/{id:long}/restore",
+            async (long id, HttpContext ctx, Restorer restorer,
+                   WmsfoConnectionStrings connections, WmsfoOptions options,
+                   DocumentBuilder builder, IconLibrary? iconLibrary,
+                   SchemaValidator validator, KindRegistry registry, CancellationToken ct) =>
+            {
+                var email = AdminHelpers.RequireAdminEmail(ctx);
+                await restorer.RestoreAsync(id, email, ct);
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                var load = await builder.LoadAsync(conn, null, includeHidden: false, ct);
+                var problems = await BuildPublishProblemsAsync(load, validator, registry,
+                    new ReferenceChecker(iconLibrary), conn, null, ct);
+                var bytes = CanonicalJson.SerializeToUtf8Bytes(load.Document);
+                var sha = CanonicalJson.Sha256Hex(bytes);
+                ContentVersionInfoDto? published = null;
+                await using (var cmd = new NpgsqlCommand(@"
+select id, sha256, label, published_by, published_at, document
+from content_version order by id desc limit 1;", conn))
+                await using (var reader = await cmd.ExecuteReaderAsync(ct))
+                {
+                    if (await reader.ReadAsync(ct))
+                    {
+                        var doc = reader.GetString(5);
+                        var (pc, sc) = CountPagesAndSections(doc);
+                        published = new ContentVersionInfoDto
+                        {
+                            Id = reader.GetInt64(0),
+                            Sha256 = reader.GetString(1).Trim(),
+                            Label = reader.IsDBNull(2) ? null : reader.GetString(2),
+                            PublishedBy = reader.GetString(3),
+                            PublishedAt = reader.GetFieldValue<DateTimeOffset>(4),
+                            PageCount = pc,
+                            SectionCount = sc,
+                        };
+                    }
+                }
+                var status = new ContentStatusDto
+                {
+                    Published = published,
+                    DraftSha256 = sha,
+                    HasUnpublishedChanges = published is null || !string.Equals(published.Sha256, sha, StringComparison.Ordinal),
+                    Problems = problems.ToList(),
+                    DraftUpdatedAt = load.DraftUpdatedAt,
+                };
+                return Results.Ok(status);
+            })
+            .WithTags("AdminContent")
+            .Produces<ContentStatusDto>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // --- POST /admin/content/preview-token ---
+
+    private static void MapPreviewToken(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/content/preview-token",
+            async (HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options,
+                   CancellationToken ct) =>
+            {
+                var email = AdminHelpers.RequireAdminEmail(ctx);
+                var minted = Keys.MintPreviewToken();
+                var expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using var cmd = new NpgsqlCommand(@"
+insert into preview_token (token_hash, created_by, expires_at)
+values ($1, $2, $3);", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = expiresAt });
+                await cmd.ExecuteNonQueryAsync(ct);
+                var dto = new PreviewTokenDto
+                {
+                    Token = minted.Token,
+                    Url = options.PublicApiBaseUrl.TrimEnd('/') + "/preview/document?token=" + minted.Token,
+                    ExpiresAt = expiresAt,
+                };
+                return Results.Json(dto, statusCode: StatusCodes.Status201Created);
+            })
+            .WithTags("AdminContent")
+            .Produces<PreviewTokenDto>(StatusCodes.Status201Created)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // --- GET /preview/document ---
+
+    private static void MapPreviewDocument(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/preview/document",
+            async (HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options,
+                   IconLibrary? iconLibrary, DocumentBuilder builder, CancellationToken ct) =>
+            {
+                var token = ctx.Request.Query["token"].ToString();
+                if (string.IsNullOrEmpty(token))
+                {
+                    throw new ApiException(StatusCodes.Status404NotFound,
+                        ApiErrorCodes.PreviewTokenInvalid, "preview token missing or expired");
+                }
+                var hash = Keys.Hash(token);
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using (var check = new NpgsqlCommand(
+                    "select 1 from preview_token where token_hash = $1 and expires_at > now();", conn))
+                {
+                    check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = hash });
+                    var r = await check.ExecuteScalarAsync(ct);
+                    if (r is null || r is DBNull)
+                    {
+                        throw new ApiException(StatusCodes.Status404NotFound,
+                            ApiErrorCodes.PreviewTokenInvalid, "preview token missing or expired");
+                    }
+                }
+                var load = await builder.LoadAsync(conn, null, includeHidden: false, ct);
+                var mediaIds = DocumentBuilder.CollectReferencedMediaIds(load.WorkingSet);
+                var mediaMap = await BuildMediaMapAsync(conn, null, mediaIds, options, ct);
+                var iconsMap = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                if (iconLibrary is not null)
+                {
+                    foreach (var kv in iconLibrary.Map) iconsMap[kv.Key] = kv.Value;
+                }
+                var bundle = new ContentBundleDto
+                {
+                    Content = JsonSerializer.SerializeToElement(load.Document, CanonicalJson.Options),
+                    Media = mediaMap,
+                    Icons = iconsMap,
+                };
+                return Results.Ok(bundle);
+            })
+            .WithTags("Public")
+            .Produces<ContentBundleDto>(StatusCodes.Status200OK)
+            .RequireRateLimiting(RateLimitPolicies.PreviewPerIp);
     }
 
     // --- helpers ------------------------------------------------------------------

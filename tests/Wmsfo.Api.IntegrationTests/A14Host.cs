@@ -22,34 +22,34 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A13 test host — content working set endpoints (/admin/pages*, /admin/sections*,
-// /admin/items*, /admin/site-settings*) plus /admin/content/kinds, /draft, /status.
-// Dev static tokens supply the Editor/Admin/Person bearers; the KindRegistry loads
-// from the repo's contracts/ folder.
-public sealed class A13Host : IAsyncDisposable
+// A14 test host — the publish transaction (Publisher), versions, restore, the
+// preview flow, and first-boot orchestration. Registers real /admin/content/*
+// endpoints plus /preview/document, with an in-memory RecordingObjectStore so
+// the snapshot PUTs are inspectable and can be forced to fail.
+public sealed class A14Host : IAsyncDisposable
 {
     public WebApplication App { get; }
     public HttpClient Client { get; }
     public WmsfoOptions Options { get; }
-    public KindRegistry Registry { get; }
-    public SchemaValidator Validator { get; }
+    public RecordingObjectStore Store { get; }
+    public FakeGatewayClient Gateway { get; }
 
-    private A13Host(WebApplication app, HttpClient client, WmsfoOptions options,
-        KindRegistry registry, SchemaValidator validator)
+    private A14Host(WebApplication app, HttpClient client, WmsfoOptions options,
+        RecordingObjectStore store, FakeGatewayClient gateway)
     {
         App = app;
         Client = client;
         Options = options;
-        Registry = registry;
-        Validator = validator;
+        Store = store;
+        Gateway = gateway;
     }
 
-    // JsonSchema.Net registers by $id globally, so KindRegistry.Load fails on the
-    // second call. Load once per test run and share across every host instance.
-    private static KindRegistry _sharedRegistry => SharedContent.Registry;
-    private static SchemaValidator _sharedValidator => SharedContent.Validator;
+    // Load KindRegistry / SchemaValidator once per test run so JsonSchema.Net's
+    // global $id registry does not double-register.
+    public static KindRegistry SharedRegistry => SharedContent.Registry;
+    public static SchemaValidator SharedValidator => SharedContent.Validator;
 
-    public static async Task<A13Host> StartAsync(string connectionString)
+    public static async Task<A14Host> StartAsync(string connectionString)
     {
         var options = new WmsfoOptions
         {
@@ -82,7 +82,7 @@ public sealed class A13Host : IAsyncDisposable
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
-            ApplicationName = typeof(A13Host).Assembly.GetName().Name,
+            ApplicationName = typeof(A14Host).Assembly.GetName().Name,
         });
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -91,8 +91,6 @@ public sealed class A13Host : IAsyncDisposable
         var connections = WmsfoConnectionStrings.ForTests(connectionString);
         var store = new RecordingObjectStore();
         var gateway = new FakeGatewayClient();
-        var registry = _sharedRegistry;
-        var validator = _sharedValidator;
         var iconLibrary = IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl);
 
         builder.Services.AddSingleton(options);
@@ -108,18 +106,17 @@ public sealed class A13Host : IAsyncDisposable
             .UseSnakeCaseNamingConvention());
         builder.Services.AddSingleton<IServerClock, SystemServerClock>();
         builder.Services.AddSingleton(iconLibrary);
-        builder.Services.AddSingleton(registry);
-        builder.Services.AddSingleton(validator);
+        builder.Services.AddSingleton(SharedRegistry);
+        builder.Services.AddSingleton(SharedValidator);
         builder.Services.AddSingleton<DocumentBuilder>();
         builder.Services.AddSingleton<SnapshotBuilder>();
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
-        // A14: Publisher and Restorer are dependencies of the publish/versions/
-        // restore endpoints, which AdminContentEndpoints.MapAll now includes.
         builder.Services.AddSingleton<StarterContent>();
         builder.Services.AddSingleton<Publisher>();
         builder.Services.AddSingleton<Restorer>();
+        builder.Services.AddSingleton<SnapshotBootstrap>();
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);
@@ -143,7 +140,7 @@ public sealed class A13Host : IAsyncDisposable
             .Features.Get<IServerAddressesFeature>()!
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
-        return new A13Host(app, client, options, registry, validator);
+        return new A14Host(app, client, options, store, gateway);
     }
 
     private static IEnumerable<string> AllPolicies()
@@ -170,13 +167,8 @@ public sealed class A13Host : IAsyncDisposable
         return req;
     }
 
-    public HttpRequestMessage AdminRequest(HttpMethod method, string path)
-    {
-        var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", DevStaticTokens.AdminToken);
-        return req;
-    }
+    public T GetService<T>() where T : notnull =>
+        App.Services.GetRequiredService<T>();
 
     public async ValueTask DisposeAsync()
     {
