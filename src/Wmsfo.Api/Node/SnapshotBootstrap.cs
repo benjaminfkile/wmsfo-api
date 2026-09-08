@@ -2,52 +2,76 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Node;
 
-// api.md 10.2 / sql.md 8.16 step 4: build snapshot version 1 on first boot when
-// the snapshot table is empty. Runs under the migration advisory lock (held by
-// DatabaseMigrator). The starter content and content_version 1 are A14; until
-// they land the bootstrap ensures a content_version row exists by inserting the
-// fixture ContentDocument so the pipeline is testable end to end.
+// api.md 10.2 / sql.md 8.16: full first-boot order. Called by DatabaseMigrator
+// under the migration advisory lock, after EF migrations apply. The four steps
+// are idempotent; already-done steps skip:
+//   1. Starter content — when `page` is empty, seed the working set from
+//      contracts/starter-content.json.
+//   2. Icon library — handled by FleetFirstBootHook (A3).
+//   3. Content version 1 — when `content_version` is empty, publish the working
+//      set (Publisher.EnsureVersionOneAsync) without a snapshot rebuild.
+//   4. Snapshot version 1 — when the single snapshot row is absent, build the
+//      snapshot object, PUT it, and insert (id=1, version=1).
 public sealed class SnapshotBootstrap
 {
     private readonly SnapshotBuilder _snapshotBuilder;
     private readonly WmsfoConnectionStrings _connections;
     private readonly WmsfoOptions _options;
     private readonly ILogger<SnapshotBootstrap> _logger;
+    private readonly StarterContent? _starterContent;
+    private readonly Publisher? _publisher;
 
     public SnapshotBootstrap(
         SnapshotBuilder snapshotBuilder,
         WmsfoConnectionStrings connections,
         WmsfoOptions options,
-        ILogger<SnapshotBootstrap> logger)
+        ILogger<SnapshotBootstrap> logger,
+        StarterContent? starterContent = null,
+        Publisher? publisher = null)
     {
         _snapshotBuilder = snapshotBuilder;
         _connections = connections;
         _options = options;
         _logger = logger;
+        _starterContent = starterContent;
+        _publisher = publisher;
     }
 
-    // sql.md 8.16: run four idempotent steps under the migration lock (the caller
-    // holds it). Steps that are already done are skipped. Steps 1 (starter
-    // content) and 3 (content_version 1) belong to A14; step 2 (icon library) is
-    // A3. Here we ensure a content_version row exists (fixture stand-in) and then
-    // insert snapshot version 1.
+    // Runs the four steps in order. Uses the migrate role (the migrator holds
+    // the advisory lock).
     public async Task EnsureVersionOneAsync(CancellationToken ct)
     {
-        // Migration ran against the migrate connection; we use the migrate role
-        // here too so bootstrap does not need the app role's grants on writes.
         await using var conn = new NpgsqlConnection(_connections.Migrate);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
-        // sql.md 8.16 step 3 stand-in: insert a content_version row from the
-        // fixture ContentDocument so SnapshotBuilder has something to embed.
-        await EnsureContentVersionOneAsync(conn, ct).ConfigureAwait(false);
+        // Step 1: starter content when the working set is empty. Falls back to
+        // an empty seed when StarterContent is not available (test hosts that
+        // wire SnapshotBootstrap directly).
+        if (_starterContent is not null)
+        {
+            await _starterContent.EnsureSeededAsync(conn, ct).ConfigureAwait(false);
+        }
 
-        // sql.md 8.16 step 4: check if snapshot row exists.
+        // Step 3: content_version row when the table is empty. A14: publish the
+        // starter content proper. When Publisher is not registered (older test
+        // hosts), fall back to the fixture stand-in so the pipeline is testable
+        // end to end.
+        if (_publisher is not null)
+        {
+            await _publisher.EnsureVersionOneAsync(conn, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await EnsureFixtureContentVersionAsync(conn, ct).ConfigureAwait(false);
+        }
+
+        // Step 4: snapshot row when absent.
         var exists = await SnapshotRowExistsAsync(conn, ct).ConfigureAwait(false);
         if (exists) return;
 
@@ -73,10 +97,11 @@ values (1, 1, $1, $2, now());", conn, tx))
         return r is not null;
     }
 
-    private async Task EnsureContentVersionOneAsync(NpgsqlConnection conn, CancellationToken ct)
+    // Fallback used when the Publisher isn't wired up (older tests only). Keeps
+    // A7's SnapshotBootstrap ctor working: insert the fixture ContentDocument
+    // as content_version 1 so SnapshotBuilder finds a row to embed.
+    private async Task EnsureFixtureContentVersionAsync(NpgsqlConnection conn, CancellationToken ct)
     {
-        // Only insert if no content_version exists (A14 will replace this with
-        // the real seed + publish).
         long? existing;
         await using (var check = new NpgsqlCommand(
             "select id from content_version order by id desc limit 1;", conn))

@@ -123,6 +123,13 @@ if (contractsRoot is not null)
     builder.Services.AddSingleton<SchemaValidator>();
     builder.Services.AddSingleton<DocumentBuilder>();
 }
+
+// A14: publish, restore, starter content seeding. The first-boot sequence
+// consumes StarterContent + Publisher; POST /admin/content/publish and the
+// restore endpoint consume them at request time.
+builder.Services.AddSingleton<StarterContent>();
+builder.Services.AddSingleton<Publisher>();
+builder.Services.AddSingleton<Restorer>();
 static string? ResolveContractsRoot(string start)
 {
     var dir = new DirectoryInfo(start);
@@ -239,6 +246,7 @@ EndpointStubs.MapAll(app,
     includeAdminSettingsStubs: false,
     includeMeStubs: false,
     includePublicWriteStubs: false,
+    includePreviewStub: false,
     includeAdminCookiesStubs: false,
     includeAdminInboxStubs: false,
     includeAdminPagesStubs: false,
