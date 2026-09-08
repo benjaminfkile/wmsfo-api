@@ -37,7 +37,7 @@ public static class EndpointStubs
         MapAdminCookies(app);
         MapAdminSettings(app);
         MapAdminInbox(app);
-        MapAdminDiagnostics(app);
+        // Diagnostics endpoints have real handlers now (Node.AdminDiagnosticsEndpoints).
         MapRealtime(app);
     }
 
@@ -542,7 +542,10 @@ public static class EndpointStubs
             .Produces(StatusCodes.Status204NoContent);
     }
 
-    private static void MapAdminDiagnostics(IEndpointRouteBuilder app)
+    // The diagnostics endpoints have real handlers in Node.AdminDiagnosticsEndpoints;
+    // this stub is used by the OpenAPI export so the exported document keeps the
+    // response metadata without pulling in the runtime services.
+    public static void MapAdminDiagnostics(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/snapshot", NotImplemented)
             .WithTags("AdminDiagnostics")

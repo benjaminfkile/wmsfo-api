@@ -68,9 +68,9 @@ public sealed class EndpointStubTests : IAsyncLifetime
     [InlineData("GET",  "/admin/contact-messages")]
     [InlineData("GET",  "/admin/subscribers")]
     [InlineData("GET",  "/admin/people")]
-    [InlineData("GET",  "/admin/snapshot")]
-    [InlineData("GET",  "/admin/live")]
-    [InlineData("POST", "/admin/live/republish")]
+    // /admin/snapshot, /admin/snapshot/rebuild, /admin/live, /admin/live/republish
+    // are real handlers as of A7 and no longer return 501; AdminDiagnosticsTests
+    // covers their live behaviour.
     [InlineData("POST", "/realtime/authorize")]
     [InlineData("POST", "/realtime/message")]
     public async Task Every_endpoint_returns_501(string method, string path)

@@ -13,6 +13,7 @@ public class ContractsVersionTests
     {
         { 1, "b0886551ff8f90ea1ff7389a5b6b6b4d87033d51bbdff6647abc82acbd730ae2" },
         { 2, "22bf1982b10c9298e1775beef60db2168f18d11fa2ded7a264aaf1383e4341ce" },
+        { 3, "dfd2bb18bc84d70aa6f71cad7d189bfe70aa8e54bf7d7e6c0f2c1dac9f024c2b" },
     };
 
     [Fact]
