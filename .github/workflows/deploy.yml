@@ -28,12 +28,16 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet restore
       - run: dotnet build --no-restore -warnaserror
+      - run: dotnet tool restore
+      - name: Provide a test database connection for the integration tests
+        run: echo "WMSFO_TEST_DB_CONNECTION=Host=127.0.0.1;Port=5432;Username=postgres;Password=postgres;Database=postgres" >> "$GITHUB_ENV"
       - run: dotnet test --no-build
       # Contract check (api.md section 19 step 2): regenerate contracts/ and fail
-      # if anything changed. ef migrations has-pending-model-changes joins in later
-      # once the DbContext exists.
+      # if anything changed.
       - run: dotnet run --project src/Wmsfo.Api -- export-contracts contracts
       - run: git diff --exit-code contracts/
+      # sql.md 14.3: fails the job when the DbContext has drifted from Migrations/.
+      - run: dotnet ef migrations has-pending-model-changes --project src/Wmsfo.Api --startup-project src/Wmsfo.Api --context WmsfoDbContext
 
   deploy:
     needs: test

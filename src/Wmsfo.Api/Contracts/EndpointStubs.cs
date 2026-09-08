@@ -17,7 +17,9 @@ public static class EndpointStubs
 
     public static void MapAll(IEndpointRouteBuilder app)
     {
-        MapHealth(app);
+        // Health is registered by Program.cs against the live readiness gate and
+        // the app connection; the stub remains only for hosts that do not do
+        // that (EndpointStubTests).
         MapBeacons(app);
         MapPublic(app);
         MapMe(app);
@@ -39,7 +41,8 @@ public static class EndpointStubs
         MapRealtime(app);
     }
 
-    private static void MapHealth(IEndpointRouteBuilder app)
+    // Exposed for hosts that need the stub metadata (openapi export, EndpointStubTests).
+    public static void MapHealthStub(IEndpointRouteBuilder app)
     {
         app.MapGet("/api/health", NotImplemented)
             .WithTags("Health")

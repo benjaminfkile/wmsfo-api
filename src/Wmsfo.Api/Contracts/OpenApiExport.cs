@@ -34,6 +34,7 @@ public static class OpenApiExport
         });
 
         var app = builder.Build();
+        EndpointStubs.MapHealthStub(app);
         EndpointStubs.MapAll(app);
         app.MapOpenApi();
 
