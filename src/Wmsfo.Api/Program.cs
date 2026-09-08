@@ -1,3 +1,6 @@
+using Amazon;
+using Amazon.S3;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts;
@@ -53,6 +56,21 @@ builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
 builder.Services.AddDbContext<WmsfoDbContext>(o => o
     .UseNpgsql(connections.App)
     .UseSnakeCaseNamingConvention());
+
+// api.md 3 step 3: the object store. S3 in the fleet, LocalObjectStore when
+// WMSFO_OBJECT_STORE_DIR is set (dev, tests). Both implement IObjectStore
+// identically; nothing outside this composition root branches on the choice.
+if (!string.IsNullOrEmpty(options.ObjectStoreDir))
+{
+    builder.Services.AddSingleton<IObjectStore>(new LocalObjectStore(options.ObjectStoreDir, options.PublicApiBaseUrl));
+}
+else
+{
+    builder.Services.AddSingleton<IAmazonS3>(_ =>
+        new AmazonS3Client(RegionEndpoint.GetBySystemName(options.AwsRegion)));
+    builder.Services.AddSingleton<IObjectStore>(sp =>
+        new S3ObjectStore(sp.GetRequiredService<IAmazonS3>(), options.S3Bucket));
+}
 
 // api.md 3 step 5 hook: the migrator plus the noop for the first-boot steps of
 // sql.md 8.16 (starter content, icon library, content version 1, snapshot v1),
@@ -122,6 +140,34 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
 .DisableRateLimiting();
 
 EndpointStubs.MapAll(app);
+
+// api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
+// so upload tickets point uploadUrl at PUT /local-upload/{id} on the API. The
+// route writes the bytes and the pending tag through the store. It exists only
+// when the directory store is active and never in prod (the options validator
+// refuses that combination up front).
+if (app.Services.GetRequiredService<IObjectStore>() is LocalObjectStore localStore)
+{
+    app.MapPut("/local-upload/{id}", async (
+        string id,
+        HttpRequest request,
+        CancellationToken ct) =>
+    {
+        var filenameRaw = request.Query["filename"].ToString();
+        var filename = string.IsNullOrEmpty(filenameRaw) ? "upload.bin" : filenameRaw;
+        var key = $"media/{id}/{filename}";
+        var contentType = request.ContentType;
+        if (string.IsNullOrWhiteSpace(contentType))
+        {
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Content-Type required");
+        }
+        using var ms = new MemoryStream();
+        await request.Body.CopyToAsync(ms, ct);
+        await localStore.WriteUploadAsync(key, ms.ToArray(), contentType, ct);
+        return Results.NoContent();
+    }).DisableRateLimiting();
+}
+
 app.MapOpenApi();
 
 app.Run();
