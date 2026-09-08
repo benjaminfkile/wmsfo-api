@@ -27,6 +27,7 @@ public sealed class EndpointStubTests : IAsyncLifetime
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddOpenApi();
         _app = builder.Build();
+        EndpointStubs.MapHealthStub(_app);
         EndpointStubs.MapAll(_app);
         await _app.StartAsync();
 
