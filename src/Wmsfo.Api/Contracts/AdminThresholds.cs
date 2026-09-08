@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 namespace Wmsfo.Api.Contracts;
@@ -10,18 +11,24 @@ public static class AdminThresholds
     public const int NoFixAgeS = 30;
     public const int NoLocationAgeS = 30;
 
-    public static string ToJson()
+    // A1g: pinning NewLine to "\n" keeps WriteIndented from switching to CRLF on Windows,
+    // which would rewrite the LF-pinned checked-in file and fail `git diff --exit-code`.
+    private static readonly JsonSerializerOptions Options = new()
     {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        };
-        return JsonSerializer.Serialize(new
-        {
-            batteryLowPercent = BatteryLowPercent,
-            noFixAgeS = NoFixAgeS,
-            noLocationAgeS = NoLocationAgeS,
-        }, options);
-    }
+        WriteIndented = true,
+        NewLine = "\n",
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
+    public static string ToJson() => JsonSerializer.Serialize(new
+    {
+        batteryLowPercent = BatteryLowPercent,
+        noFixAgeS = NoFixAgeS,
+        noLocationAgeS = NoLocationAgeS,
+    }, Options);
+
+    public static byte[] ToUtf8Bytes() => Utf8NoBom.GetBytes(ToJson());
+
+    public static void WriteTo(string path) => File.WriteAllBytes(path, ToUtf8Bytes());
 }

@@ -21,7 +21,7 @@ if (args.Length > 0)
             await File.WriteAllBytesAsync(
                 Path.Combine(root, "starter-content.json"),
                 CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
-            await File.WriteAllTextAsync(Path.Combine(root, "admin-thresholds.json"), AdminThresholds.ToJson());
+            AdminThresholds.WriteTo(Path.Combine(root, "admin-thresholds.json"));
             await OpenApiExport.WriteAsync(Path.Combine(root, "openapi.json"));
             return;
     }
