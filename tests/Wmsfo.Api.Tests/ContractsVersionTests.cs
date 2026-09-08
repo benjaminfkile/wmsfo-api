@@ -32,7 +32,8 @@ public class ContractsVersionTests
 
     // A deterministic hash of every file under contracts/ except CONTRACTS_VERSION itself.
     // Byte contents plus the repo-relative POSIX path go into the hash, so a rename or a
-    // content edit both count as a change.
+    // content edit both count as a change. Bytes are normalized from CRLF to LF first so a
+    // checkout under `core.autocrlf=true` (Windows) produces the same hash as a plain LF one.
     private static string HashDirectory(string root)
     {
         var files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
@@ -48,11 +49,25 @@ public class ContractsVersionTests
         {
             var pathBytes = Encoding.UTF8.GetBytes(rel + "\n");
             sha.TransformBlock(pathBytes, 0, pathBytes.Length, null, 0);
-            var content = File.ReadAllBytes(path);
+            var content = NormalizeNewlineBytes(File.ReadAllBytes(path));
             sha.TransformBlock(content, 0, content.Length, null, 0);
             sha.TransformBlock(new byte[] { 0 }, 0, 1, null, 0);
         }
         sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
         return Convert.ToHexStringLower(sha.Hash!);
+    }
+
+    private static byte[] NormalizeNewlineBytes(byte[] bytes)
+    {
+        var output = new List<byte>(bytes.Length);
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] == 0x0D && i + 1 < bytes.Length && bytes[i + 1] == 0x0A)
+            {
+                continue;
+            }
+            output.Add(bytes[i]);
+        }
+        return output.ToArray();
     }
 }

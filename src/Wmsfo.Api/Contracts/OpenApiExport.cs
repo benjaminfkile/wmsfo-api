@@ -8,7 +8,9 @@ using Microsoft.Extensions.Logging;
 namespace Wmsfo.Api.Contracts;
 
 // api.md 21: the export mode builds the endpoint table and exits before configuration
-// validation, so it needs no database, bucket, or secret. It writes contracts/openapi.json.
+// validation, so it needs no database, bucket, or secret. Called from `export-contracts`
+// (and the deprecated `export-openapi` alias), it writes the OpenAPI document at
+// `<contracts-root>/openapi.json`.
 public static class OpenApiExport
 {
     public static async Task WriteAsync(string outputPath, CancellationToken cancellationToken = default)

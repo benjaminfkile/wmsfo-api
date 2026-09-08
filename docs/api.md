@@ -517,7 +517,7 @@ Multi-arch (`linux/arm64` for the fleet, `linux/amd64` for local runs). No envir
 `.github/workflows/deploy.yml`, on push to `dev` (environment `dev`, service `wmsfo-api-dev`, tag `<sha>-dev`) and `main` (environment `prod`, `wmsfo-api`, `<sha>-prod`):
 
 1. `dotnet test` for both test projects, with a Postgres service container for the integration tests.
-2. Contract check: build, run `OpenApiExport`, `git diff --exit-code contracts/`; run `dotnet ef migrations has-pending-model-changes`; the schema tests (every kind in `kinds.json` has a schema file, every schema compiles, the fixtures and the starter content validate at the publish level, every library icon passes the SVG validator).
+2. Contract check: build, run `dotnet run --project src/Wmsfo.Api -- export-contracts contracts` (which writes the OpenAPI document, the JSON Schemas, the fixtures, `starter-content.json`, and `admin-thresholds.json` in one pass), then `git diff --exit-code contracts/`; run `dotnet ef migrations has-pending-model-changes`; the schema tests (every kind in `kinds.json` has a schema file, every schema compiles, the fixtures and the starter content validate at the publish level, every library icon passes the SVG validator).
 3. Assume `AWS_ROLE_ARN` through OIDC; `docker buildx build --platform linux/arm64,linux/amd64` and push `ECR_REPOSITORY:<sha>-<env>`.
 4. Client-credentials token from `GATEWAY_TOKEN_URL` with scope `mgmt/deploy`; `POST GATEWAY_BASE_URL/mgmt/services/GATEWAY_SERVICE_NAME/deploy { "tag" }`; poll `GET /mgmt/deploys/{id}` until `done` (fail the job on `failed` or `partial`, 10-minute cap).
 
@@ -543,7 +543,7 @@ plus a dev Cognito pool for tokens, or `WMSFO_DEV_STATIC_TOKENS=true` to accept 
 
 `contracts/` is produced and checked in the API repository (contracts 13):
 
-- `OpenApiExport` runs at build (`dotnet run --project src/Wmsfo.Api -- export-openapi contracts/openapi.json`) from the endpoint metadata and the request and response DTOs; the export mode builds the endpoint table and exits before configuration validation, so it needs no database, bucket, or secret. CI fails when the checked-in file differs.
+- `dotnet run --project src/Wmsfo.Api -- export-contracts contracts` writes every artifact under `contracts/` in one pass: the OpenAPI document from the endpoint metadata and the request and response DTOs, the JSON Schemas, the fixtures, `starter-content.json`, and `admin-thresholds.json`. The export mode builds the endpoint table and exits before configuration validation, so it needs no database, bucket, or secret. CI fails when the checked-in files differ.
 - JSON Schemas for the CDN objects and the beacon and callback bodies are generated from the DTOs with `System.Text.Json.Schema` and written next to the fixtures; the fixtures are serialized from fixed DTO instances through `CanonicalJson` so `fixtures/live-object.json` is byte-for-byte what the API writes for that data. The content schemas (`primitives`, `content-document`, `site-settings`, `sections/*`) and `kinds.json` are hand-written and are the source the API validates with; `fixtures/content-document.json` is the starter content re-serialized through `CanonicalJson`.
 - `admin-thresholds.json` is a checked-in constant file `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }` (the shape the admin panel document proposes).
 - `CONTRACTS_VERSION` is bumped by hand in the commit that changes anything under `contracts/`; a test fails when the directory's hash changed and the version did not.
