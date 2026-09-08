@@ -29,8 +29,11 @@ jobs:
       - run: dotnet restore
       - run: dotnet build --no-restore -warnaserror
       - run: dotnet test --no-build
-      # Contract check (api.md section 19 step 2) joins once contracts/ is produced:
-      # export openapi.json, git diff --exit-code contracts/, ef migrations has-pending-model-changes.
+      # Contract check (api.md section 19 step 2): regenerate contracts/ and fail
+      # if anything changed. ef migrations has-pending-model-changes joins in later
+      # once the DbContext exists.
+      - run: dotnet run --project src/Wmsfo.Api -- export-contracts contracts
+      - run: git diff --exit-code contracts/
 
   deploy:
     needs: test
