@@ -195,6 +195,11 @@ AdminIconEndpoints.MapAll(app);
 AdminSponsorEndpoints.MapAll(app);
 AdminCookieTypeEndpoints.MapAll(app);
 AdminSettingsEndpoints.MapAll(app);
+// A12: /me family, public writes (contact, verify, unsubscribe), moderation, inbox.
+MeEndpoints.MapAll(app);
+PublicWriteEndpoints.MapAll(app);
+AdminCookieModerationEndpoints.MapAll(app);
+AdminInboxEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
@@ -205,7 +210,11 @@ EndpointStubs.MapAll(app,
     includeAdminIconsStubs: false,
     includeAdminSponsorsStubs: false,
     includeAdminCookieTypesStubs: false,
-    includeAdminSettingsStubs: false);
+    includeAdminSettingsStubs: false,
+    includeMeStubs: false,
+    includePublicWriteStubs: false,
+    includeAdminCookiesStubs: false,
+    includeAdminInboxStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

@@ -23,13 +23,15 @@ public static class EndpointStubs
         includeAdminIconsStubs: true,
         includeAdminSponsorsStubs: true,
         includeAdminCookieTypesStubs: true,
-        includeAdminSettingsStubs: true);
+        includeAdminSettingsStubs: true,
+        includeMeStubs: true,
+        includePublicWriteStubs: true,
+        includeAdminCookiesStubs: true,
+        includeAdminInboxStubs: true);
 
-    // A8/A9/A10/A15/A11: Program.cs registers real handlers for beacons, realtime,
-    // admin events, admin routes, admin beacons, admin media, admin icons,
-    // admin sponsors, admin cookie types and admin settings, and passes `false`
-    // for each. Tests and the OpenAPI export leave the flags at their default so
-    // the exported document keeps every route.
+    // A8/A9/A10/A15/A11/A12: Program.cs registers real handlers for the endpoint
+    // groups it wires up and passes `false` for each. Tests and the OpenAPI export
+    // leave the flags at their default so the exported document keeps every route.
     public static void MapAll(IEndpointRouteBuilder app,
         bool includeBeaconStubs = true,
         bool includeRealtimeStubs = true,
@@ -40,14 +42,19 @@ public static class EndpointStubs
         bool includeAdminIconsStubs = true,
         bool includeAdminSponsorsStubs = true,
         bool includeAdminCookieTypesStubs = true,
-        bool includeAdminSettingsStubs = true)
+        bool includeAdminSettingsStubs = true,
+        bool includeMeStubs = true,
+        bool includePublicWriteStubs = true,
+        bool includeAdminCookiesStubs = true,
+        bool includeAdminInboxStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
         // that (EndpointStubTests).
         if (includeBeaconStubs) MapBeacons(app);
-        MapPublic(app);
-        MapMe(app);
+        if (includePublicWriteStubs) MapPublic(app);
+        else MapPreviewOnly(app);
+        if (includeMeStubs) MapMe(app);
         if (includeAdminEventsStubs) MapAdminEvents(app);
         if (includeAdminRoutesStubs) MapAdminRoutes(app);
         if (includeAdminBeaconsStubs) MapAdminBeacons(app);
@@ -59,11 +66,21 @@ public static class EndpointStubs
         MapAdminContent(app);
         if (includeAdminMediaStubs) MapAdminMedia(app);
         if (includeAdminIconsStubs) MapAdminIcons(app);
-        MapAdminCookies(app);
+        if (includeAdminCookiesStubs) MapAdminCookies(app);
         if (includeAdminSettingsStubs) MapAdminSettings(app);
-        MapAdminInbox(app);
+        if (includeAdminInboxStubs) MapAdminInbox(app);
         // Diagnostics endpoints have real handlers now (Node.AdminDiagnosticsEndpoints).
         if (includeRealtimeStubs) MapRealtime(app);
+    }
+
+    // The public group has both the preview endpoint (A14) and the three writes
+    // (A12). When the writes have real handlers we still want the preview stub so
+    // the OpenAPI export keeps its shape.
+    private static void MapPreviewOnly(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/preview/document", NotImplemented)
+            .WithTags("Public")
+            .Produces<ContentBundleDto>(StatusCodes.Status200OK);
     }
 
     // Exposed for hosts that need the stub metadata (openapi export, EndpointStubTests).
