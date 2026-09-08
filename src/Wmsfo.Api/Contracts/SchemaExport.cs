@@ -41,6 +41,12 @@ public static class SchemaExport
             {
                 // The RFC 3339 converter erases the type from the schema; re-attach it here.
                 var t = context.TypeInfo.Type;
+                if (t == typeof(ContentDocument))
+                {
+                    // The content document has its own hand-written schemas (contracts 1.3a);
+                    // the snapshot schema keeps `content` as `true` (accept any valid document).
+                    return JsonValue.Create(true);
+                }
                 if (t == typeof(DateTimeOffset))
                 {
                     return new JsonObject { ["type"] = "string", ["format"] = "date-time" };

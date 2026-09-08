@@ -71,9 +71,24 @@
         "null"
       ]
     },
-    "recordedAt": true,
-    "receivedAt": true,
-    "publishedAt": true
+    "recordedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "receivedAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "publishedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
   },
   "additionalProperties": false
 }

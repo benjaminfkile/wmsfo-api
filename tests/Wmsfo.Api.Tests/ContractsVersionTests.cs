@@ -12,6 +12,7 @@ public class ContractsVersionTests
     private static readonly IReadOnlyDictionary<int, string> KnownHashes = new Dictionary<int, string>
     {
         { 1, "b0886551ff8f90ea1ff7389a5b6b6b4d87033d51bbdff6647abc82acbd730ae2" },
+        { 2, "22bf1982b10c9298e1775beef60db2168f18d11fa2ded7a264aaf1383e4341ce" },
     };
 
     [Fact]

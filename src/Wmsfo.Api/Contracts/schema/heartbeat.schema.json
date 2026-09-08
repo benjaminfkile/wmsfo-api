@@ -2,7 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "sentAt": true,
+    "sentAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "power": {
       "type": [
         "object",

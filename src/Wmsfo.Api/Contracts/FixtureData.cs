@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Objects;
 
@@ -41,10 +40,11 @@ public static class FixtureData
         PublishedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.430Z"),
     };
 
+    public static ContentDocument BuildContentDocument() => StarterContentBuilder.Build();
+
     public static Snapshot BuildSnapshot()
     {
-        // A2 replaces this content with the real content document DTO; here it is a minimal placeholder.
-        var content = JsonDocument.Parse("""{"schemaVersion":1,"settings":{},"pages":[]}""").RootElement.Clone();
+        var content = BuildContentDocument();
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal)
         {

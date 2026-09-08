@@ -1,4 +1,5 @@
 using Wmsfo.Api.Contracts;
+using Wmsfo.Api.Objects;
 
 if (args.Length > 0)
 {
@@ -13,6 +14,10 @@ if (args.Length > 0)
             Directory.CreateDirectory(root);
             SchemaExport.WriteAll(Path.Combine(root, "schema"));
             FixtureExport.WriteAll(Path.Combine(root, "fixtures"));
+            // Starter content mirrors the content-document fixture byte-for-byte; the seed loader reads this file.
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "starter-content.json"),
+                CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
             await File.WriteAllTextAsync(Path.Combine(root, "admin-thresholds.json"), AdminThresholds.ToJson());
             await OpenApiExport.WriteAsync(Path.Combine(root, "openapi.json"));
             return;

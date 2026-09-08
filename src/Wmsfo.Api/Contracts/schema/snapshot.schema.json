@@ -23,9 +23,27 @@
         "statusId": {
           "type": "integer"
         },
-        "scheduledAt": true,
-        "wentLiveAt": true,
-        "endedAt": true,
+        "scheduledAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "wentLiveAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "endedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
         "fundsPercent": {
           "type": "integer"
         },
@@ -47,8 +65,17 @@
             "body": {
               "type": "string"
             },
-            "eventTime": true,
-            "createdAt": true
+            "eventTime": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            }
           },
           "additionalProperties": false
         }

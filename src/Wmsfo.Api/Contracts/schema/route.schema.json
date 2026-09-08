@@ -19,7 +19,13 @@
           "lng": {
             "type": "number"
           },
-          "recordedAt": true
+          "recordedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
         },
         "additionalProperties": false
       }

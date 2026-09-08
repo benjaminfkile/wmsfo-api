@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Wmsfo.Api.Objects;
@@ -33,8 +32,8 @@ public sealed class Snapshot
     [JsonPropertyOrder(1)] public SnapshotEvent? Event { get; set; }
     [JsonPropertyOrder(2)] public IList<SnapshotSponsor> Sponsors { get; set; } = new List<SnapshotSponsor>();
     [JsonPropertyOrder(3)] public IList<SnapshotCookieType> CookieTypes { get; set; } = new List<SnapshotCookieType>();
-    // A2 replaces this with the ContentDocument DTO. For A1 the snapshot may carry a minimal placeholder.
-    [JsonPropertyOrder(4)] public JsonElement Content { get; set; }
+    // The published content document (contracts 1.3a) verbatim.
+    [JsonPropertyOrder(4)] public ContentDocument Content { get; set; } = new();
     // Keys in ascending string order (contracts 1.3).
     [JsonPropertyOrder(5)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
     // Keys in ascending string order (contracts 1.3).

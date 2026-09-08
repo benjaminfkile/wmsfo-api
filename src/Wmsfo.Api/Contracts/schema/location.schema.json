@@ -8,7 +8,10 @@
     "lng": {
       "type": "number"
     },
-    "recordedAt": true,
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "speedMps": {
       "type": [
         "number",

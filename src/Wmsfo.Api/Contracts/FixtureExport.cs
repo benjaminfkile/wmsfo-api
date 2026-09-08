@@ -8,11 +8,12 @@ public static class FixtureExport
 {
     public static IEnumerable<(string Name, byte[] Bytes)> BuildAll()
     {
-        yield return ("live-object", CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildLiveObject()));
-        yield return ("snapshot",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildSnapshot()));
-        yield return ("route",       CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildRoute()));
-        yield return ("location",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildLocation()));
-        yield return ("heartbeat",   CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildHeartbeat()));
+        yield return ("live-object",      CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildLiveObject()));
+        yield return ("snapshot",         CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildSnapshot()));
+        yield return ("route",            CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildRoute()));
+        yield return ("location",         CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildLocation()));
+        yield return ("heartbeat",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildHeartbeat()));
+        yield return ("content-document", CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
     }
 
     public static void WriteAll(string outputDir)
