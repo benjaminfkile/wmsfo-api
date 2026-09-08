@@ -17,17 +17,19 @@ public static class EndpointStubs
 
     public static void MapAll(IEndpointRouteBuilder app) => MapAll(app,
         includeBeaconStubs: true, includeRealtimeStubs: true,
-        includeAdminEventsStubs: true, includeAdminRoutesStubs: true);
+        includeAdminEventsStubs: true, includeAdminRoutesStubs: true,
+        includeAdminBeaconsStubs: true);
 
-    // A8/A9: Program.cs registers real handlers for beacons, realtime, admin
-    // events, and admin routes and passes `false` for each. Tests and the
-    // OpenAPI export leave the flags at their default so the exported document
-    // keeps every route.
+    // A8/A9/A10: Program.cs registers real handlers for beacons, realtime, admin
+    // events, admin routes, and admin beacons and passes `false` for each.
+    // Tests and the OpenAPI export leave the flags at their default so the
+    // exported document keeps every route.
     public static void MapAll(IEndpointRouteBuilder app,
         bool includeBeaconStubs = true,
         bool includeRealtimeStubs = true,
         bool includeAdminEventsStubs = true,
-        bool includeAdminRoutesStubs = true)
+        bool includeAdminRoutesStubs = true,
+        bool includeAdminBeaconsStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -37,7 +39,7 @@ public static class EndpointStubs
         MapMe(app);
         if (includeAdminEventsStubs) MapAdminEvents(app);
         if (includeAdminRoutesStubs) MapAdminRoutes(app);
-        MapAdminBeacons(app);
+        if (includeAdminBeaconsStubs) MapAdminBeacons(app);
         MapAdminSponsors(app);
         MapAdminCookieTypes(app);
         MapAdminPages(app);

@@ -186,11 +186,14 @@ RealtimeEndpoints.MapAll(app);
 // A9: real admin events + routes handlers replace the corresponding stubs.
 AdminEventEndpoints.MapAll(app);
 AdminRouteEndpoints.MapAll(app);
+// A10: real admin beacons endpoints replace the stubs.
+AdminBeaconEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
     includeAdminEventsStubs: false,
-    includeAdminRoutesStubs: false);
+    includeAdminRoutesStubs: false,
+    includeAdminBeaconsStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
