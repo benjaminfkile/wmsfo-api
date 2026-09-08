@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Http;
 using Wmsfo.Api.Objects;
 
 if (args.Length > 0)
@@ -64,6 +65,12 @@ builder.Services.AddScoped<DatabaseMigrator>(sp => new DatabaseMigrator(
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<DatabaseMigrator>()));
 builder.Services.AddHostedService<MigrationHostedService>();
 
+// api.md 5 pipeline services: forwarded headers, CORS, auth, rate limits.
+builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
+builder.Services.AddWmsfoCors(options);
+builder.Services.AddWmsfoAuth(options);
+builder.Services.ConfigureRateLimits();
+
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -76,10 +83,19 @@ app.Use(async (context, next) =>
     if (!readiness.IsReady && context.Request.Path != "/api/health")
     {
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        context.Response.ContentType = "application/json; charset=utf-8";
+        context.Response.Headers.CacheControl = "no-store";
+        var body = Wmsfo.Api.Http.ExceptionHandlingMiddleware.SerializeError(
+            Wmsfo.Api.Http.ApiErrorCodes.Unavailable, "service starting", null, context.TraceIdentifier);
+        await context.Response.Body.WriteAsync(body);
         return;
     }
     await next();
 });
+
+// api.md 5 steps 2-8: forwarded headers, request id, exception handler, no-store,
+// body limits, routing, CORS, both-headers guard, auth, rate limiting.
+app.UseWmsfoPipeline();
 
 // api.md 17: /api/health answers 503 until ready, then `select 1` with a 2 s timeout.
 app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate gate, CancellationToken ct) =>
@@ -102,7 +118,8 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
     {
         return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
-});
+})
+.DisableRateLimiting();
 
 EndpointStubs.MapAll(app);
 app.MapOpenApi();
