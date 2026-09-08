@@ -8,6 +8,7 @@ using Wmsfo.Api.Data;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
+using Wmsfo.Api.Endpoints;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Realtime;
 
@@ -104,6 +105,10 @@ builder.Services.AddSingleton<SnapshotBootstrap>();
 builder.Services.AddHostedService<ReconcileTick>();
 builder.Services.AddHostedService<LeaderMonitor>();
 
+// A8: the shared location transaction is the message-path and REST handler both.
+builder.Services.AddSingleton<LocationIngest>();
+builder.Services.AddSingleton<IServerClock, SystemServerClock>();
+
 // api.md 3 step 5 hook: the migrator plus the first-boot steps of sql.md 8.16
 // (icon library from A3, snapshot v1 from A7). Starter content and version 1
 // belong to A14; the SnapshotBootstrap stand-in inserts the fixture content so
@@ -172,7 +177,10 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
 })
 .DisableRateLimiting();
 
-EndpointStubs.MapAll(app);
+// A8: register the real beacon and realtime handlers before the remaining stubs.
+BeaconEndpoints.MapAll(app);
+RealtimeEndpoints.MapAll(app);
+EndpointStubs.MapAll(app, includeBeaconStubs: false, includeRealtimeStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

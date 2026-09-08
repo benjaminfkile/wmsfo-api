@@ -45,10 +45,6 @@ public sealed class EndpointStubTests : IAsyncLifetime
 
     [Theory]
     [InlineData("GET",  "/api/health")]
-    [InlineData("POST", "/beacons/enroll")]
-    [InlineData("GET",  "/beacons/me")]
-    [InlineData("POST", "/locations")]
-    [InlineData("POST", "/beacons/heartbeat")]
     [InlineData("POST", "/contact")]
     [InlineData("GET",  "/me")]
     [InlineData("POST", "/cookies")]
@@ -70,9 +66,8 @@ public sealed class EndpointStubTests : IAsyncLifetime
     [InlineData("GET",  "/admin/people")]
     // /admin/snapshot, /admin/snapshot/rebuild, /admin/live, /admin/live/republish
     // are real handlers as of A7 and no longer return 501; AdminDiagnosticsTests
-    // covers their live behaviour.
-    [InlineData("POST", "/realtime/authorize")]
-    [InlineData("POST", "/realtime/message")]
+    // covers their live behaviour. /beacons/*, /locations, /realtime/* are real
+    // handlers as of A8 and covered by A8BeaconEndpointsTests / A8RealtimeTests.
     public async Task Every_endpoint_returns_501(string method, string path)
     {
         Assert.NotNull(_http);
