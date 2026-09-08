@@ -27,9 +27,13 @@ public static class EndpointStubs
         includeMeStubs: true,
         includePublicWriteStubs: true,
         includeAdminCookiesStubs: true,
-        includeAdminInboxStubs: true);
+        includeAdminInboxStubs: true,
+        includeAdminPagesStubs: true,
+        includeAdminSectionsStubs: true,
+        includeAdminSiteSettingsStubs: true,
+        includeAdminContentStubs: true);
 
-    // A8/A9/A10/A15/A11/A12: Program.cs registers real handlers for the endpoint
+    // A8/A9/A10/A15/A11/A12/A13: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
     // leave the flags at their default so the exported document keeps every route.
     public static void MapAll(IEndpointRouteBuilder app,
@@ -46,7 +50,11 @@ public static class EndpointStubs
         bool includeMeStubs = true,
         bool includePublicWriteStubs = true,
         bool includeAdminCookiesStubs = true,
-        bool includeAdminInboxStubs = true)
+        bool includeAdminInboxStubs = true,
+        bool includeAdminPagesStubs = true,
+        bool includeAdminSectionsStubs = true,
+        bool includeAdminSiteSettingsStubs = true,
+        bool includeAdminContentStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -60,10 +68,10 @@ public static class EndpointStubs
         if (includeAdminBeaconsStubs) MapAdminBeacons(app);
         if (includeAdminSponsorsStubs) MapAdminSponsors(app);
         if (includeAdminCookieTypesStubs) MapAdminCookieTypes(app);
-        MapAdminPages(app);
-        MapAdminSections(app);
-        MapAdminSiteSettings(app);
-        MapAdminContent(app);
+        if (includeAdminPagesStubs) MapAdminPages(app);
+        if (includeAdminSectionsStubs) MapAdminSections(app);
+        if (includeAdminSiteSettingsStubs) MapAdminSiteSettings(app);
+        if (includeAdminContentStubs) MapAdminContent(app);
         if (includeAdminMediaStubs) MapAdminMedia(app);
         if (includeAdminIconsStubs) MapAdminIcons(app);
         if (includeAdminCookiesStubs) MapAdminCookies(app);

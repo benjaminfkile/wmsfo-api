@@ -43,4 +43,14 @@ public static class ApiErrorCodes
     public const string InternalError = "internal_error";
     public const string UpstreamFailed = "upstream_failed";
     public const string Unavailable = "unavailable";
+
+    // A13: content working set + content pipeline.
+    public const string SlugReserved = "slug_reserved";
+    public const string SlugTaken = "slug_taken";
+    public const string PageHasRole = "page_has_role";
+    public const string UnknownKind = "unknown_kind";
+    public const string KindNotAllowed = "kind_not_allowed";
+    public const string ContentUnchanged = "content_unchanged";
+    public const string ContentInvalid = "content_invalid";
+    public const string PreviewTokenInvalid = "preview_token_invalid";
 }

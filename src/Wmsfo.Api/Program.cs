@@ -3,6 +3,7 @@ using Amazon.S3;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Http;
@@ -112,6 +113,28 @@ builder.Services.AddSingleton<IServerClock, SystemServerClock>();
 // A9: the [snapshot] frame that admin writes run through.
 builder.Services.AddSingleton<AdminSnapshotTransaction>();
 
+// A13: content kind registry, schema validator, and document builder. The
+// registry loads contracts/kinds.json plus every schema under contracts/schema/;
+// SchemaValidator derives the draft variants at construction time (once).
+var contractsRoot = ResolveContractsRoot(AppContext.BaseDirectory);
+if (contractsRoot is not null)
+{
+    builder.Services.AddSingleton(_ => KindRegistry.Load(contractsRoot));
+    builder.Services.AddSingleton<SchemaValidator>();
+    builder.Services.AddSingleton<DocumentBuilder>();
+}
+static string? ResolveContractsRoot(string start)
+{
+    var dir = new DirectoryInfo(start);
+    for (var i = 0; i < 8 && dir is not null; i++)
+    {
+        var candidate = Path.Combine(dir.FullName, "contracts");
+        if (File.Exists(Path.Combine(candidate, "kinds.json"))) return candidate;
+        dir = dir.Parent;
+    }
+    return null;
+}
+
 // api.md 3 step 5 hook: the migrator plus the first-boot steps of sql.md 8.16
 // (icon library from A3, snapshot v1 from A7). Starter content and version 1
 // belong to A14; the SnapshotBootstrap stand-in inserts the fixture content so
@@ -200,6 +223,9 @@ MeEndpoints.MapAll(app);
 PublicWriteEndpoints.MapAll(app);
 AdminCookieModerationEndpoints.MapAll(app);
 AdminInboxEndpoints.MapAll(app);
+// A13: real /admin/pages*, /admin/sections*, /admin/items*, /admin/site-settings*
+// endpoints plus GET /admin/content/kinds, /admin/content/draft, /admin/content/status.
+AdminContentEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
@@ -214,7 +240,11 @@ EndpointStubs.MapAll(app,
     includeMeStubs: false,
     includePublicWriteStubs: false,
     includeAdminCookiesStubs: false,
-    includeAdminInboxStubs: false);
+    includeAdminInboxStubs: false,
+    includeAdminPagesStubs: false,
+    includeAdminSectionsStubs: false,
+    includeAdminSiteSettingsStubs: false,
+    includeAdminContentStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
