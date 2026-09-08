@@ -24,23 +24,26 @@ namespace Wmsfo.Api.IntegrationTests;
 
 // A14 test host — the publish transaction (Publisher), versions, restore, the
 // preview flow, and first-boot orchestration. Registers real /admin/content/*
-// endpoints plus /preview/document, with an in-memory RecordingObjectStore so
-// the snapshot PUTs are inspectable and can be forced to fail.
+// endpoints plus /preview/document. Uses a LocalObjectStore so the media
+// pipeline (ticket → PUT → confirm) can run end to end and the snapshot bytes
+// can be read back off disk.
 public sealed class A14Host : IAsyncDisposable
 {
     public WebApplication App { get; }
     public HttpClient Client { get; }
     public WmsfoOptions Options { get; }
-    public RecordingObjectStore Store { get; }
+    public LocalObjectStore Store { get; }
+    public string StoreRoot { get; }
     public FakeGatewayClient Gateway { get; }
 
     private A14Host(WebApplication app, HttpClient client, WmsfoOptions options,
-        RecordingObjectStore store, FakeGatewayClient gateway)
+        LocalObjectStore store, string storeRoot, FakeGatewayClient gateway)
     {
         App = app;
         Client = client;
         Options = options;
         Store = store;
+        StoreRoot = storeRoot;
         Gateway = gateway;
     }
 
@@ -51,6 +54,9 @@ public sealed class A14Host : IAsyncDisposable
 
     public static async Task<A14Host> StartAsync(string connectionString)
     {
+        var storeRoot = Path.Combine(Path.GetTempPath(), "wmsfo-a14-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(storeRoot);
+
         var options = new WmsfoOptions
         {
             Env = "dev",
@@ -78,6 +84,7 @@ public sealed class A14Host : IAsyncDisposable
             ReconcileTickMs = 1000,
             LogLevel = "Warning",
             DevStaticTokens = true,
+            ObjectStoreDir = storeRoot,
         };
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -89,7 +96,7 @@ public sealed class A14Host : IAsyncDisposable
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
         var connections = WmsfoConnectionStrings.ForTests(connectionString);
-        var store = new RecordingObjectStore();
+        var store = new LocalObjectStore(storeRoot, options.PublicApiBaseUrl);
         var gateway = new FakeGatewayClient();
         var iconLibrary = IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl);
 
@@ -134,13 +141,35 @@ public sealed class A14Host : IAsyncDisposable
 
         app.UseWmsfoPipeline();
         AdminContentEndpoints.MapAll(app);
+        AdminMediaEndpoints.MapAll(app);
+
+        // The /local-upload/{id} route — the local object store cannot presign,
+        // so the ticket URL points at this route.
+        app.MapPut("/local-upload/{id}", async (
+            string id,
+            HttpRequest request,
+            CancellationToken ct) =>
+        {
+            var filenameRaw = request.Query["filename"].ToString();
+            var filename = string.IsNullOrEmpty(filenameRaw) ? "upload.bin" : filenameRaw;
+            var key = $"media/{id}/{filename}";
+            var contentType = request.ContentType;
+            if (string.IsNullOrWhiteSpace(contentType))
+            {
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, detail: "Content-Type required");
+            }
+            using var ms = new MemoryStream();
+            await request.Body.CopyToAsync(ms, ct);
+            await store.WriteUploadAsync(key, ms.ToArray(), contentType, ct);
+            return Results.NoContent();
+        }).DisableRateLimiting();
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
-        return new A14Host(app, client, options, store, gateway);
+        return new A14Host(app, client, options, store, storeRoot, gateway);
     }
 
     private static IEnumerable<string> AllPolicies()
@@ -173,7 +202,8 @@ public sealed class A14Host : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Client.Dispose();
-        await App.StopAsync();
+        try { await App.StopAsync(); } catch { }
         await App.DisposeAsync();
+        try { Directory.Delete(StoreRoot, recursive: true); } catch { }
     }
 }

@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NpgsqlTypes;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
@@ -53,6 +56,11 @@ public sealed class A14PublisherAndPreviewTests : IClassFixture<PostgresFixture>
                 "delete from content_version;",
                 "delete from preview_token;",
                 "delete from page;",
+                "delete from sponsor_year;",
+                "delete from sponsor;",
+                "delete from cookie_type;",
+                "delete from event;",
+                "delete from media_asset;",
                 "update site_setting_draft set data = '{}'::jsonb where id = 1;",
             })
             {
@@ -221,6 +229,97 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         // The oldest row is gone (min id moved up).
         Assert.True(afterMinId > initialMinId,
             $"expected min id to advance from {initialMinId}; got {afterMinId}");
+    }
+
+    // A14f (task 284): the snapshot's media map holds exactly the referenced
+    // media assets — one from content, one sponsor logo, one cookie-type media
+    // icon — and the fourth ready asset is absent because nothing references it.
+    // content_version.media_ids for the newest version equals the
+    // content-referenced ids only; sponsor logos and cookie icons feed the
+    // snapshot map but not the version's media_ids column.
+    [Fact]
+    public async Task Publish_media_map_keys_are_exactly_the_referenced_ids_and_unreferenced_asset_is_absent()
+    {
+        await BootstrapFirstBootAsync();
+
+        // Push four ready assets through the real pipeline. raster1 will be
+        // referenced from a content section, raster2 from a sponsor, svg from
+        // a cookie type; the fourth stays unreferenced.
+        var raster1 = await UploadAndConfirmRasterAsync("hero.png", 1024, 512);
+        var raster2 = await UploadAndConfirmRasterAsync("logo.png", 1024, 512);
+        var svg = await UploadAndConfirmSvgAsync("cookie.svg");
+        var unreferenced = await UploadAndConfirmRasterAsync("orphan.png", 700, 400);
+
+        // Reference raster1 from the about page's rich_text section (MediaRef
+        // inside a media block).
+        await AddMediaBlockToAboutPageAsync(raster1);
+
+        // Wire raster2 as a sponsor's logo. The snapshot only pulls sponsors
+        // joined to the current event's year, so also create an event and a
+        // sponsor_year row for that sponsor.
+        await SeedCurrentEventAsync(2027);
+        await SeedSponsorWithLogoAsync("Fuel Co", raster2, 2027);
+
+        // Wire the svg as a cookie type's media icon.
+        await SeedCookieTypeWithMediaIconAsync("Snickerdoodle", svg);
+
+        // Bump site settings so the publish is not content_unchanged.
+        await BumpSiteSettingsSiteNameAsync("Media map test");
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        // Read the newest snapshot's bytes off the local store.
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var media = snap.RootElement.GetProperty("media");
+
+        // The media map's keys are exactly the three referenced ids, sorted
+        // ordinal; the unreferenced asset is absent.
+        var mediaKeys = media.EnumerateObject().Select(p => p.Name).ToArray();
+        var expectedKeys = new[] { raster1, raster2, svg }
+            .OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        Assert.Equal(expectedKeys, mediaKeys);
+        Assert.DoesNotContain(unreferenced, mediaKeys);
+
+        // Each entry carries the variant urls and dimensions the builder writes.
+        var cdn = _host.Options.CdnBaseUrl.TrimEnd('/');
+        var raster1Entry = media.GetProperty(raster1);
+        Assert.Equal("raster", raster1Entry.GetProperty("kind").GetString());
+        Assert.Equal(1024, raster1Entry.GetProperty("width").GetInt32());
+        Assert.Equal(512, raster1Entry.GetProperty("height").GetInt32());
+        Assert.Equal(cdn + "/media/" + raster1 + "/hero.png",
+            raster1Entry.GetProperty("url").GetString());
+        var raster1Variants = raster1Entry.GetProperty("variants");
+        Assert.Equal(cdn + "/media/" + raster1 + "/w480.webp",
+            raster1Variants.GetProperty("480").GetString());
+        Assert.Equal(cdn + "/media/" + raster1 + "/w960.webp",
+            raster1Variants.GetProperty("960").GetString());
+
+        var raster2Entry = media.GetProperty(raster2);
+        Assert.Equal("raster", raster2Entry.GetProperty("kind").GetString());
+        Assert.Equal(1024, raster2Entry.GetProperty("width").GetInt32());
+        Assert.Equal(512, raster2Entry.GetProperty("height").GetInt32());
+        var raster2Variants = raster2Entry.GetProperty("variants");
+        Assert.Equal(cdn + "/media/" + raster2 + "/w480.webp",
+            raster2Variants.GetProperty("480").GetString());
+        Assert.Equal(cdn + "/media/" + raster2 + "/w960.webp",
+            raster2Variants.GetProperty("960").GetString());
+
+        var svgEntry = media.GetProperty(svg);
+        Assert.Equal("svg", svgEntry.GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Null, svgEntry.GetProperty("width").ValueKind);
+        Assert.Equal(JsonValueKind.Null, svgEntry.GetProperty("height").ValueKind);
+        Assert.Empty(svgEntry.GetProperty("variants").EnumerateObject());
+
+        // content_version.media_ids for the newest version equals only the
+        // content-referenced ids (raster1). Sponsor logos and cookie icons feed
+        // the snapshot map but not the version's media_ids column.
+        var contentMediaIds = await ReadNewestVersionMediaIdsAsync();
+        Assert.Equal(new[] { raster1 }, contentMediaIds);
     }
 
     // -------------------- restore --------------------
@@ -394,6 +493,140 @@ insert into snapshot (id, version, url, s3_key, built_at) values (1, 1, $1, $2, 
             await ins.ExecuteNonQueryAsync();
             await tx.CommitAsync();
         }
+    }
+
+    // Runs the real ticket -> PUT -> confirm pipeline on the class-scoped host
+    // for a raster asset. Returns the media id as its string form (the key the
+    // snapshot map uses).
+    private async Task<string> UploadAndConfirmRasterAsync(string filename, int width, int height)
+    {
+        var bytes = BuildPng(width, height);
+        return await UploadAndConfirmAsync(filename, "image/png", bytes);
+    }
+
+    private async Task<string> UploadAndConfirmSvgAsync(string filename)
+    {
+        var svg = Encoding.UTF8.GetBytes(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"5\"/></svg>");
+        return await UploadAndConfirmAsync(filename, "image/svg+xml", svg);
+    }
+
+    private async Task<string> UploadAndConfirmAsync(string filename, string contentType, byte[] bytes)
+    {
+        var body = new StringContent(
+            $"{{\"filename\":\"{filename}\",\"contentType\":\"{contentType}\",\"sizeBytes\":{bytes.LongLength},\"alt\":\"\",\"title\":\"\"}}",
+            Encoding.UTF8, "application/json");
+        using var ticketReq = _host!.EditorRequest(HttpMethod.Post, "/admin/media/upload-url");
+        ticketReq.Content = body;
+        var ticketResp = await _host.Client.SendAsync(ticketReq);
+        Assert.Equal(HttpStatusCode.Created, ticketResp.StatusCode);
+        using var ticket = JsonDocument.Parse(await ticketResp.Content.ReadAsStringAsync());
+        var id = ticket.RootElement.GetProperty("media").GetProperty("id").GetString()!;
+        var uploadUrl = ticket.RootElement.GetProperty("uploadUrl").GetString()!;
+
+        // The presigned URL points at PublicApiBaseUrl (a fake host); route the
+        // PUT to the test host by using just the path+query.
+        var uri = new Uri(uploadUrl);
+        using var put = new HttpRequestMessage(HttpMethod.Put, uri.PathAndQuery)
+        {
+            Content = new ByteArrayContent(bytes),
+        };
+        put.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        put.Headers.Add("x-amz-tagging", "state=pending");
+        var putResp = await _host.Client.SendAsync(put);
+        Assert.Equal(HttpStatusCode.NoContent, putResp.StatusCode);
+
+        using var confirmReq = _host.EditorRequest(HttpMethod.Post, $"/admin/media/{id}/confirm");
+        var confirmResp = await _host.Client.SendAsync(confirmReq);
+        Assert.Equal(HttpStatusCode.OK, confirmResp.StatusCode);
+        return id;
+    }
+
+    private static byte[] BuildPng(int width, int height)
+    {
+        using var image = new Image<Rgba32>(width, height, new Rgba32(200, 50, 50, 255));
+        using var ms = new MemoryStream();
+        image.Save(ms, new PngEncoder());
+        return ms.ToArray();
+    }
+
+    // Adds a media block that references the given media asset to the about
+    // page's rich_text section (starter content). The block's MediaRef is what
+    // the reference checker and the CollectReferencedMediaIds walker pick up.
+    private async Task AddMediaBlockToAboutPageAsync(string mediaId)
+    {
+        var newData = "{\"blocks\":[" +
+            "{\"kind\":\"heading\",\"level\":2,\"text\":\"About the flyover\",\"icon\":null}," +
+            "{\"kind\":\"paragraph\",\"text\":\"A volunteer helicopter crew flies over the Bitterroot Valley every December so kids can wave at Santa. This is the tracker.\"}," +
+            "{\"kind\":\"paragraph\",\"text\":\"The crew flies at their own expense. Sponsors keep the fuel tank full.\"}," +
+            "{\"kind\":\"media\",\"media\":{\"mediaId\":\"" + mediaId + "\",\"alt\":\"a hero photo\"},\"caption\":null,\"size\":\"medium\"}" +
+            "]}";
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+update section set data = $1::jsonb
+where kind = 'rich_text'
+  and page_id = (select id from page where slug = 'about');", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = newData });
+        var rows = await cmd.ExecuteNonQueryAsync();
+        Assert.Equal(1, rows);
+    }
+
+    private async Task SeedCurrentEventAsync(int year)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+insert into event (year, name, status_id, is_current, created_by, updated_at)
+values ($1, $2, 1, true, 'seed', now());", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = $"Event {year}" });
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task SeedSponsorWithLogoAsync(string name, string logoMediaId, int year)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        long sponsorId;
+        await using (var ins = new NpgsqlCommand(
+            "insert into sponsor (name, logo_media_id, updated_at) values ($1, $2, now()) returning id;", conn))
+        {
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(logoMediaId) });
+            sponsorId = Convert.ToInt64(await ins.ExecuteScalarAsync());
+        }
+        await using var year_ins = new NpgsqlCommand(@"
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
+values ($1, $2, 500, true, true, false);", conn);
+        year_ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+        year_ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
+        await year_ins.ExecuteNonQueryAsync();
+    }
+
+    private async Task SeedCookieTypeWithMediaIconAsync(string name, string mediaId)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        var iconJson = "{\"source\":\"media\",\"id\":\"" + mediaId + "\"}";
+        await using var cmd = new NpgsqlCommand(@"
+insert into cookie_type (name, icon, sort, active, updated_at)
+values ($1, $2::jsonb, 0, true, now());", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = iconJson });
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task<string[]> ReadNewestVersionMediaIdsAsync()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select media_ids from content_version order by id desc limit 1;", conn);
+        var value = await cmd.ExecuteScalarAsync();
+        if (value is null || value is DBNull) return Array.Empty<string>();
+        var ids = (Guid[])value;
+        return ids.Select(g => g.ToString()).ToArray();
     }
 
     private async Task BumpSiteSettingsSiteNameAsync(string siteName)
