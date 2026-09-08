@@ -109,6 +109,9 @@ builder.Services.AddHostedService<LeaderMonitor>();
 builder.Services.AddSingleton<LocationIngest>();
 builder.Services.AddSingleton<IServerClock, SystemServerClock>();
 
+// A9: the [snapshot] frame that admin writes run through.
+builder.Services.AddSingleton<AdminSnapshotTransaction>();
+
 // api.md 3 step 5 hook: the migrator plus the first-boot steps of sql.md 8.16
 // (icon library from A3, snapshot v1 from A7). Starter content and version 1
 // belong to A14; the SnapshotBootstrap stand-in inserts the fixture content so
@@ -180,7 +183,14 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
 // A8: register the real beacon and realtime handlers before the remaining stubs.
 BeaconEndpoints.MapAll(app);
 RealtimeEndpoints.MapAll(app);
-EndpointStubs.MapAll(app, includeBeaconStubs: false, includeRealtimeStubs: false);
+// A9: real admin events + routes handlers replace the corresponding stubs.
+AdminEventEndpoints.MapAll(app);
+AdminRouteEndpoints.MapAll(app);
+EndpointStubs.MapAll(app,
+    includeBeaconStubs: false,
+    includeRealtimeStubs: false,
+    includeAdminEventsStubs: false,
+    includeAdminRoutesStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
