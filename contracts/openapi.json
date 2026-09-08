@@ -2172,6 +2172,64 @@
         }
       }
     },
+    "/realtime/authorize": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeAuthorizeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeAuthorizeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/message": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/snapshot": {
       "get": {
         "tags": [
@@ -2241,64 +2299,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/LiveObject"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/realtime/authorize": {
-      "post": {
-        "tags": [
-          "Realtime"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RealtimeAuthorizeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RealtimeAuthorizeResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/realtime/message": {
-      "post": {
-        "tags": [
-          "Realtime"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RealtimeMessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LocationResponse"
                 }
               }
             }
@@ -6267,10 +6267,10 @@
       "name": "AdminInbox"
     },
     {
-      "name": "AdminDiagnostics"
+      "name": "Realtime"
     },
     {
-      "name": "Realtime"
+      "name": "AdminDiagnostics"
     }
   ]
 }

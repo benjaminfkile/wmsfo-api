@@ -4,16 +4,21 @@ namespace Wmsfo.Api.Config;
 
 // sql.md 13: two connection strings built on top of the secret values with pool
 // parameters set in code so the secret stays minimal.
-public sealed class WmsfoConnectionStrings
+public class WmsfoConnectionStrings
 {
     public string App { get; }
     public string Migrate { get; }
 
-    private WmsfoConnectionStrings(string app, string migrate)
+    protected internal WmsfoConnectionStrings(string app, string migrate)
     {
         App = app;
         Migrate = migrate;
     }
+
+    // Test-only constructor: keeps the pooling defaults out of a shared fixture
+    // string and lets integration tests pass a single Postgres address for both roles.
+    public static WmsfoConnectionStrings ForTests(string appAndMigrate) =>
+        new(appAndMigrate, appAndMigrate);
 
     public static WmsfoConnectionStrings Build(WmsfoOptions options)
     {

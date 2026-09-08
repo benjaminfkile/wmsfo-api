@@ -6,7 +6,10 @@ using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Icons;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
+using Wmsfo.Api.Realtime;
 
 if (args.Length > 0)
 {
@@ -72,10 +75,40 @@ else
         new S3ObjectStore(sp.GetRequiredService<IAmazonS3>(), options.S3Bucket));
 }
 
-// api.md 3 step 5 hook: the migrator plus the noop for the first-boot steps of
-// sql.md 8.16 (starter content, icon library, content version 1, snapshot v1),
-// which land in later tasks.
-builder.Services.AddSingleton<IFirstBootHook, NoOpFirstBootHook>();
+// api.md 3 step 3: icon library, node state, gateway internal client, snapshot
+// builder, live-object writer, snapshot bootstrap (task A7). The IconLibrary lives
+// under `icons/` in the container image; when unavailable a null-op library keeps
+// the export path working before the migration hosts it.
+var iconRoot = ResolveIconRoot(AppContext.BaseDirectory);
+if (iconRoot is not null)
+{
+    builder.Services.AddSingleton(_ => IconLibrary.Load(iconRoot, options.CdnBaseUrl));
+}
+static string? ResolveIconRoot(string start)
+{
+    var dir = new DirectoryInfo(start);
+    for (var i = 0; i < 8 && dir is not null; i++)
+    {
+        var candidate = Path.Combine(dir.FullName, "icons");
+        if (File.Exists(Path.Combine(candidate, "library.json"))) return candidate;
+        dir = dir.Parent;
+    }
+    return null;
+}
+
+builder.Services.AddSingleton<NodeStateService>();
+builder.Services.AddHttpClient<IGatewayInternalClient, GatewayInternalClient>();
+builder.Services.AddSingleton<SnapshotBuilder>();
+builder.Services.AddSingleton<LiveObjectWriter>();
+builder.Services.AddSingleton<SnapshotBootstrap>();
+builder.Services.AddHostedService<ReconcileTick>();
+builder.Services.AddHostedService<LeaderMonitor>();
+
+// api.md 3 step 5 hook: the migrator plus the first-boot steps of sql.md 8.16
+// (icon library from A3, snapshot v1 from A7). Starter content and version 1
+// belong to A14; the SnapshotBootstrap stand-in inserts the fixture content so
+// the pipeline is testable end to end.
+builder.Services.AddSingleton<IFirstBootHook, FleetFirstBootHook>();
 builder.Services.AddScoped<DatabaseMigrator>(sp => new DatabaseMigrator(
     connections.Migrate,
     sp.GetRequiredService<IDbContextFactory<WmsfoDbContext>>(),
@@ -140,6 +173,7 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
 .DisableRateLimiting();
 
 EndpointStubs.MapAll(app);
+AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
 // so upload tickets point uploadUrl at PUT /local-upload/{id} on the API. The

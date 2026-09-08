@@ -41,6 +41,9 @@ public static class OpenApiExport
         var app = builder.Build();
         EndpointStubs.MapHealthStub(app);
         EndpointStubs.MapAll(app);
+        // Diagnostics stubs live in EndpointStubs (real handlers wire from Program.cs)
+        // and are exported here so openapi.json keeps them in the document.
+        EndpointStubs.MapAdminDiagnostics(app);
         app.MapOpenApi();
 
         await app.StartAsync(cancellationToken).ConfigureAwait(false);
