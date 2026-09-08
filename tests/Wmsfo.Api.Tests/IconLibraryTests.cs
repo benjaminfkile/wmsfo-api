@@ -163,12 +163,29 @@ public class IconLibraryTests
 
     private sealed class RecordingObjectStore : IObjectStore
     {
-        public List<(string Key, byte[] Bytes, string ContentType, string CacheControl)> Puts { get; } = new();
+        public List<(string Key, byte[] Bytes, string ContentType, string CacheControl, string? Tag)> Puts { get; } = new();
 
-        public Task PutObjectAsync(string key, ReadOnlyMemory<byte> bytes, string contentType, string cacheControl, CancellationToken cancellationToken = default)
+        public Task PutObjectAsync(string key, ReadOnlyMemory<byte> bytes, string contentType, string cacheControl, string? tag = null, CancellationToken cancellationToken = default)
         {
-            Puts.Add((key, bytes.ToArray(), contentType, cacheControl));
+            Puts.Add((key, bytes.ToArray(), contentType, cacheControl, tag));
             return Task.CompletedTask;
         }
+
+        public Task DeleteObjectAsync(string key, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public IAsyncEnumerable<ObjectListEntry> ListPrefixAsync(string prefix, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task PutObjectTaggingAsync(string key, string tag, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task DeleteObjectTaggingAsync(string key, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task<string?> GetObjectTaggingAsync(string key, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task<ObjectHead?> HeadObjectAsync(string key, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task<ObjectContent?> GetObjectAsync(string key, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public string PresignPut(string key, string contentType, string tag)
+            => throw new NotImplementedException();
     }
 }

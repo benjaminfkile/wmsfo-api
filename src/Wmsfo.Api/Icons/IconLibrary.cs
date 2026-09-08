@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using Wmsfo.Api.Data;
 using Wmsfo.Api.Media;
 using Wmsfo.Api.Objects;
 
@@ -131,9 +133,33 @@ public sealed partial class IconLibrary
                 file.Bytes,
                 SvgContentType,
                 ImmutableCacheControl,
+                tag: null,
                 cancellationToken).ConfigureAwait(false);
         }
 
+        return true;
+    }
+
+    // Boot migrator wrapper: reads the last-written hash from icon_library_state, PUTs every
+    // icon when it differs from the compiled hash, updates the row on success, and returns
+    // whether it wrote. The migrator runs under pg_advisory_lock, so no `for update` is needed
+    // here.
+    public async Task<bool> EnsureWrittenAsync(
+        IObjectStore store,
+        WmsfoDbContext db,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentNullException.ThrowIfNull(db);
+
+        var state = await db.IconLibraryState.SingleAsync(x => x.Id == 1, cancellationToken).ConfigureAwait(false);
+        var existing = state.LibrarySha256?.Trim();
+        var wrote = await EnsureWrittenAsync(store, existing, cancellationToken).ConfigureAwait(false);
+        if (!wrote) return false;
+
+        state.LibrarySha256 = _libraryHash;
+        state.WrittenAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return true;
     }
 
