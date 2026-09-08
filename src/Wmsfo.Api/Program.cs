@@ -191,6 +191,10 @@ AdminBeaconEndpoints.MapAll(app);
 // A15: real admin media + icons endpoints replace the stubs.
 AdminMediaEndpoints.MapAll(app);
 AdminIconEndpoints.MapAll(app);
+// A11: real admin sponsors + cookie-types + settings endpoints replace the stubs.
+AdminSponsorEndpoints.MapAll(app);
+AdminCookieTypeEndpoints.MapAll(app);
+AdminSettingsEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
@@ -198,7 +202,10 @@ EndpointStubs.MapAll(app,
     includeAdminRoutesStubs: false,
     includeAdminBeaconsStubs: false,
     includeAdminMediaStubs: false,
-    includeAdminIconsStubs: false);
+    includeAdminIconsStubs: false,
+    includeAdminSponsorsStubs: false,
+    includeAdminCookieTypesStubs: false,
+    includeAdminSettingsStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
