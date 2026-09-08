@@ -16,7 +16,7 @@ The site, admin panel, and beacon app repositories carry copies of `DESIGN.md` a
 ## Layout
 
 ```
-Wmsfo.sln
+Wmsfo.slnx
 src/Wmsfo.Api/                    the API (api.md section 2)
 tests/Wmsfo.Api.Tests/            unit and contract tests
 tests/Wmsfo.Api.IntegrationTests/ Testcontainers Postgres, full pipeline

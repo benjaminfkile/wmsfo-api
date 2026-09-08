@@ -4,6 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- `dotnet run` otherwise sets CWD to the project directory, which sends the
+         `export-contracts contracts` command into `src/Wmsfo.Api/contracts/` instead of
+         the repo-root folder. Pin the run working directory to the solution root. -->
+    <RunWorkingDirectory>$(MSBuildThisFileDirectory)../..</RunWorkingDirectory>
   </PropertyGroup>
 
   <ItemGroup>
