@@ -34,7 +34,10 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'push'
+    # Disabled until the service exists: no manifest entry, ECR repository, or
+    # environment secrets yet (docs/platform.md section 13). Restore the
+    # condition to `github.event_name == 'push'` at cut-over.
+    if: false
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     permissions:
