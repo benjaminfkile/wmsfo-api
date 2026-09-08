@@ -1544,6 +1544,7 @@ Run once per environment by the RDS master user, before the first deploy. The ma
 -- as the RDS master user, connected to the postgres database
 create role wmsfo_migrate_dev login password '<migrate-password>' nosuperuser nocreatedb nocreaterole noinherit;
 create role wmsfo_app_dev     login password '<app-password>'     nosuperuser nocreatedb nocreaterole noinherit;
+grant wmsfo_migrate_dev to <db-master-user>;   -- the RDS master user is not a superuser and can only assign ownership to a role it is a member of
 create database wmsfo_dev owner wmsfo_migrate_dev encoding 'UTF8' template template0;
 revoke all on database wmsfo_dev from public;
 grant connect on database wmsfo_dev to wmsfo_migrate_dev, wmsfo_app_dev;
