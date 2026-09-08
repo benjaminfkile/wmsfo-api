@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
@@ -11,6 +12,16 @@ namespace Wmsfo.Api.Contracts;
 public static class SchemaExport
 {
     private const string Draft2020_12 = "https://json-schema.org/draft/2020-12/schema";
+
+    // A1g: System.Text.Json's WriteIndented would otherwise use the platform newline,
+    // rewriting the LF-pinned checked-in files with CRLF on Windows. Utf8NoBom keeps
+    // the byte stream free of a BOM as well.
+    private static readonly JsonSerializerOptions IndentedLfOptions = new()
+    {
+        WriteIndented = true,
+        NewLine = "\n",
+    };
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     public static IEnumerable<(string Name, string Json)> BuildAll()
     {
@@ -28,7 +39,7 @@ public static class SchemaExport
         Directory.CreateDirectory(outputDir);
         foreach (var (name, json) in BuildAll())
         {
-            File.WriteAllText(Path.Combine(outputDir, name + ".schema.json"), json);
+            File.WriteAllBytes(Path.Combine(outputDir, name + ".schema.json"), Utf8NoBom.GetBytes(json));
         }
     }
 
@@ -83,6 +94,6 @@ public static class SchemaExport
             ordered[kv.Key] = kv.Value;
         }
         // Pretty-print for a stable checked-in file.
-        return ordered.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        return ordered.ToJsonString(IndentedLfOptions);
     }
 }

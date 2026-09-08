@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -13,6 +14,8 @@ namespace Wmsfo.Api.Contracts;
 // `<contracts-root>/openapi.json`.
 public static class OpenApiExport
 {
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
+
     public static async Task WriteAsync(string outputPath, CancellationToken cancellationToken = default)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -50,10 +53,14 @@ public static class OpenApiExport
             using var http = new HttpClient { BaseAddress = new Uri(baseUrl) };
             var json = await http.GetStringAsync("/openapi/v1.json", cancellationToken).ConfigureAwait(false);
 
+            // A1g: Microsoft.OpenApi's writer indents with the platform newline, so on Windows
+            // the returned string carries CRLF and would rewrite the LF-pinned checked-in file.
+            // Normalize to LF and write bytes with an explicit UTF-8 encoder that emits no BOM.
+            var lf = json.Replace("\r\n", "\n");
             var full = Path.GetFullPath(outputPath);
             var directory = Path.GetDirectoryName(full);
             if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
-            await File.WriteAllTextAsync(full, json, cancellationToken).ConfigureAwait(false);
+            await File.WriteAllBytesAsync(full, Utf8NoBom.GetBytes(lf), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
