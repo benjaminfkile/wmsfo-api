@@ -18,18 +18,22 @@ public static class EndpointStubs
     public static void MapAll(IEndpointRouteBuilder app) => MapAll(app,
         includeBeaconStubs: true, includeRealtimeStubs: true,
         includeAdminEventsStubs: true, includeAdminRoutesStubs: true,
-        includeAdminBeaconsStubs: true);
+        includeAdminBeaconsStubs: true,
+        includeAdminMediaStubs: true,
+        includeAdminIconsStubs: true);
 
-    // A8/A9/A10: Program.cs registers real handlers for beacons, realtime, admin
-    // events, admin routes, and admin beacons and passes `false` for each.
-    // Tests and the OpenAPI export leave the flags at their default so the
-    // exported document keeps every route.
+    // A8/A9/A10/A15: Program.cs registers real handlers for beacons, realtime,
+    // admin events, admin routes, admin beacons, admin media and admin icons,
+    // and passes `false` for each. Tests and the OpenAPI export leave the flags
+    // at their default so the exported document keeps every route.
     public static void MapAll(IEndpointRouteBuilder app,
         bool includeBeaconStubs = true,
         bool includeRealtimeStubs = true,
         bool includeAdminEventsStubs = true,
         bool includeAdminRoutesStubs = true,
-        bool includeAdminBeaconsStubs = true)
+        bool includeAdminBeaconsStubs = true,
+        bool includeAdminMediaStubs = true,
+        bool includeAdminIconsStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -46,8 +50,8 @@ public static class EndpointStubs
         MapAdminSections(app);
         MapAdminSiteSettings(app);
         MapAdminContent(app);
-        MapAdminMedia(app);
-        MapAdminIcons(app);
+        if (includeAdminMediaStubs) MapAdminMedia(app);
+        if (includeAdminIconsStubs) MapAdminIcons(app);
         MapAdminCookies(app);
         MapAdminSettings(app);
         MapAdminInbox(app);
