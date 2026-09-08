@@ -1,14 +1,9 @@
 {
   "openapi": "3.1.1",
   "info": {
-    "title": "Wmsfo.Api | v1",
-    "version": "1.0.0"
+    "title": "WMSFO API",
+    "version": "1"
   },
-  "servers": [
-    {
-      "url": "http://127.0.0.1:36641/"
-    }
-  ],
   "paths": {
     "/api/health": {
       "get": {
