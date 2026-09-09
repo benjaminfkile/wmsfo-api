@@ -26,37 +26,37 @@ namespace Wmsfo.Api.IntegrationTests;
 // covered by a named test, either in this file or, when the earlier task
 // already covered it, the file listed):
 //
-//   every endpoint's success and every listed error code — A8/A9/A10/A11/A12/
+//   every endpoint's success and every listed error code - A8/A9/A10/A11/A12/
 //     A13/A14/A15 endpoint-tests
-//   the location transaction under concurrency (two beacons, one active) —
+//   the location transaction under concurrency (two beacons, one active) -
 //     A8BeaconEndpointsTests.Locations_two_beacons_one_active_only_active_publishes
-//   `seq` monotonic across 1,000 concurrent inserts —
+//   `seq` monotonic across 1,000 concurrent inserts -
 //     A8BeaconEndpointsTests.Locations_seq_strictly_increasing_under_1000_concurrent_inserts
-//   the snapshot transaction rollback on a failing PUT —
+//   the snapshot transaction rollback on a failing PUT -
 //     A7NodeRuntimeTests.Snapshot_transaction_rolls_back_when_put_fails
-//   partial unique indexes (23505 on the three) —
+//   partial unique indexes (23505 on the three) -
 //     A9ConstraintMappingTests (event_year_key, event_one_live,
 //     subscriber_channel_address_key)
-//   the tick rewrite rule —
+//   the tick rewrite rule -
 //     A7NodeRuntimeTests.Tick_rewrite_rule_only_the_ingest_node_rewrites
-//   leader gating of chores with an overlapping leader —
+//   leader gating of chores with an overlapping leader -
 //     A16ChoreTests.Outbox_two_overlapping_publishers_claim_disjoint_rows_via_skip_locked
-//   outbox and alert idempotency —
+//   outbox and alert idempotency -
 //     A16ChoreTests.Alert_fanout_is_unique_per_subscriber_and_outbox_row_across_two_passes
-//   nightly cleanup counts — A16ChoreTests.Nightly_cleanup_counts_each_delete
-//   the callback guard on forwarded headers —
+//   nightly cleanup counts - A16ChoreTests.Nightly_cleanup_counts_each_delete
+//   the callback guard on forwarded headers -
 //     A8RealtimeTests.Authorize_with_forwarded_header_answers_404_empty and
 //     A8RealtimeTests.Message_with_forwarded_header_answers_404_empty
-//   rate limits — PipelineTests.Rate_limited_answers_429_with_retry_after
-//   the media pipeline end to end against the local store — A15MediaPipelineTests
-//   publish with problems, unchanged, and success — A14PublisherAndPreviewTests
-//   restore recreates six role pages —
+//   rate limits - PipelineTests.Rate_limited_answers_429_with_retry_after
+//   the media pipeline end to end against the local store - A15MediaPipelineTests
+//   publish with problems, unchanged, and success - A14PublisherAndPreviewTests
+//   restore recreates six role pages -
 //     A14PublisherAndPreviewTests.Restore_recreates_six_role_pages
-//   preview token expiry —
+//   preview token expiry -
 //     A14PublisherAndPreviewTests.Preview_token_expires_after_the_stored_deadline
-//   the orphan collector's four transitions —
+//   the orphan collector's four transitions -
 //     A16ChoreTests.Orphan_collector_walks_four_transitions_over_a_clock_stub
-//   Editor and Admin policy matrix over every /admin/* route —
+//   Editor and Admin policy matrix over every /admin/* route -
 //     PipelineTests.Admin_policy_matrix (and Sequence_policy_matrix_over_admin_routes
 //     below, which walks a representative subset of the live /admin routes)
 public sealed class A19EndToEndSuiteTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -411,7 +411,7 @@ limit 1;", conn);
         var primed = await WaitForLiveTallyContainsAsync(typeId);
         _ = primed;
 
-        // Hide the cookie — moderation while live triggers a live-object write.
+        // Hide the cookie - moderation while live triggers a live-object write.
         using var hide = _host.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
         var hideResponse = await _host.Client.SendAsync(hide);
         Assert.Equal(HttpStatusCode.OK, hideResponse.StatusCode);
@@ -463,7 +463,7 @@ limit 1;", conn);
         Assert.Equal(_host.Options.ServiceName + ":ingest",
             enrolled.RootElement.GetProperty("ingestChannel").GetString());
 
-        // Enrollment token is now consumed — a second call is 404.
+        // Enrollment token is now consumed - a second call is 404.
         var second = await _host.Client.PostAsync("/beacons/enroll",
             new StringContent($"{{\"token\":\"{enrollmentToken}\"}}", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.NotFound, second.StatusCode);
@@ -532,7 +532,7 @@ limit 1;", conn);
 
     private async Task BootstrapAsync()
     {
-        // Fresh empty database — run the first-boot bootstrap so the working
+        // Fresh empty database - run the first-boot bootstrap so the working
         // set holds the starter content and the snapshot row exists.
         var bootstrap = _host!.GetService<SnapshotBootstrap>();
         await bootstrap.EnsureVersionOneAsync(default);

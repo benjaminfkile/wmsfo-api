@@ -14,7 +14,7 @@ namespace Wmsfo.Api.Tests;
 //
 // Two flavours here:
 //   • Direct emission tests exercise the production class that emits the marker
-//     end-to-end — HealthMarkerLogger, LeaderMonitor (via forced leader),
+//     end-to-end - HealthMarkerLogger, LeaderMonitor (via forced leader),
 //     GatewayInternalClient (against a bad URL).
 //   • Source-code tests locate the `LogMarkers.<Name>` reference next to a
 //     `Log*` call in the API source, so the marker constant is provably wired
@@ -160,7 +160,7 @@ public class LogMarkerEmissionTests
 
     // ---- helpers ----
 
-    // A syntactically valid conn string that never opens — NodeStateService only
+    // A syntactically valid conn string that never opens - NodeStateService only
     // uses it lazily and LeaderMonitor with ForceLeader=true never consults it.
     private const string FakeConn = "Host=localhost;Database=x;Username=x;SSL Mode=Disable";
 

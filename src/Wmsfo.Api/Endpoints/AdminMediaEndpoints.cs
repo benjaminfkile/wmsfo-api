@@ -43,7 +43,7 @@ public static class AdminMediaEndpoints
         MapDelete(app);
     }
 
-    // GET /admin/media?cursor=&limit=&kind=&state=&q= — newest first with the
+    // GET /admin/media?cursor=&limit=&kind=&state=&q= - newest first with the
     // documented filters. Cursor is base64url of the last id (contracts 4.0).
     private static void MapList(IEndpointRouteBuilder app)
     {
@@ -134,7 +134,7 @@ where 1 = 1");
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/media/upload-url — sanitize filename, mint id, insert pending,
+    // POST /admin/media/upload-url - sanitize filename, mint id, insert pending,
     // presign PUT (15 minutes) with Content-Type and x-amz-tagging signed.
     private static void MapUploadUrl(IEndpointRouteBuilder app)
     {
@@ -214,7 +214,7 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
             .RequireRateLimiting(RateLimitPolicies.MediaUploadUrlPerPerson);
     }
 
-    // POST /admin/media/{id}/confirm — the full confirm pipeline (api.md 11.3).
+    // POST /admin/media/{id}/confirm - the full confirm pipeline (api.md 11.3).
     private static void MapConfirm(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/media/{id}/confirm",
@@ -457,7 +457,7 @@ where id = $6 and state = 'pending';", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PATCH /admin/media/{id} — [snapshot] frame because alt rides in the
+    // PATCH /admin/media/{id} - [snapshot] frame because alt rides in the
     // snapshot's media map (contracts 1.3).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
@@ -504,7 +504,7 @@ where id = $6 and state = 'pending';", conn))
                     }
                     else
                     {
-                        // No-op patch — still confirm the row exists.
+                        // No-op patch - still confirm the row exists.
                         await using var check = new NpgsqlCommand("select 1 from media_asset where id = $1;", conn, tx);
                         check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
                         var r = await check.ExecuteScalarAsync(token);
@@ -526,7 +526,7 @@ where id = $6 and state = 'pending';", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/media/{id} — 409 media_in_use with details.usage if referenced;
+    // DELETE /admin/media/{id} - 409 media_in_use with details.usage if referenced;
     // otherwise delete every object under media/{id}/, then the row.
     private static void MapDelete(IEndpointRouteBuilder app)
     {

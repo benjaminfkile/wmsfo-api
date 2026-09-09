@@ -21,7 +21,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A19 end-to-end host — mirrors Program.cs with the full set of endpoints so
+// A19 end-to-end host - mirrors Program.cs with the full set of endpoints so
 // the sequence summaries of contracts 12 can play out through the same handlers
 // production runs. LocalObjectStore (backed by a temp directory) stands in for
 // S3, FakeGatewayClient stands in for the gateway internal client, DbPersonUpsert

@@ -8,11 +8,11 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Node;
 
 // api.md 3 step 5: after MigrateAsync runs the four first-boot steps of sql.md 8.16:
-//   1. Starter content — A14
-//   2. Icon library — A3 (IconLibrary.EnsureWrittenAsync); we skip when the library
+//   1. Starter content - A14
+//   2. Icon library - A3 (IconLibrary.EnsureWrittenAsync); we skip when the library
 //      is unavailable (test hosts don't ship the icons folder)
-//   3. Content version 1 — A14 (SnapshotBootstrap uses a fixture stand-in)
-//   4. Snapshot version 1 — this task
+//   3. Content version 1 - A14 (SnapshotBootstrap uses a fixture stand-in)
+//   4. Snapshot version 1 - this task
 // The migrator holds the advisory lock across the hook.
 public sealed class FleetFirstBootHook : IFirstBootHook
 {
@@ -29,7 +29,7 @@ public sealed class FleetFirstBootHook : IFirstBootHook
     {
         using var scope = _services.CreateScope();
 
-        // 2. Icon library — best effort. When the compiled library is not available
+        // 2. Icon library - best effort. When the compiled library is not available
         // (dev host without icons/), skip; snapshots use whatever IconLibrary is
         // registered.
         var iconLibrary = scope.ServiceProvider.GetService<IconLibrary>();

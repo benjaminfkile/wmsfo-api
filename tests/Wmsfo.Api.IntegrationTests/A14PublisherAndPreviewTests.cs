@@ -232,8 +232,8 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
     }
 
     // A14f (task 284): the snapshot's media map holds exactly the referenced
-    // media assets — one from content, one sponsor logo, one cookie-type media
-    // icon — and the fourth ready asset is absent because nothing references it.
+    // media assets - one from content, one sponsor logo, one cookie-type media
+    // icon - and the fourth ready asset is absent because nothing references it.
     // content_version.media_ids for the newest version equals the
     // content-referenced ids only; sponsor logos and cookie icons feed the
     // snapshot map but not the version's media_ids column.

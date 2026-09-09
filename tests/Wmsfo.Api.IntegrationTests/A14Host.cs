@@ -22,7 +22,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A14 test host — the publish transaction (Publisher), versions, restore, the
+// A14 test host - the publish transaction (Publisher), versions, restore, the
 // preview flow, and first-boot orchestration. Registers real /admin/content/*
 // endpoints plus /preview/document. Uses a LocalObjectStore so the media
 // pipeline (ticket → PUT → confirm) can run end to end and the snapshot bytes
@@ -144,7 +144,7 @@ public sealed class A14Host : IAsyncDisposable
         AdminContentEndpoints.MapAll(app);
         AdminMediaEndpoints.MapAll(app);
 
-        // The /local-upload/{id} route — the local object store cannot presign,
+        // The /local-upload/{id} route - the local object store cannot presign,
         // so the ticket URL points at this route.
         app.MapPut("/local-upload/{id}", async (
             string id,

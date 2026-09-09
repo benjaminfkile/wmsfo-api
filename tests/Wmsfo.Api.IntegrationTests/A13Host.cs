@@ -22,7 +22,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A13 test host — content working set endpoints (/admin/pages*, /admin/sections*,
+// A13 test host - content working set endpoints (/admin/pages*, /admin/sections*,
 // /admin/items*, /admin/site-settings*) plus /admin/content/kinds, /draft, /status.
 // Dev static tokens supply the Editor/Admin/Person bearers; the KindRegistry loads
 // from the repo's contracts/ folder.

@@ -203,7 +203,7 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
     [Fact]
     public async Task Editor_token_cannot_write_cookie_types()
     {
-        // Editor is not admin — cookie types are Admin-only.
+        // Editor is not admin - cookie types are Admin-only.
         using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/cookie-types");
         req.Content = new StringContent("{\"name\":\"e\",\"sort\":10,\"active\":true,\"icon\":null}",
             Encoding.UTF8, "application/json");

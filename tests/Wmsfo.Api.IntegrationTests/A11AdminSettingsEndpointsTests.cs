@@ -47,7 +47,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
 
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
-        // Note: leaving app_setting rows in place — the migration seeds them.
+        // Note: leaving app_setting rows in place - the migration seeds them.
         foreach (var sql in new[]
         {
             "delete from event;",

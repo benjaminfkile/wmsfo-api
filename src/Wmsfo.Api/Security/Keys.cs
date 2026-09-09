@@ -76,7 +76,7 @@ public static class Keys
         return new MintedKey(token, hash, display);
     }
 
-    // Base64Url without padding — the format used by every WMSFO token.
+    // Base64Url without padding - the format used by every WMSFO token.
     private static string Base64UrlNoPad(ReadOnlySpan<byte> bytes)
     {
         var s = Convert.ToBase64String(bytes);

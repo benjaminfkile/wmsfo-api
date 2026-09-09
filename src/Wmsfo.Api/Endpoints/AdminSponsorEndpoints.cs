@@ -10,10 +10,10 @@ using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Endpoints;
 
-// contracts 4.5 Sponsors (Editor) — CRUD and per-year upsert. Every write is
+// contracts 4.5 Sponsors (Editor) - CRUD and per-year upsert. Every write is
 // marked [snapshot] in contracts, so PATCH / POST / PUT / DELETE flow through
 // AdminSnapshotTransaction (api.md 10.2). logoMediaId on PATCH must name a
-// ready media asset — otherwise 404 (asset missing) or 409 media_not_ready.
+// ready media asset - otherwise 404 (asset missing) or 409 media_not_ready.
 public static class AdminSponsorEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)

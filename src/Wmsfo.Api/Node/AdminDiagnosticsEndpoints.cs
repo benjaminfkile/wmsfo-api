@@ -11,11 +11,11 @@ using Wmsfo.Api.Realtime;
 namespace Wmsfo.Api.Node;
 
 // api.md 10.3: the four diagnostics endpoints.
-//   GET  /admin/snapshot            — SnapshotInfo (snapshot row)
-//   POST /admin/snapshot/rebuild    — rebuild frame with no write
-//   GET  /admin/live                — live_state row + this node's memory
-//   POST /admin/live/republish      — WriteFromState("republish"); returns the object
-// Auth policies are not enforced here yet — A5 wires Admin on top of these when
+//   GET  /admin/snapshot            - SnapshotInfo (snapshot row)
+//   POST /admin/snapshot/rebuild    - rebuild frame with no write
+//   GET  /admin/live                - live_state row + this node's memory
+//   POST /admin/live/republish      - WriteFromState("republish"); returns the object
+// Auth policies are not enforced here yet - A5 wires Admin on top of these when
 // the real handlers land; the routes are open for the tests to exercise them.
 public static class AdminDiagnosticsEndpoints
 {

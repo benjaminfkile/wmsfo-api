@@ -11,12 +11,12 @@ namespace Wmsfo.Api.Node;
 // api.md 10.2 / sql.md 8.16: full first-boot order. Called by DatabaseMigrator
 // under the migration advisory lock, after EF migrations apply. The four steps
 // are idempotent; already-done steps skip:
-//   1. Starter content — when `page` is empty, seed the working set from
+//   1. Starter content - when `page` is empty, seed the working set from
 //      contracts/starter-content.json.
-//   2. Icon library — handled by FleetFirstBootHook (A3).
-//   3. Content version 1 — when `content_version` is empty, publish the working
+//   2. Icon library - handled by FleetFirstBootHook (A3).
+//   3. Content version 1 - when `content_version` is empty, publish the working
 //      set (Publisher.EnsureVersionOneAsync) without a snapshot rebuild.
-//   4. Snapshot version 1 — when the single snapshot row is absent, build the
+//   4. Snapshot version 1 - when the single snapshot row is absent, build the
 //      snapshot object, PUT it, and insert (id=1, version=1).
 public sealed class SnapshotBootstrap
 {

@@ -454,7 +454,7 @@ public sealed class ReferenceChecker
             var lastSegment = path.Substring(lastSep + 1);
             if (int.TryParse(lastSegment, out _))
             {
-                // Path ends with an array index — check parent segment.
+                // Path ends with an array index - check parent segment.
                 var parentPath = path.Substring(0, lastSep);
                 var parentSep = parentPath.LastIndexOf('/');
                 if (parentSep < 0) return false;

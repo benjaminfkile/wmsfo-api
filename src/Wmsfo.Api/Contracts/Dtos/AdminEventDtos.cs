@@ -11,7 +11,7 @@ public sealed class CreateEventRequest
     public bool InheritRoute { get; set; }
 }
 
-// PATCH /admin/events/{id} — any of the listed fields.
+// PATCH /admin/events/{id} - any of the listed fields.
 public sealed class PatchEventRequest
 {
     public string? Name { get; set; }

@@ -1105,7 +1105,7 @@ order by cv.id desc limit 1;", conn))
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
-        // GET /admin/content/versions — the newest 50 rows (list, newest first).
+        // GET /admin/content/versions - the newest 50 rows (list, newest first).
         app.MapGet("/admin/content/versions",
             async (WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
@@ -1138,7 +1138,7 @@ from content_version order by id desc limit 50;", conn);
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
-        // GET /admin/content/versions/{id} — the full detail with the document.
+        // GET /admin/content/versions/{id} - the full detail with the document.
         app.MapGet("/admin/content/versions/{id:long}",
             async (long id, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {

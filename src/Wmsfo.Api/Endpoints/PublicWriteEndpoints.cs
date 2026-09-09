@@ -14,10 +14,10 @@ using Wmsfo.Api.Security;
 namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.3 public writes.
-// POST /contact — sql.md 8.13: one transaction inserts contact_message and the
+// POST /contact - sql.md 8.13: one transaction inserts contact_message and the
 // outbox row; the SES send is a leader chore, never awaited.
-// POST /subscriptions/verify — sql.md 8.12 autocommit verify.
-// POST /subscriptions/unsubscribe — token from query or JSON, also
+// POST /subscriptions/verify - sql.md 8.12 autocommit verify.
+// POST /subscriptions/unsubscribe - token from query or JSON, also
 // form-urlencoded per RFC 8058 (the form body is ignored).
 public static class PublicWriteEndpoints
 {

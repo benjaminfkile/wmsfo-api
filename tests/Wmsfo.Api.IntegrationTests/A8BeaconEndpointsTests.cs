@@ -341,7 +341,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         }
     }
 
-    // A8 test: two beacons with one active — only the active one publishes rows.
+    // A8 test: two beacons with one active - only the active one publishes rows.
     [Fact]
     public async Task Locations_two_beacons_one_active_only_active_publishes()
     {
@@ -484,7 +484,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
-        // Clean out any existing live event first — event_one_live is a partial
+        // Clean out any existing live event first - event_one_live is a partial
         // unique index.
         await using (var wipe = new NpgsqlCommand("delete from event where status_id = 3;", conn))
         {

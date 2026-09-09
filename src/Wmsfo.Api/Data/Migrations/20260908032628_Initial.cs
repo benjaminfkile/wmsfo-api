@@ -844,7 +844,7 @@ namespace Wmsfo.Api.Data.Migrations
                 column: "verify_token_hash",
                 filter: "verify_token_hash is not null");
 
-            // sql.md 6 seeds — appended per sql.md 14.3.
+            // sql.md 6 seeds - appended per sql.md 14.3.
             migrationBuilder.Sql(@"
 insert into event_status (id, name) values
   (1, 'planned'), (2, 'scheduled'), (3, 'live'), (4, 'ended'), (5, 'cancelled');

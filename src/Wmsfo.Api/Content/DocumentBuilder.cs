@@ -276,7 +276,7 @@ public sealed class DocumentBuilder
                 // Inline icons.
                 if (obj.Count > 0)
                 {
-                    // No-op — inline scanning below relies on WalkStringsForInlineIcons.
+                    // No-op - inline scanning below relies on WalkStringsForInlineIcons.
                 }
                 break;
             case JsonArray arr:
@@ -301,7 +301,7 @@ public sealed class DocumentBuilder
         }
     }
 
-    // The presentation column is jsonb — the row's raw value is the
+    // The presentation column is jsonb - the row's raw value is the
     // authoritative Presentation. Deserialize into the DTO so the snapshot
     // fixture ordering carries through; unknown properties are preserved via
     // JsonNode when persisted so a future field survives a round trip.

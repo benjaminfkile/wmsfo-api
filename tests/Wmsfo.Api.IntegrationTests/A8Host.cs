@@ -120,7 +120,7 @@ public sealed class A8Host : IAsyncDisposable
 
         var app = builder.Build();
 
-        // api.md 5 middleware order (no readiness gate — we're always ready).
+        // api.md 5 middleware order (no readiness gate - we're always ready).
         app.UseWmsfoPipeline();
 
         BeaconEndpoints.MapAll(app);

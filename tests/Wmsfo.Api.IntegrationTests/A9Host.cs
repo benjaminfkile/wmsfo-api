@@ -20,7 +20,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A9 test host — full pipeline, admin events + admin routes wired to the real
+// A9 test host - full pipeline, admin events + admin routes wired to the real
 // handlers, dev static tokens for the admin bearer, in-memory object store and
 // gateway client. Rate limits are disabled so the concurrency tests can hammer
 // the endpoints without self-throttling.

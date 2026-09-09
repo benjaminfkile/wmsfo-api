@@ -254,7 +254,7 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
             }
         }
 
-        // 5. settings — needed for lingerMs; re-read the two keys since we already
+        // 5. settings - needed for lingerMs; re-read the two keys since we already
         // filled sponsors with a temporary computation. Do this before sponsors in
         // real use; the code above recomputes lingerMs after reading settings.
         await using (var cmd = new NpgsqlCommand(@"
@@ -375,12 +375,12 @@ order by id;", conn, tx);
         }
         snap.Media = media;
 
-        // 8. icon library map — from the compiled library (not the database).
+        // 8. icon library map - from the compiled library (not the database).
         var icons = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var kv in _icons.Map) icons[kv.Key] = kv.Value;
         snap.Icons = icons;
 
-        _ = contentFromVersion;   // Silences the unused-warn — kept for future guard.
+        _ = contentFromVersion;   // Silences the unused-warn - kept for future guard.
 
         return snap;
     }

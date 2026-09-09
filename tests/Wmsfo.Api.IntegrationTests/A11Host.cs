@@ -20,7 +20,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A11 test host — the sponsors, cookie types and settings admin endpoints
+// A11 test host - the sponsors, cookie types and settings admin endpoints
 // wired to the real handlers, with dev static tokens for the admin and editor
 // bearers, an in-memory recording object store and fake gateway client so the
 // [snapshot] frames actually build+PUT+publish the snapshot.

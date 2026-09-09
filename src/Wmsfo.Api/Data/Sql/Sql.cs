@@ -15,7 +15,7 @@ on conflict (cognito_sub) do update
       last_seen_at = now()
 returning id;";
 
-    // 8.2 Location insert — location and event/beacon reads, insert and stamps.
+    // 8.2 Location insert - location and event/beacon reads, insert and stamps.
     public const string LocationLockLiveEvent = @"
 select id, status_id, next_seq
 from event

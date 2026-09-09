@@ -69,7 +69,7 @@ public sealed class Publisher
     // sql.md 8.16 step 3: first boot publish. When content_version has no rows
     // yet, publish the current working set (starter content) with
     // `published_by = 'seed'` and `label = 'Starter content'`. Does NOT build the
-    // snapshot — SnapshotBootstrap does that in step 4. Uses the migrate
+    // snapshot - SnapshotBootstrap does that in step 4. Uses the migrate
     // connection so it runs under the same role as the migrator (advisory lock
     // held by DatabaseMigrator).
     public async Task<PublishResult?> EnsureVersionOneAsync(NpgsqlConnection conn, CancellationToken ct)

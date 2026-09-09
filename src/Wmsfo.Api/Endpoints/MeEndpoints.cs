@@ -258,7 +258,7 @@ where id = $2;", conn, tx))
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
-    // DELETE /me/subscriptions/{id}. Idempotent — 204 on already-unsubscribed row.
+    // DELETE /me/subscriptions/{id}. Idempotent - 204 on already-unsubscribed row.
     private static void MapDeleteSubscription(IEndpointRouteBuilder app)
     {
         app.MapDelete("/me/subscriptions/{id:long}",

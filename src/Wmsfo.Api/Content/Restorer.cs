@@ -13,7 +13,7 @@ namespace Wmsfo.Api.Content;
 // Copies a stored content_version document into the working set: deletes every
 // page (sections and items cascade), then re-inserts each page, section, and
 // item. The site settings row is updated in place. Neither content_version nor
-// snapshot are touched — restore replaces the draft, it does not publish.
+// snapshot are touched - restore replaces the draft, it does not publish.
 public sealed class Restorer
 {
     private readonly WmsfoConnectionStrings _connections;
