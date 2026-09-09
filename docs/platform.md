@@ -763,3 +763,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 ## 17. Needs a decision
 
 Nothing at the moment. Add here as it comes up.
+
+## 18. Operator to-do
+
+- **Google Maps browser key.** The key currently used by the site (`VITE_GOOGLE_MAPS_KEY`) is unrestricted. Rotate it and restrict the new key to HTTP referrers: the production site origin, the dev site origin, and `http://localhost:5173`, with the Maps JavaScript API as the only allowed API. Until then the same key serves dev and prod.
