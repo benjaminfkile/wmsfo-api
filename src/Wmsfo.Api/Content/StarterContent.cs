@@ -10,7 +10,7 @@ namespace Wmsfo.Api.Content;
 
 // sql.md 8.16 step 1: seed the working set from the starter content when
 // `select 1 from page limit 1` returns nothing. All rows are `created_by =
-// updated_by = 'seed'`. Idempotent — inserts nothing on later boots.
+// updated_by = 'seed'`. Idempotent - inserts nothing on later boots.
 public sealed class StarterContent
 {
     private readonly ILogger<StarterContent> _logger;
@@ -88,7 +88,7 @@ values ($1, $2, $3::jsonb, 'seed');", conn, tx))
             }
         }
 
-        // Site settings — insert from the document. The table has a single seeded
+        // Site settings - insert from the document. The table has a single seeded
         // row (id = 1); write the document's settings into it.
         var settingsJson = JsonSerializer.Serialize(document.Settings, CanonicalJson.Options);
         await using (var upd = new NpgsqlCommand(@"

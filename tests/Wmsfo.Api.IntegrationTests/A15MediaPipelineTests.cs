@@ -105,7 +105,7 @@ public sealed class A15MediaPipelineTests : IClassFixture<PostgresFixture>, IAsy
         Assert.False(string.IsNullOrEmpty(confirmed.RootElement.GetProperty("sha256").GetString()));
         Assert.Equal(pngBytes.LongLength, confirmed.RootElement.GetProperty("sizeBytes").GetInt64());
 
-        // Variants: exactly one — 480 — because the source is 700 px wide.
+        // Variants: exactly one - 480 - because the source is 700 px wide.
         var variants = confirmed.RootElement.GetProperty("variants");
         Assert.Single(variants.EnumerateObject().ToArray());
         Assert.True(variants.TryGetProperty("480", out var v480));
@@ -232,7 +232,7 @@ public sealed class A15MediaPipelineTests : IClassFixture<PostgresFixture>, IAsy
         var pngBytes = BuildPng(200, 200);
         var ticket = await GetTicketAsync("ghost.png", "image/png", pngBytes.LongLength);
         var id = ticket.RootElement.GetProperty("media").GetProperty("id").GetString()!;
-        // Skip the PUT — the object never arrived.
+        // Skip the PUT - the object never arrived.
         var confirm = await EditorSendAsync(HttpMethod.Post, $"/admin/media/{id}/confirm", content: null);
         Assert.Equal(HttpStatusCode.NotFound, confirm.StatusCode);
         Assert.Equal("upload_not_found", await ReadCodeAsync(confirm));
@@ -307,7 +307,7 @@ public sealed class A15MediaPipelineTests : IClassFixture<PostgresFixture>, IAsy
     public async Task Delete_when_referenced_by_sponsor_is_409_media_in_use()
     {
         var id = await UploadAndConfirmAsync("sponsor.png", "image/png", BuildPng(200, 200));
-        // Wire it to a sponsor (direct SQL — sponsor endpoints are not in this task).
+        // Wire it to a sponsor (direct SQL - sponsor endpoints are not in this task).
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using (var cmd = new NpgsqlCommand(

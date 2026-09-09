@@ -280,7 +280,7 @@ returning id;", conn, tx))
     }
 
     // POST /admin/events/{id}/current [snapshot]. Idempotent on the already
-    // current event — no snapshot rebuild, no live-object write.
+    // current event - no snapshot rebuild, no live-object write.
     private static void MapCurrent(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/current",
@@ -330,7 +330,7 @@ returning id;", conn, tx))
                                 "current_event_live", "another event is current and live");
                     }
 
-                    // Clear existing current, then set this one — two statements
+                    // Clear existing current, then set this one - two statements
                     // per sql.md 4.2 so the partial unique index is satisfied.
                     await using (var clr = new NpgsqlCommand(
                         "update event set is_current = false, updated_at = now() where is_current and id <> $1;", conn, tx))

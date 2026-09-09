@@ -117,7 +117,7 @@ public static class InlineText
         j++;
         if (j >= length || text[j] != '(')
         {
-            // `[label]` with no `(href)` — text.
+            // `[label]` with no `(href)` - text.
             return start + 1;
         }
         var hrefStart = j + 1;
@@ -150,14 +150,14 @@ public static class InlineText
         var end = text.IndexOf('}', start + 1);
         if (end < 0)
         {
-            // No closing brace — treat the `{` as text.
+            // No closing brace - treat the `{` as text.
             return start + 1;
         }
         var inner = text.Substring(start + 1, end - start - 1);
         var colonIdx = inner.IndexOf(':');
         if (colonIdx <= 0)
         {
-            // No `<kind>:...` — treat as text.
+            // No `<kind>:...` - treat as text.
             return start + 1;
         }
         var kind = inner.Substring(0, colonIdx);
@@ -182,7 +182,7 @@ public static class InlineText
                 }
                 return end + 1;
             default:
-                // Not one of ours — treat the whole `{...}` as text.
+                // Not one of ours - treat the whole `{...}` as text.
                 return end + 1;
         }
     }

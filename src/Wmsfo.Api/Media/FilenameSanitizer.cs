@@ -15,7 +15,7 @@ public static class FilenameSanitizer
         if (string.IsNullOrWhiteSpace(filename)) return null;
         var trimmed = filename.Trim();
 
-        // Drop any path prefix defensively — the browser file input carries the
+        // Drop any path prefix defensively - the browser file input carries the
         // base name, but a keyed request could send anything.
         var lastSep = Math.Max(trimmed.LastIndexOf('/'), trimmed.LastIndexOf('\\'));
         if (lastSep >= 0) trimmed = trimmed[(lastSep + 1)..];

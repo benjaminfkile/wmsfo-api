@@ -20,7 +20,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A12 test host — the /me family, the public writes, moderation, and admin
+// A12 test host - the /me family, the public writes, moderation, and admin
 // inbox all wired to the real handlers. Uses DbPersonUpsert so person rows land
 // in the database (cookie inserts have a foreign key to person). Rate limits
 // are disabled so the concurrency test can hammer /cookies without self-throttling.

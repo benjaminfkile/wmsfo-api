@@ -95,7 +95,7 @@ public static class WmsfoPipeline
         }
     }
 
-    // Middleware order — api.md 5 outermost first. The readiness step is added by
+    // Middleware order - api.md 5 outermost first. The readiness step is added by
     // Program.cs since it needs the gate wired to the DI scope on the app.
     public static void UseWmsfoPipeline(this WebApplication app)
     {

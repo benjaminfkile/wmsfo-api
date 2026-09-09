@@ -86,7 +86,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
         var keyPrefix = beacon.GetProperty("keyPrefix").GetString()!;
         Assert.Equal(12, keyPrefix.Length);
 
-        // The key itself is shown once — it starts with wbk_ and is 47 chars.
+        // The key itself is shown once - it starts with wbk_ and is 47 chars.
         var key = body.RootElement.GetProperty("key").GetString()!;
         Assert.StartsWith("wbk_", key);
         Assert.Equal(47, key.Length);
@@ -101,7 +101,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
         Assert.Contains(token, url);
         var qr = enrollment.GetProperty("qrPngDataUrl").GetString()!;
         Assert.StartsWith("data:image/png;base64,", qr);
-        // A real PNG signature after decoding the base64 — first 8 bytes are the PNG magic.
+        // A real PNG signature after decoding the base64 - first 8 bytes are the PNG magic.
         var base64 = qr.Substring("data:image/png;base64,".Length);
         var pngBytes = Convert.FromBase64String(base64);
         Assert.True(pngBytes.Length > 16);
@@ -153,7 +153,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
         var meBefore = await SendWithKeyAsync(HttpMethod.Get, "/beacons/me", oldKey);
         Assert.Equal(HttpStatusCode.OK, meBefore.StatusCode);
 
-        // Rotate — response has a new key.
+        // Rotate - response has a new key.
         var rotated = await SendAdminAsync(HttpMethod.Post, $"/admin/beacons/{beaconId}/rotate", content: null);
         Assert.Equal(HttpStatusCode.OK, rotated.StatusCode);
         var rotatedBody = await ReadJsonAsync(rotated);
@@ -344,7 +344,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     public async Task Get_hubConnected_null_when_presence_call_fails()
     {
         var (id, _) = await CreateBeaconAsync("no-hub");
-        // Presence intentionally unset — the client returns null.
+        // Presence intentionally unset - the client returns null.
         var response = await SendAdminAsync(HttpMethod.Get, $"/admin/beacons/{id}", content: null);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await ReadJsonAsync(response);

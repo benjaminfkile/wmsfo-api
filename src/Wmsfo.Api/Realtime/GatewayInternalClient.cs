@@ -74,7 +74,7 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
             cts.CancelAfter(PublishTimeout);
 
             // Assemble the body manually so the payload bytes are spliced in as
-            // raw JSON — api.md 12.4 forbids a second SerializeToUtf8Bytes here so
+            // raw JSON - api.md 12.4 forbids a second SerializeToUtf8Bytes here so
             // the CDN copy and the hub copy are byte-identical.
             using var buffer = new MemoryStream(payloadBytes.Length + 128);
             var channelJson = JsonSerializer.Serialize(channel);

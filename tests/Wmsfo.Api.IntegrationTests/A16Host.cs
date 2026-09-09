@@ -9,7 +9,7 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A16 test host — lightweight (no HTTP endpoints). Registers the chores,
+// A16 test host - lightweight (no HTTP endpoints). Registers the chores,
 // the fake SES sender, a settable IChoreClock, and the connection strings
 // pointing at the Postgres fixture. Tests drive each chore directly via
 // its RunOnceAsync so cadences do not require real time to pass.
@@ -90,7 +90,7 @@ public sealed class A16Host : IDisposable
         var orphan = new MediaOrphanCollector(connections, effectiveStore, loggerFactory.CreateLogger<MediaOrphanCollector>());
         var nightly = new NightlyCleanup(connections, loggerFactory.CreateLogger<NightlyCleanup>());
 
-        _ = templates; // keeps the compiler happy — the sender fake never renders
+        _ = templates; // keeps the compiler happy - the sender fake never renders
         return new A16Host(options, connections, clock, sender, state, outbox, alerts, stale, orphan, nightly, effectiveStore);
     }
 

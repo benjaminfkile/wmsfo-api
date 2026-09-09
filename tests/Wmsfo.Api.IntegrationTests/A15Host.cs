@@ -20,7 +20,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A15 test host — full pipeline with the LocalObjectStore so the media
+// A15 test host - full pipeline with the LocalObjectStore so the media
 // pipeline exercises the same code path as WMSFO_OBJECT_STORE_DIR (api.md 20).
 // Media uploads route through PUT /local-upload/{id} on the API itself.
 public sealed class A15Host : IAsyncDisposable
@@ -127,7 +127,7 @@ public sealed class A15Host : IAsyncDisposable
         AdminMediaEndpoints.MapAll(app);
         AdminIconEndpoints.MapAll(app);
 
-        // The /local-upload/{id} route — the local object store cannot presign,
+        // The /local-upload/{id} route - the local object store cannot presign,
         // so the ticket URL points at this route.
         app.MapPut("/local-upload/{id}", async (
             string id,

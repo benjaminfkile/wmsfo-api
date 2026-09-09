@@ -96,7 +96,7 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/beacons — sql.md 8.11 create. Mints the key, inserts the
+    // POST /admin/beacons - sql.md 8.11 create. Mints the key, inserts the
     // beacon row, mints the enrollment token and inserts it in the same
     // transaction. The plaintext key appears once in the response and in no log.
     private static void MapCreate(IEndpointRouteBuilder app)
@@ -139,7 +139,7 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PATCH /admin/beacons/{id} — name and/or notes. Role and key are not
+    // PATCH /admin/beacons/{id} - name and/or notes. Role and key are not
     // modifiable here.
     private static void MapPatch(IEndpointRouteBuilder app)
     {
@@ -198,7 +198,7 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/beacons/{id}/activate — sql.md 8.11 activate.
+    // POST /admin/beacons/{id}/activate - sql.md 8.11 activate.
     // Two statements in one transaction (clear the previous active, set this
     // one), so beacon_one_active is checked per statement. A concurrent race
     // that collides on the partial unique index is retried once (sql.md 4.3),
@@ -259,7 +259,7 @@ order by name asc, id asc;", conn))
         if (revokedAt is not null)
             throw new ApiException(StatusCodes.Status409Conflict, "beacon_revoked", "beacon is revoked");
 
-        // Clear the previous active (if any), then set this one — sql.md 8.11.
+        // Clear the previous active (if any), then set this one - sql.md 8.11.
         // The two statements are what the partial unique index expects.
         await using (var clr = new NpgsqlCommand(
             "update beacon set is_active = false, updated_at = now() where is_active and id <> $1;", conn, tx))
@@ -280,7 +280,7 @@ order by name asc, id asc;", conn))
         return dto;
     }
 
-    // POST /admin/beacons/{id}/deactivate — sql.md 8.11 deactivate. Idempotent.
+    // POST /admin/beacons/{id}/deactivate - sql.md 8.11 deactivate. Idempotent.
     private static void MapDeactivate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons/{id:long}/deactivate",
@@ -311,7 +311,7 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/beacons/{id}/rotate — sql.md 8.11 rotate. Mints a new key,
+    // POST /admin/beacons/{id}/rotate - sql.md 8.11 rotate. Mints a new key,
     // updates key_hash and key_prefix, increments key_version, deletes pending
     // enrollment tokens, inserts a fresh enrollment token in the same
     // transaction. The old key stops working immediately: the REST door reads
@@ -346,7 +346,7 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/beacons/{id}/revoke — sql.md 8.11 revoke. Sets revoked_at
+    // POST /admin/beacons/{id}/revoke - sql.md 8.11 revoke. Sets revoked_at
     // (coalesced so a repeat call is idempotent), clears is_active, deletes
     // pending enrollment tokens. The row itself stays forever.
     private static void MapRevoke(IEndpointRouteBuilder app)
@@ -573,7 +573,7 @@ select id, name, notes, role, key_prefix, key_version, is_active, revoked_at,
        telemetry, created_by, created_at, updated_at
 from beacon";
 
-    // Read the row without the key_version — used by writes that only need
+    // Read the row without the key_version - used by writes that only need
     // the shape they will respond with, once no hubConnected resolution is
     // needed (create, rotate, patch, activate, deactivate, revoke).
     private static async Task<BeaconDto?> ReadBeaconByIdAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)

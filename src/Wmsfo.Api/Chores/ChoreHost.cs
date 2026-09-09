@@ -58,7 +58,7 @@ public sealed class ChoreHost : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait for the readiness gate — chores must not run before migrations.
+        // Wait for the readiness gate - chores must not run before migrations.
         while (!stoppingToken.IsCancellationRequested && !_readiness.IsReady)
         {
             try { await Task.Delay(TimeSpan.FromMilliseconds(200), stoppingToken).ConfigureAwait(false); }

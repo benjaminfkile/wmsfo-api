@@ -10,7 +10,7 @@ using Wmsfo.Api.Http;
 namespace Wmsfo.Api.IntegrationTests;
 
 // A5 acceptance criterion 745: every pipeline-owned code in contracts 4.7 is
-// produced by a test — validation_failed, unauthenticated, forbidden,
+// produced by a test - validation_failed, unauthenticated, forbidden,
 // mfa_required, payload_too_large, unsupported_media_type, rate_limited,
 // internal_error, unavailable. Plus the specific asserts named in A5:
 // both-headers 400, policy matrix, rate-limited 429 with header, forwarded

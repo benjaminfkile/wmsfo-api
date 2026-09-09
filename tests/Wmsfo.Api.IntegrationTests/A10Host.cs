@@ -21,7 +21,7 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A10 test host — full pipeline, admin beacon endpoints wired to the real
+// A10 test host - full pipeline, admin beacon endpoints wired to the real
 // handlers alongside the beacon and realtime endpoints (so tests can exercise
 // the REST-door and message-path invalidation paths). Rate limits are disabled
 // so the concurrent activate test can hammer the endpoint without self-throttling.

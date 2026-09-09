@@ -406,7 +406,7 @@ values ($1, $2, 1, true, 'seed', now()) returning id;", conn);
     private async Task<JsonDocument> ReadSnapshotAsync()
     {
         // Force a rebuild by patching a sponsor (a no-op patch still commits the
-        // frame). Simpler: run POST /admin/snapshot/rebuild — but that endpoint
+        // frame). Simpler: run POST /admin/snapshot/rebuild - but that endpoint
         // is registered elsewhere. Instead, hit a sponsor-year upsert which the
         // caller has already done in each test.
         var version = await ReadSnapshotVersionAsync();

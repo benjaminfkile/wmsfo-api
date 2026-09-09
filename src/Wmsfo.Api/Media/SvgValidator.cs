@@ -7,7 +7,7 @@ namespace Wmsfo.Api.Media;
 // any element local name is `script` or `foreignObject`; any attribute name starts with `on`
 // (case-insensitive); any `href` or `xlink:href` value, trimmed, starts with `http:`,
 // `https:`, or `javascript:` (case-insensitive). The stored bytes are the uploaded bytes,
-// not a re-serialization — callers keep the original input.
+// not a re-serialization - callers keep the original input.
 public static class SvgValidator
 {
     public const int MaxBytes = 1 * 1024 * 1024;

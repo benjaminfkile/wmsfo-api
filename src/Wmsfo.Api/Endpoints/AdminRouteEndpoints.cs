@@ -75,7 +75,7 @@ from route where id = $1;", conn);
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/routes — upload. 5 MB body limit (checked first); 400 for
+    // POST /admin/routes - upload. 5 MB body limit (checked first); 400 for
     // fewer than 2 or more than 50,000 points; 502 route_write_failed on PUT;
     // 200 with the existing row when the s3_key already exists.
     private static void MapCreate(IEndpointRouteBuilder app)
@@ -97,7 +97,7 @@ from route where id = $1;", conn);
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/routes/from-event/{eventId} — build the upload body from the
+    // POST /admin/routes/from-event/{eventId} - build the upload body from the
     // event's published locations in seq order (contracts 4.5 Routes), then run
     // the same canonicalize / hash / lookup / PUT / insert path.
     private static void MapFromEvent(IEndpointRouteBuilder app)
@@ -164,7 +164,7 @@ order by seq;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/routes/{id} — 409 route_in_use if any event references it;
+    // DELETE /admin/routes/{id} - 409 route_in_use if any event references it;
     // otherwise delete the row, then the object (a failed delete of the object
     // is logged; the row is already gone).
     private static void MapDelete(IEndpointRouteBuilder app)
@@ -233,7 +233,7 @@ order by seq;", conn))
         await using var conn = new NpgsqlConnection(connections.App);
         await conn.OpenAsync(ct);
 
-        // Existing-row check — return the row without a PUT.
+        // Existing-row check - return the row without a PUT.
         await using (var lookup = new NpgsqlCommand(@"
 select id, name, url, s3_key, sha256, point_count, uploaded_by, created_at
 from route where s3_key = $1;", conn))

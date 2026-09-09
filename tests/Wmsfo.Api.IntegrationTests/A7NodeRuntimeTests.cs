@@ -51,7 +51,7 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
         Assert.Equal("snapshot_write_failed", thrown.Code);
 
         var after = await ReadSnapshotVersionAsync();
-        Assert.Equal(1, after);   // No increment — the transaction rolled back.
+        Assert.Equal(1, after);   // No increment - the transaction rolled back.
     }
 
     // Identical data yields the same key with an incremented version.

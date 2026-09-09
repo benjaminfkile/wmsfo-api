@@ -477,7 +477,7 @@ values ($1, 'stale.png', 'image/png', 'raster', 'pending', 'media/x/stale.png', 
         Assert.Equal(1, counts.PreviewTokens);
         Assert.Equal(1, counts.StalePendingMedia);
 
-        // Idempotent — a second run touches nothing.
+        // Idempotent - a second run touches nothing.
         var second = await host.Nightly.RunOnceAsync(CancellationToken.None);
         Assert.Equal(0, second.EnrollmentTokens);
         Assert.Equal(0, second.Outbox);

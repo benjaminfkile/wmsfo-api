@@ -130,7 +130,7 @@ internal static class A18LegacySchema
     // sponsor with a legacy logo.
     public static async Task SeedAsync(NpgsqlConnection conn)
     {
-        // Sponsors — one with a legacy logo, one without.
+        // Sponsors - one with a legacy logo, one without.
         await using (var cmd = new NpgsqlCommand(@"
 insert into sponsors (id, name, email, website_url, logo_s3_key, created_at, updated_at)
 values (1, 'Sponsor One', 'one@example.com', 'https://one.example', 'legacy/sponsors/1/logo.png',
@@ -140,7 +140,7 @@ values (1, 'Sponsor One', 'one@example.com', 'https://one.example', 'legacy/spon
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Sponsor_years — one for each year, plus a null sponsor_id that should be skipped.
+        // Sponsor_years - one for each year, plus a null sponsor_id that should be skipped.
         await using (var cmd = new NpgsqlCommand(@"
 insert into sponsor_years (id, sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, registered_at)
 values (10, 1, 2024, 150.00, true, true, false, timestamp '2024-02-01 00:00'),
@@ -159,7 +159,7 @@ values (1, 60, timestamp with time zone '2024-01-01 00:00Z');", conn))
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Flight_history — three rows in 2024, three in 2025. Times in December at Denver noon.
+        // Flight_history - three rows in 2024, three in 2025. Times in December at Denver noon.
         await using (var cmd = new NpgsqlCommand(@"
 insert into flight_history (id, year, lat, lng, seq, time) values
   (1, 2024, 39.7392, -104.9903, 1, 1735048800000),
@@ -172,7 +172,7 @@ insert into flight_history (id, year, lat, lng, seq, time) values
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Event_updates — one per year plus one whose year has no event (skipped).
+        // Event_updates - one per year plus one whose year has no event (skipped).
         await using (var cmd = new NpgsqlCommand(@"
 insert into event_updates (id, message, time, created_at) values
   (100, 'Kickoff 2024', timestamp with time zone '2024-12-24 19:00Z', timestamp with time zone '2024-12-24 19:05Z'),
@@ -182,7 +182,7 @@ insert into event_updates (id, message, time, created_at) values
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Funds — two 2024 rows (later one wins with 75), one 2025 row.
+        // Funds - two 2024 rows (later one wins with 75), one 2025 row.
         await using (var cmd = new NpgsqlCommand(@"
 insert into funds (percent, id, created) values
   (30,  'a', '1735048800000'),
@@ -192,7 +192,7 @@ insert into funds (percent, id, created) values
             await cmd.ExecuteNonQueryAsync();
         }
 
-        // Messages — one legitimate, one unparseable created (skipped).
+        // Messages - one legitimate, one unparseable created (skipped).
         await using (var cmd = new NpgsqlCommand(@"
 insert into messages (name, email, message, created, id) values
   ('Alice', 'a@example.com', 'Hi there',    '1735048800000', 'msg-a'),

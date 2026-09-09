@@ -96,7 +96,7 @@ public sealed class A18LegacyMigrationTests : IClassFixture<PostgresFixture>, IA
         var (events1, locations1, sponsors1, sponsorYears1, msgs1, contacts1, routes1, media1, beacons1) =
             await CountsAsync();
 
-        // Second run — every step must be a no-op.
+        // Second run - every step must be a no-op.
         var migrator2 = new LegacyMigrator(options, _store, _legacyLogos, out2);
         var s2 = await migrator2.RunAsync(CancellationToken.None);
         Assert.Equal(0, s2.TotalInserted);
