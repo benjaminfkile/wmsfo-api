@@ -67,7 +67,7 @@ public sealed class SnapshotBuilder
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "snapshot PUT failed; marker=wmsfo_snapshot_write_failed key={Key}", key);
+                "snapshot PUT failed; marker={Marker} key={Key}", LogMarkers.SnapshotWriteFailed, key);
             throw new ApiException(502, SnapshotWriteFailedCode, "snapshot upload failed");
         }
         return new BuiltSnapshot(snapshot, bytes, sha, key, url);

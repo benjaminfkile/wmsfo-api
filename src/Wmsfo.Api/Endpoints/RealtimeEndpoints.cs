@@ -6,6 +6,7 @@ using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.Endpoints;
@@ -47,7 +48,7 @@ public static class RealtimeEndpoints
     private static void MapAuthorize(IEndpointRouteBuilder app)
     {
         app.MapPost("/realtime/authorize",
-            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, NodeCounters counters, CancellationToken ct) =>
             {
                 if (HasForwardedHeader(request))
                 {
@@ -62,22 +63,26 @@ public static class RealtimeEndpoints
                 }
                 catch (JsonException)
                 {
+                    counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                     return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                 }
                 if (body is null || string.IsNullOrEmpty(body.Channel))
                 {
+                    counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                     return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                 }
 
                 var (prefix, topic) = SplitChannel(body.Channel);
                 if (prefix != options.ServiceName)
                 {
+                    counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                     return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                 }
 
                 // Public topics: allow without I/O.
                 if (topic is "location" or "event" or "cookies")
                 {
+                    counters.IncrementAuthorize(AuthorizeBranch.PublicAllow);
                     return Results.Ok(new RealtimeAuthorizeResponse { Allow = true });
                 }
 
@@ -86,6 +91,7 @@ public static class RealtimeEndpoints
                     var credential = body.Credential ?? "";
                     if (!BeaconEndpoints.IsToken(credential, Keys.BeaconKeyPrefix))
                     {
+                        counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                         return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                     }
                     var hash = Keys.Hash(credential);
@@ -100,6 +106,7 @@ public static class RealtimeEndpoints
                         await using var reader = await lookup.ExecuteReaderAsync(ct);
                         if (!await reader.ReadAsync(ct))
                         {
+                            counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                             return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                         }
                         beaconId = reader.GetInt64(0);
@@ -111,6 +118,7 @@ public static class RealtimeEndpoints
                         stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                         await stamp.ExecuteNonQueryAsync(ct);
                     }
+                    counters.IncrementAuthorize(AuthorizeBranch.IngestAllow);
                     return Results.Ok(new RealtimeAuthorizeResponse
                     {
                         Allow = true,
@@ -119,6 +127,7 @@ public static class RealtimeEndpoints
                 }
 
                 // Any other topic.
+                counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
                 return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
             })
             .WithTags("Realtime")
@@ -131,7 +140,7 @@ public static class RealtimeEndpoints
     private static void MapMessage(IEndpointRouteBuilder app)
     {
         app.MapPost("/realtime/message",
-            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, LocationIngest ingest, CancellationToken ct) =>
+            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, LocationIngest ingest, NodeCounters counters, CancellationToken ct) =>
             {
                 if (HasForwardedHeader(request))
                 {
@@ -146,12 +155,14 @@ public static class RealtimeEndpoints
                 }
                 catch (JsonException)
                 {
+                    counters.IncrementMessage(MessageOutcome.ValidationFailed);
                     throw new ApiException(StatusCodes.Status400BadRequest,
                         ApiErrorCodes.ValidationFailed, "malformed body");
                 }
 
                 if (body is null)
                 {
+                    counters.IncrementMessage(MessageOutcome.ValidationFailed);
                     throw new ApiException(StatusCodes.Status400BadRequest,
                         ApiErrorCodes.ValidationFailed, "malformed body");
                 }
@@ -159,11 +170,13 @@ public static class RealtimeEndpoints
                 var expectedChannel = $"{options.ServiceName}:ingest";
                 if (body.Channel != expectedChannel)
                 {
+                    counters.IncrementMessage(MessageOutcome.Forbidden);
                     throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "forbidden");
                 }
 
                 if (!TryParseIdentity(body.Identity, out var beaconId, out var keyVersion))
                 {
+                    counters.IncrementMessage(MessageOutcome.Forbidden);
                     throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "forbidden");
                 }
 
@@ -179,6 +192,7 @@ public static class RealtimeEndpoints
                     await using var reader = await check.ExecuteReaderAsync(ct);
                     if (!await reader.ReadAsync(ct))
                     {
+                        counters.IncrementMessage(MessageOutcome.Forbidden);
                         throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "forbidden");
                     }
                     revokedAt = reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0);
@@ -186,6 +200,7 @@ public static class RealtimeEndpoints
                 }
                 if (revokedAt is not null || rowKeyVersion != keyVersion)
                 {
+                    counters.IncrementMessage(MessageOutcome.Forbidden);
                     throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "forbidden");
                 }
 
@@ -207,18 +222,22 @@ public static class RealtimeEndpoints
                     }
                     catch (JsonException)
                     {
+                        counters.IncrementMessage(MessageOutcome.ValidationFailed);
                         throw new ApiException(StatusCodes.Status400BadRequest,
                             ApiErrorCodes.ValidationFailed, "malformed body");
                     }
                     if (locationBody is null)
                     {
+                        counters.IncrementMessage(MessageOutcome.ValidationFailed);
                         throw new ApiException(StatusCodes.Status400BadRequest,
                             ApiErrorCodes.ValidationFailed, "malformed body");
                     }
                     var response = await ingest.HandleAsync(beaconId, locationBody, messagePath: true, ct);
+                    counters.IncrementMessage(MessageOutcome.LocationOk);
                     return Results.Ok(response);
                 }
 
+                counters.IncrementMessage(MessageOutcome.ValidationFailed);
                 RequestValidation.Throw("event", "must be location");
                 return Results.Ok();
             })

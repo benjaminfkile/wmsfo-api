@@ -38,6 +38,12 @@ jobs:
       - run: git diff --exit-code contracts/
       # sql.md 14.3: fails the job when the DbContext has drifted from Migrations/.
       - run: dotnet ef migrations has-pending-model-changes --project src/Wmsfo.Api --startup-project src/Wmsfo.Api --context WmsfoDbContext
+      # api.md 18 / A17: build the container image so a broken Dockerfile blocks
+      # CI. No registry push and no cross-arch here — that lives in the deploy
+      # job which is disabled until the ECR repository exists (platform.md 13).
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker build (verify only)
+        run: docker buildx build --load -t wmsfo-api:ci-${{ github.sha }} .
 
   deploy:
     needs: test

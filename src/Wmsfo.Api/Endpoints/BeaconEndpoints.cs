@@ -197,8 +197,9 @@ returning name, role, is_active;", conn))
     private static void MapHeartbeat(IEndpointRouteBuilder app)
     {
         app.MapPost("/beacons/heartbeat",
-            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, IServerClock clock, CancellationToken ct) =>
+            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, IServerClock clock, NodeCounters counters, CancellationToken ct) =>
             {
+                counters.IncrementHeartbeat();
                 var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
                     ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
 

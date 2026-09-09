@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
 
@@ -38,7 +39,15 @@ public sealed class FleetFirstBootHook : IFirstBootHook
             var db = scope.ServiceProvider.GetRequiredService<WmsfoDbContext>();
             try
             {
-                await iconLibrary.EnsureWrittenAsync(store, db, ct).ConfigureAwait(false);
+                var wrote = await iconLibrary.EnsureWrittenAsync(store, db, ct).ConfigureAwait(false);
+                if (wrote)
+                {
+                    // api.md 16 / platform.md 10: fires once per deploy when the
+                    // compiled library hash differs from icon_library_state.
+                    _logger.LogInformation(
+                        "icon library written hash={Hash}; marker={Marker}",
+                        iconLibrary.LibraryHash, LogMarkers.IconLibraryWritten);
+                }
             }
             catch (Exception ex)
             {

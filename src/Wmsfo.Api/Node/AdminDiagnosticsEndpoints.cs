@@ -47,7 +47,7 @@ public static class AdminDiagnosticsEndpoints
             });
         }).WithTags("AdminDiagnostics");
 
-        app.MapGet("/admin/live", async (WmsfoDbContext db, NodeStateService state, IGatewayInternalClient gateway, LiveObjectWriter writer, CancellationToken ct) =>
+        app.MapGet("/admin/live", async (WmsfoDbContext db, NodeStateService state, IGatewayInternalClient gateway, LiveObjectWriter writer, NodeCounters counters, CancellationToken ct) =>
         {
             var row = await db.LiveState.FirstOrDefaultAsync(x => x.Id == 1, ct);
             var live = writer.LastWrittenObject ?? BuildInMemoryObject(state, writer);
@@ -65,6 +65,7 @@ public static class AdminDiagnosticsEndpoints
                     LeaderEvaluatedAt = state.Leader.EvaluatedAt == DateTimeOffset.MinValue ? null : state.Leader.EvaluatedAt,
                     CacheRefreshedAt = state.Current.RefreshedAt,
                     Live = live,
+                    Counters = counters.Snapshot(),
                 },
             };
             return Results.Ok(response);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Contracts.Dtos;
@@ -140,4 +141,6 @@ public sealed class AdminLiveNode
     public DateTimeOffset? LeaderEvaluatedAt { get; set; }
     public DateTimeOffset CacheRefreshedAt { get; set; }
     public LiveObject Live { get; set; } = new();
+    // api.md 16: the in-memory counter snapshot for this node.
+    public NodeCountersSnapshot Counters { get; set; } = new();
 }

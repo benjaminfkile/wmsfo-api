@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
@@ -217,8 +219,9 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
     {
         app.MapPost("/admin/media/{id}/confirm",
             async (string id, HttpContext ctx, WmsfoConnectionStrings connections,
-                   IObjectStore store, WmsfoOptions options, CancellationToken ct) =>
+                   IObjectStore store, WmsfoOptions options, ILoggerFactory loggerFactory, CancellationToken ct) =>
             {
+                var logger = loggerFactory.CreateLogger("Wmsfo.Api.Media.Confirm");
                 if (!Guid.TryParse(id, out var mediaId))
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
                 _ = AdminHelpers.RequireAdminEmail(ctx);
@@ -338,8 +341,11 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                             variantKeysPut.Add(variantKey);
                             variantMap[target.ToString(System.Globalization.CultureInfo.InvariantCulture)] = variantKey;
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            logger.LogWarning(ex,
+                                "media variant PUT failed id={MediaId} width={Width}; marker={Marker}",
+                                mediaId, target, LogMarkers.MediaWriteFailed);
                             throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
                                 $"variant write failed for width {target}");
                         }
@@ -358,8 +364,11 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                         await store.DeleteObjectTaggingAsync(vk, ct);
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    logger.LogWarning(ex,
+                        "media tag removal failed id={MediaId}; marker={Marker}",
+                        mediaId, LogMarkers.MediaWriteFailed);
                     throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
                         "tag removal failed");
                 }

@@ -92,6 +92,7 @@ public sealed class A12Host : IAsyncDisposable
         builder.Services.AddSingleton<IObjectStore>(store);
         builder.Services.AddSingleton<IGatewayInternalClient>(gateway);
         builder.Services.AddSingleton<NodeStateService>();
+        builder.Services.AddSingleton<NodeCounters>();
         builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
             .UseNpgsql(connectionString)
             .UseSnakeCaseNamingConvention());

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Http;
 using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.Node;
@@ -63,7 +64,7 @@ public sealed class LeaderMonitor : BackgroundService
             var forced = new LeaderStatus(IsLeader: true, EvaluatedAt: DateTimeOffset.UtcNow, InstanceId: "forced");
             var wasLeader = _state.Leader.IsLeader;
             _state.SetLeader(forced);
-            if (!wasLeader) _logger.LogInformation("leadership gained (forced); marker=wmsfo_leader_gained");
+            if (!wasLeader) _logger.LogInformation("leadership gained (forced); marker={Marker}", LogMarkers.LeaderGained);
             return;
         }
 
@@ -78,8 +79,8 @@ public sealed class LeaderMonitor : BackgroundService
         _state.SetLeader(status);
 
         if (isLeader && !previous.IsLeader)
-            _logger.LogInformation("leadership gained; marker=wmsfo_leader_gained");
+            _logger.LogInformation("leadership gained; marker={Marker}", LogMarkers.LeaderGained);
         else if (!isLeader && previous.IsLeader)
-            _logger.LogInformation("leadership lost; marker=wmsfo_leader_lost");
+            _logger.LogInformation("leadership lost; marker={Marker}", LogMarkers.LeaderLost);
     }
 }
