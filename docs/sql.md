@@ -1560,6 +1560,9 @@ alter role wmsfo_migrate_dev in database wmsfo_dev set timezone = 'UTC';
 
 ```sql
 -- as wmsfo_migrate_dev, connected to wmsfo_dev
+-- The migrate role is noinherit, so owning the database does not give it the
+-- pg_database_owner schema rights on PostgreSQL 15 and later; grant them directly.
+grant usage, create on schema public to wmsfo_migrate_dev;
 revoke create on schema public from public;
 grant usage on schema public to wmsfo_app_dev;
 alter default privileges for role wmsfo_migrate_dev in schema public
