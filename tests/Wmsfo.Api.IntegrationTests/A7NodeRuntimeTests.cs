@@ -91,10 +91,9 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
         Assert.NotNull(snapHead);
         Assert.Equal("application/json; charset=utf-8", snapHead!.ContentType);
 
-        // Live-object write from state, after bootstrap.
-        await setup.State.RefreshAsync("boot", default);
-        await setup.Writer.WriteFromStateAsync("boot", default);
-
+        // The bootstrap itself wrote the live object after the snapshot commit
+        // (sql.md 8.16); no separate write is needed for a fresh environment to
+        // serve live/location.json.
         // Bytes stored at live/location.json equal the bytes handed to the gateway publish.
         var live = await setup.Store.GetObjectAsync("live/location.json");
         Assert.NotNull(live);
@@ -192,9 +191,10 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
         var gateway = new FakeGatewayClient();
         var iconLibrary = IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl);
         var builder = new SnapshotBuilder(store, iconLibrary, options, NullLogger<SnapshotBuilder>.Instance);
-        var bootstrap = new SnapshotBootstrap(builder, connections, options, NullLogger<SnapshotBootstrap>.Instance);
         var state = new NodeStateService(connections, NullLogger<NodeStateService>.Instance);
         var writer = new LiveObjectWriter(store, gateway, state, connections, options, new NodeCounters(), NullLogger<LiveObjectWriter>.Instance);
+        // The bootstrap writes the live object itself after the snapshot commit (sql.md 8.16).
+        var bootstrap = new SnapshotBootstrap(builder, connections, options, NullLogger<SnapshotBootstrap>.Instance, liveObjectWriter: writer);
         var readiness = new WmsfoReadinessGate();
         readiness.MarkReady();
         var tick = new ReconcileTick(state, writer, options, readiness, NullLogger<ReconcileTick>.Instance);

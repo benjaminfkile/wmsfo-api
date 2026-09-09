@@ -327,7 +327,7 @@ What each field does on this fleet:
 
 The three realtime string fields and `realtimePresence` are tri-state on upsert (absent preserves, empty string clears, value sets). Nothing but the dashboard ever sends them.
 
-Deploy response and completion: `POST /mgmt/services/<service>/deploy { "tag" }` answers `202 { deployId, service, tag, digest, status: "in_progress" }`. `GET /mgmt/deploys/{deployId}` reports `status` `in_progress`, then `done`, `partial`, or `failed`, with per-instance progress. CI waits on it (section 9.1).
+Deploy response and completion: `POST /mgmt/services/<service>/deploy { "tag" }` answers `202 { deployId, service, tag, digest, status: "in_progress" }`. `GET /mgmt/deploys/{deployId}` answers `{ deploy: { status, ... }, instances: [...] }`; `deploy.status` is `in_progress`, then `done`, `partial`, or `failed`, with per-instance progress in `instances`. CI waits on it (section 9.1).
 
 ### 3.2 The container secret
 

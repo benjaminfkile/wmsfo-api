@@ -81,7 +81,8 @@ jobs:
             -d "{\"tag\":\"${TAG}\"}")
           ID=$(echo "$DEPLOY" | jq -r .deployId)
           for i in $(seq 1 60); do
-            STATUS=$(curl -fsS "${{ secrets.GATEWAY_BASE_URL }}/mgmt/deploys/${ID}" -H "Authorization: Bearer ${TOKEN}" | jq -r .status)
+            # The gateway answers { deploy: { status, ... }, instances: [...] }.
+            STATUS=$(curl -fsS "${{ secrets.GATEWAY_BASE_URL }}/mgmt/deploys/${ID}" -H "Authorization: Bearer ${TOKEN}" | jq -r .deploy.status)
             echo "deploy ${ID}: ${STATUS}"
             case "$STATUS" in
               done) exit 0 ;;

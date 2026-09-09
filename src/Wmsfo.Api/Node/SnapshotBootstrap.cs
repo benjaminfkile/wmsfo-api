@@ -26,6 +26,7 @@ public sealed class SnapshotBootstrap
     private readonly ILogger<SnapshotBootstrap> _logger;
     private readonly StarterContent? _starterContent;
     private readonly Publisher? _publisher;
+    private readonly LiveObjectWriter? _liveObjectWriter;
 
     public SnapshotBootstrap(
         SnapshotBuilder snapshotBuilder,
@@ -33,7 +34,8 @@ public sealed class SnapshotBootstrap
         WmsfoOptions options,
         ILogger<SnapshotBootstrap> logger,
         StarterContent? starterContent = null,
-        Publisher? publisher = null)
+        Publisher? publisher = null,
+        LiveObjectWriter? liveObjectWriter = null)
     {
         _snapshotBuilder = snapshotBuilder;
         _connections = connections;
@@ -41,6 +43,7 @@ public sealed class SnapshotBootstrap
         _logger = logger;
         _starterContent = starterContent;
         _publisher = publisher;
+        _liveObjectWriter = liveObjectWriter;
     }
 
     // Runs the four steps in order. Uses the migrate role (the migrator holds
@@ -88,6 +91,15 @@ values (1, 1, $1, $2, now());", conn, tx))
         await tx.CommitAsync(ct).ConfigureAwait(false);
         _logger.LogInformation(
             "snapshot version 1 written: key={Key} url={Url}", built.Key, built.Url);
+
+        // sql.md 8.16: after the snapshot commit the node writes the live object
+        // under the admin-path rule, so a fresh environment serves live/location.json
+        // before any admin action. Later boots leave it to the ingest and admin paths.
+        if (_liveObjectWriter is not null)
+        {
+            await _liveObjectWriter.WriteFromStateAsync("first-boot", ct).ConfigureAwait(false);
+            _logger.LogInformation("live object written at first boot");
+        }
     }
 
     private static async Task<bool> SnapshotRowExistsAsync(NpgsqlConnection conn, CancellationToken ct)
