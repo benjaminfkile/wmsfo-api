@@ -1695,7 +1695,7 @@ Memory is refreshed from every row read. When `version` moved and `lastWrittenVe
 
 ### 7.5 Leadership
 
-Poll `GET <WMSFO_GATEWAY_INTERNAL_URL>/internal/leader` with `X-Gateway-Realtime-Token: <GATEWAY_REALTIME_TOKEN>` every 2 s with a 1 s timeout. Leader only when the latest answer is `2xx`, `isLeader` is true, and `evaluatedAt` is non-null and under 10 s old. Any non-2xx, timeout, network error, `evaluatedAt: null`, or staleness means follower immediately; `isLeader: true` is never carried across a missed poll. Leadership may overlap for a loop during a hand-off, so every chore is idempotent. `WMSFO_FORCE_LEADER=true` makes the node leader without a gateway (local runs only).
+Poll `GET <WMSFO_GATEWAY_INTERNAL_URL>/internal/leader` with `X-Gateway-Realtime-Token: <GATEWAY_REALTIME_TOKEN>` every 2 s with a 1 s timeout. Leader only when the latest answer is `2xx`, `isLeader` is true, and `evaluatedAt` is non-null and under 90 s old (the gateway re-evaluates leadership on its reconcile loop, every 30 s plus jitter, so the window covers two missed loops). Any non-2xx, timeout, network error, `evaluatedAt: null`, or staleness means follower immediately; `isLeader: true` is never carried across a missed poll. Leadership may overlap for a loop during a hand-off, so every chore is idempotent. `WMSFO_FORCE_LEADER=true` makes the node leader without a gateway (local runs only).
 
 ### 7.6 Leader chores (all idempotent)
 

@@ -58,6 +58,10 @@ Console.WriteLine($"wmsfo boot: env={options.Env} service={options.ServiceName} 
 // on every line. Node accessor is wired after Build() when the gateway client
 // singleton is available; until then the machine name stands in.
 builder.Logging.AddWmsfoJsonConsoleLogging(options);
+// The gateway leader poll runs every 2 s on every node; HttpClient's per-request
+// Information lines would be most of the log volume (api.md 16 lists what the
+// service itself logs). Warnings and errors from the client still get through.
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
 // api.md 3 step 2: build the two connection strings and register the contexts.
 var connections = WmsfoConnectionStrings.Build(options);

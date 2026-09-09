@@ -340,11 +340,13 @@ public sealed record NodeSettings(
 }
 
 // section 13: leadership. IsLeader true only when the last answer was 2xx,
-// isLeader=true, and evaluatedAt is < 10 s old at evaluation time. Read at request
-// time this expires on its own even if the poller stalled.
+// isLeader=true, and evaluatedAt is < 90 s old at evaluation time. The gateway
+// re-evaluates leadership on its reconcile loop (every 30 s plus jitter), so the
+// window covers two missed loops. Read at request time this expires on its own
+// even if the poller stalled.
 public sealed record LeaderStatus(bool IsLeader, DateTimeOffset EvaluatedAt, string? InstanceId)
 {
-    public static readonly TimeSpan Expiry = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan Expiry = TimeSpan.FromSeconds(90);
 
     public bool IsCurrentlyLeader(DateTimeOffset now)
     {

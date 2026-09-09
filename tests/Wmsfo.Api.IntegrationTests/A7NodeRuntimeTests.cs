@@ -141,18 +141,22 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
         Assert.False(ingest.State.WroteForLocationSinceVersionChange);
     }
 
-    // Leader expiry: a leader answer older than 10 s is not currently leader.
+    // Leader expiry: a leader answer older than 90 s is not currently leader. The
+    // gateway refreshes evaluatedAt on its 30 s reconcile loop, so an answer from
+    // the previous loop is still current.
     [Fact]
-    public void Leader_expires_ten_seconds_after_last_answer()
+    public void Leader_expires_ninety_seconds_after_last_answer()
     {
         var now = DateTimeOffset.UtcNow;
         var fresh = new LeaderStatus(IsLeader: true, EvaluatedAt: now, InstanceId: "i-1");
-        var stale = new LeaderStatus(IsLeader: true, EvaluatedAt: now - TimeSpan.FromSeconds(11), InstanceId: "i-1");
+        var lastLoop = new LeaderStatus(IsLeader: true, EvaluatedAt: now - TimeSpan.FromSeconds(35), InstanceId: "i-1");
+        var stale = new LeaderStatus(IsLeader: true, EvaluatedAt: now - TimeSpan.FromSeconds(91), InstanceId: "i-1");
 
         Assert.True(fresh.IsCurrentlyLeader(now));
+        Assert.True(lastLoop.IsCurrentlyLeader(now));
         Assert.False(stale.IsCurrentlyLeader(now));
-        // Also, at exactly 10 s, expiry has kicked in (< 10 s, strict).
-        Assert.False(new LeaderStatus(true, now - TimeSpan.FromSeconds(10), null).IsCurrentlyLeader(now));
+        // Also, at exactly 90 s, expiry has kicked in (< 90 s, strict).
+        Assert.False(new LeaderStatus(true, now - TimeSpan.FromSeconds(90), null).IsCurrentlyLeader(now));
     }
 
     // --- Helpers ---

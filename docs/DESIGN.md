@@ -262,7 +262,7 @@ X-Gateway-Realtime-Token: <this service's publish token, from env GATEWAY_REALTI
 200 { "instanceId": "i-…", "isLeader": true, "leaderInstanceId": "i-…", "evaluatedAt": "…" }
 ```
 
-Rules the API follows: `evaluatedAt: null` or any request failure means "not leader"; leadership may overlap for a loop during a hand-off, so every chore is idempotent (outbox rows are claimed with `update … where published_at is null returning`, alerts are keyed by `(subscriber, outbox_id)` unique); poll it every 2 s with a 1 s timeout, treat an `evaluatedAt` older than 10 s as follower, never carry `isLeader: true` across a missed poll (the pattern REALTIME.md recommends). Locally, with no gateway, an env override `WMSFO_FORCE_LEADER=true` runs the chores.
+Rules the API follows: `evaluatedAt: null` or any request failure means "not leader"; leadership may overlap for a loop during a hand-off, so every chore is idempotent (outbox rows are claimed with `update … where published_at is null returning`, alerts are keyed by `(subscriber, outbox_id)` unique); poll it every 2 s with a 1 s timeout, treat an `evaluatedAt` older than 90 s as follower (the gateway refreshes it every 30 s), never carry `isLeader: true` across a missed poll (the pattern REALTIME.md recommends). Locally, with no gateway, an env override `WMSFO_FORCE_LEADER=true` runs the chores.
 
 ## 9. Moving the legacy data
 

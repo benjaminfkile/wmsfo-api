@@ -423,7 +423,7 @@ The `payload` for a publish is the exact bytes the writer PUT, passed as raw JSO
 
 ## 13. Leadership and chores
 
-`LeaderMonitor` polls `GET /internal/leader` every 2 s (1 s timeout) and stores `Leader { IsLeader, EvaluatedAt, InstanceId }`. `IsLeader` is true only when the latest answer was `2xx`, `isLeader` was true, and `evaluatedAt` is non-null and under 10 s old at evaluation time; the value expires on its own 10 s after the answer, so a stopped poll never leaves a stale true. `WMSFO_FORCE_LEADER=true` short-circuits to true (refused in prod at boot). Transitions log at Information with markers `wmsfo_leader_gained` and `wmsfo_leader_lost`.
+`LeaderMonitor` polls `GET /internal/leader` every 2 s (1 s timeout) and stores `Leader { IsLeader, EvaluatedAt, InstanceId }`. `IsLeader` is true only when the latest answer was `2xx`, `isLeader` was true, and `evaluatedAt` is non-null and under 90 s old at evaluation time (the gateway refreshes it on its 30 s reconcile loop); the value expires on its own 90 s after the answer, so a stopped poll never leaves a stale true. `WMSFO_FORCE_LEADER=true` short-circuits to true (refused in prod at boot). Transitions log at Information with markers `wmsfo_leader_gained` and `wmsfo_leader_lost`.
 
 `ChoreHost` is one `BackgroundService` running each chore on its own cadence only while `Leader.IsLeader` is true at the moment the chore starts; a chore in flight finishes even if leadership lapses (every chore is idempotent).
 
