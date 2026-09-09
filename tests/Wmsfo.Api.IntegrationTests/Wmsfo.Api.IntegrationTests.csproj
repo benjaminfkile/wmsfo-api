@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wmsfo.Api\Wmsfo.Api.csproj" />
+    <ProjectReference Include="..\..\tools\Wmsfo.Migrate\Wmsfo.Migrate.csproj" />
   </ItemGroup>
 
 </Project>
