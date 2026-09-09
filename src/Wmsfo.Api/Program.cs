@@ -3,6 +3,7 @@ using Amazon.S3;
 using Amazon.SimpleEmailV2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Wmsfo.Api.Chores;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
@@ -53,6 +54,11 @@ if (validation.Failed)
 }
 Console.WriteLine($"wmsfo boot: env={options.Env} service={options.ServiceName} region={options.AwsRegion} cdn={options.CdnBaseUrl} api={options.PublicApiBaseUrl} hub={options.HubUrl}");
 
+// api.md 16: JSON console logging with ts/level/msg/requestId/service/env/node
+// on every line. Node accessor is wired after Build() when the gateway client
+// singleton is available; until then the machine name stands in.
+builder.Logging.AddWmsfoJsonConsoleLogging(options);
+
 // api.md 3 step 2: build the two connection strings and register the contexts.
 var connections = WmsfoConnectionStrings.Build(options);
 builder.Services.AddSingleton(connections);
@@ -102,6 +108,8 @@ static string? ResolveIconRoot(string start)
 }
 
 builder.Services.AddSingleton<NodeStateService>();
+builder.Services.AddSingleton<NodeCounters>();
+builder.Services.AddSingleton<HealthMarkerLogger>();
 builder.Services.AddHttpClient<IGatewayInternalClient, GatewayInternalClient>();
 builder.Services.AddSingleton<SnapshotBuilder>();
 builder.Services.AddSingleton<LiveObjectWriter>();
@@ -204,6 +212,12 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 var readiness = app.Services.GetRequiredService<WmsfoReadinessGate>();
 
+// api.md 16: `node` field is the gateway instance id once known, else the
+// hostname. Wire the accessor now that the singleton exists.
+var loggingFields = app.Services.GetRequiredService<IOptions<WmsfoLoggingFields>>().Value;
+var gatewayClient = app.Services.GetRequiredService<IGatewayInternalClient>();
+loggingFields.NodeAccessor = () => gatewayClient.LastInstanceId ?? loggingFields.Node;
+
 // api.md 5 step 1: readiness middleware answers 503 to every non-health request
 // until the migration completes.
 app.Use(async (context, next) =>
@@ -225,11 +239,14 @@ app.Use(async (context, next) =>
 // body limits, routing, CORS, both-headers guard, auth, rate limiting.
 app.UseWmsfoPipeline();
 
-// api.md 17: /api/health answers 503 until ready, then `select 1` with a 2 s timeout.
-app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate gate, CancellationToken ct) =>
+// api.md 17: /api/health answers 503 until ready, then `select 1` with a 2 s
+// timeout. On failure log `wmsfo_health_unavailable` at Warning at most once
+// per 30 s so CloudWatch's metric filter fires without flooding.
+app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate gate, HealthMarkerLogger marker, CancellationToken ct) =>
 {
     if (!gate.IsReady)
     {
+        marker.LogUnavailable(null);
         return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
     try
@@ -242,8 +259,9 @@ app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate g
         _ = await command.ExecuteScalarAsync(cts.Token);
         return Results.Ok(new { status = "ok" });
     }
-    catch
+    catch (Exception ex)
     {
+        marker.LogUnavailable(ex);
         return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
     }
 })

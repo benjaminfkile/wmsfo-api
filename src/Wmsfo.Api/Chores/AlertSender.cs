@@ -6,6 +6,7 @@ using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Data.Sql;
 using Wmsfo.Api.Email;
+using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Chores;
 
@@ -90,8 +91,8 @@ public sealed class AlertSender
                 if (row.Attempts + 1 >= 5)
                 {
                     _logger.LogWarning(
-                        "alert delivery {Id} exhausted after {Attempts} attempts; marker=wmsfo_alert_exhausted",
-                        row.Id, row.Attempts + 1);
+                        "alert delivery {Id} exhausted after {Attempts} attempts; marker={Marker}",
+                        row.Id, row.Attempts + 1, LogMarkers.AlertExhausted);
                 }
             }
         }

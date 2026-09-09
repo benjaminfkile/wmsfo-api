@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Http;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Realtime;
 
@@ -26,6 +27,7 @@ public sealed class LiveObjectWriter
     private readonly NodeStateService _state;
     private readonly WmsfoConnectionStrings _connections;
     private readonly WmsfoOptions _options;
+    private readonly NodeCounters _counters;
     private readonly ILogger<LiveObjectWriter> _logger;
 
     private readonly SemaphoreSlim _semaphore = new(1, 1);
@@ -44,6 +46,7 @@ public sealed class LiveObjectWriter
         NodeStateService state,
         WmsfoConnectionStrings connections,
         WmsfoOptions options,
+        NodeCounters counters,
         ILogger<LiveObjectWriter> logger)
     {
         _store = store;
@@ -51,6 +54,7 @@ public sealed class LiveObjectWriter
         _state = state;
         _connections = connections;
         _options = options;
+        _counters = counters;
         _logger = logger;
     }
 
@@ -95,8 +99,12 @@ public sealed class LiveObjectWriter
                 LastWrittenBytes = bytes;
 
                 var putOk = await PutAsync(bytes, currentAdminPath, ct).ConfigureAwait(false);
+                if (putOk) _counters.IncrementLivePutOk();
+                else _counters.IncrementLivePutFailed();
                 // Publish is attempted whether or not the PUT succeeded (api.md 10.1).
-                _ = await _gateway.PublishAsync(_options.ServiceName + ":location", "location", bytes, ct).ConfigureAwait(false);
+                var publishOk = await _gateway.PublishAsync(_options.ServiceName + ":location", "location", bytes, ct).ConfigureAwait(false);
+                if (publishOk) _counters.IncrementPublishOk();
+                else _counters.IncrementPublishFailed();
                 if (currentLocation is not null) _state.MarkWroteForLocation();
                 await UpdateLiveStateAsync(putOk, obj, ct).ConfigureAwait(false);
 
@@ -135,8 +143,8 @@ public sealed class LiveObjectWriter
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "live PUT attempt {Attempt}/{Attempts} failed; marker=wmsfo_live_put_failed",
-                    attempt, attempts);
+                    "live PUT attempt {Attempt}/{Attempts} failed; marker={Marker}",
+                    attempt, attempts, LogMarkers.LivePutFailed);
                 if (attempt < attempts)
                 {
                     try { await Task.Delay(AdminRetryDelay, ct).ConfigureAwait(false); }

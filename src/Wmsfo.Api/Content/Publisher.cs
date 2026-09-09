@@ -10,6 +10,7 @@ using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
+using LogMarkers = Wmsfo.Api.Http.LogMarkers;
 
 namespace Wmsfo.Api.Content;
 
@@ -229,6 +230,16 @@ where id not in (select id from content_version order by id desc limit $1);", co
         }
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
+
+        // api.md 16: `wmsfo_content_published` at Information with the version id
+        // and the publisher (platform.md 10 metric filter). Skipped on the
+        // first-boot seed publish so the marker only fires for admin actions.
+        if (buildSnapshot)
+        {
+            _logger.LogInformation(
+                "content published versionId={VersionId} publishedBy={PublishedBy}; marker={Marker}",
+                newVersionId, publishedBy, LogMarkers.ContentPublished);
+        }
 
         if (snapshotVersion is long v)
         {

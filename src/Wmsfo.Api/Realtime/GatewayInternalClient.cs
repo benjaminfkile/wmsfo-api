@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Realtime;
 
@@ -90,8 +91,8 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning(
-                    "gateway publish {Channel}/{Event} failed: status={Status} marker=wmsfo_publish_failed",
-                    channel, @event, (int)response.StatusCode);
+                    "gateway publish {Channel}/{Event} failed: status={Status} marker={Marker}",
+                    channel, @event, (int)response.StatusCode, LogMarkers.PublishFailed);
                 return false;
             }
             return true;
@@ -99,7 +100,7 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
-                "gateway publish {Channel}/{Event} threw; marker=wmsfo_publish_failed", channel, @event);
+                "gateway publish {Channel}/{Event} threw; marker={Marker}", channel, @event, LogMarkers.PublishFailed);
             return false;
         }
     }

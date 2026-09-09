@@ -54,6 +54,7 @@ public class LiveObjectWriterBuildTests
             state: new NodeStateService(FakeConnections(), NullLogger<NodeStateService>.Instance),
             connections: FakeConnections(),
             options: new WmsfoOptions { ServiceName = "wmsfo-api-test" },
+            counters: new NodeCounters(),
             logger: NullLogger<LiveObjectWriter>.Instance);
 
         var (built, bytes) = writer.Build(state, location, publishedAt: fixture.PublishedAt);

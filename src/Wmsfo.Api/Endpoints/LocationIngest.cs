@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
@@ -17,19 +18,25 @@ public sealed class LocationIngest
     private readonly NodeStateService _state;
     private readonly WmsfoOptions _options;
     private readonly IServerClock _clock;
+    private readonly NodeCounters _counters;
+    private readonly ILogger<LocationIngest> _logger;
 
     public LocationIngest(
         WmsfoConnectionStrings connections,
         LiveObjectWriter writer,
         NodeStateService state,
         WmsfoOptions options,
-        IServerClock clock)
+        IServerClock clock,
+        NodeCounters counters,
+        ILogger<LocationIngest> logger)
     {
         _connections = connections;
         _writer = writer;
         _state = state;
         _options = options;
         _clock = clock;
+        _counters = counters;
+        _logger = logger;
     }
 
     // The caller has already resolved the beacon from `X-Beacon-Key` (REST) or the
@@ -167,6 +174,14 @@ where id = $1;", conn, tx))
 
             await tx.CommitAsync(ct).ConfigureAwait(false);
         }
+
+        // api.md 16: log `location stored` at Information with seq, beaconId,
+        // eventId, published. CloudWatch's `LocationPublished` metric filter
+        // keys on this line.
+        _counters.IncrementLocationStored();
+        if (published) _counters.IncrementLocationPublished();
+        _logger.LogInformation("location stored seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published}",
+            seq, beaconId, eventId, published);
 
         // After commit: on the ingest path, fire the CDN write (contracts 1.8).
         if (published)

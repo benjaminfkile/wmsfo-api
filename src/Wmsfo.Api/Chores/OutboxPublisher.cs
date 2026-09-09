@@ -5,6 +5,7 @@ using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Data.Sql;
 using Wmsfo.Api.Email;
+using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Chores;
 
@@ -67,8 +68,8 @@ public sealed class OutboxPublisher
                 if (row.Attempts >= 5)
                 {
                     _logger.LogWarning(
-                        "outbox row {Id} topic={Topic} exhausted after {Attempts} attempts; marker=wmsfo_outbox_exhausted",
-                        row.Id, row.Topic, row.Attempts);
+                        "outbox row {Id} topic={Topic} exhausted after {Attempts} attempts; marker={Marker}",
+                        row.Id, row.Topic, row.Attempts, LogMarkers.OutboxExhausted);
                 }
             }
         }

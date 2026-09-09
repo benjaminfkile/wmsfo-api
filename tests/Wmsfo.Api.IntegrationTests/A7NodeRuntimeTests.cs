@@ -190,7 +190,7 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
         var builder = new SnapshotBuilder(store, iconLibrary, options, NullLogger<SnapshotBuilder>.Instance);
         var bootstrap = new SnapshotBootstrap(builder, connections, options, NullLogger<SnapshotBootstrap>.Instance);
         var state = new NodeStateService(connections, NullLogger<NodeStateService>.Instance);
-        var writer = new LiveObjectWriter(store, gateway, state, connections, options, NullLogger<LiveObjectWriter>.Instance);
+        var writer = new LiveObjectWriter(store, gateway, state, connections, options, new NodeCounters(), NullLogger<LiveObjectWriter>.Instance);
         var readiness = new WmsfoReadinessGate();
         readiness.MarkReady();
         var tick = new ReconcileTick(state, writer, options, readiness, NullLogger<ReconcileTick>.Instance);

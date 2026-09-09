@@ -94,6 +94,7 @@ public sealed class A15Host : IAsyncDisposable
         builder.Services.AddSingleton<IObjectStore>(store);
         builder.Services.AddSingleton<IGatewayInternalClient>(new FakeGatewayClient());
         builder.Services.AddSingleton<NodeStateService>();
+        builder.Services.AddSingleton<NodeCounters>();
         builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
             .UseNpgsql(connectionString)
             .UseSnakeCaseNamingConvention());

@@ -431,7 +431,7 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         var docBuilder = new DocumentBuilder();
         var snapshotBuilder = new SnapshotBuilder(store, iconLibrary, options, NullLogger<SnapshotBuilder>.Instance);
         var state = new NodeStateService(connections, NullLogger<NodeStateService>.Instance);
-        var writer = new LiveObjectWriter(store, gateway, state, connections, options, NullLogger<LiveObjectWriter>.Instance);
+        var writer = new LiveObjectWriter(store, gateway, state, connections, options, new NodeCounters(), NullLogger<LiveObjectWriter>.Instance);
         var publisher = new Publisher(connections, docBuilder, validator, iconLibrary,
             snapshotBuilder, writer, state, NullLogger<Publisher>.Instance);
         var bootstrap = new SnapshotBootstrap(snapshotBuilder, connections, options,
