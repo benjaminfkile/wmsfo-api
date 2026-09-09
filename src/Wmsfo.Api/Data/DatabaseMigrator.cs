@@ -21,21 +21,30 @@ public sealed class DatabaseMigrator
     };
 
     private readonly string _migrateConnectionString;
-    private readonly IDbContextFactory<WmsfoDbContext> _factory;
+    private readonly DbContextOptions<WmsfoDbContext> _migrateOptions;
     private readonly ILogger<DatabaseMigrator> _logger;
     private readonly IFirstBootHook _firstBoot;
 
     public DatabaseMigrator(
         string migrateConnectionString,
-        IDbContextFactory<WmsfoDbContext> factory,
         IFirstBootHook firstBoot,
         ILogger<DatabaseMigrator> logger)
     {
         _migrateConnectionString = migrateConnectionString;
-        _factory = factory;
+        // The migration context is built here from the migrate connection string and
+        // never through the shared DbContext registrations: those share one
+        // DbContextOptions<WmsfoDbContext> and resolve to the app connection, whose
+        // role has no DDL rights (sql.md 12, 13).
+        _migrateOptions = new DbContextOptionsBuilder<WmsfoDbContext>()
+            .UseNpgsql(migrateConnectionString)
+            .UseSnakeCaseNamingConvention()
+            .Options;
         _firstBoot = firstBoot;
         _logger = logger;
     }
+
+    // The context every migration runs through; opens on the migrate role.
+    public WmsfoDbContext CreateMigrationContext() => new(_migrateOptions);
 
     public async Task MigrateAsync(CancellationToken ct)
     {
@@ -47,7 +56,7 @@ public sealed class DatabaseMigrator
         }
         try
         {
-            await using var db = await _factory.CreateDbContextAsync(ct);
+            await using var db = CreateMigrationContext();
             var pending = (await db.Database.GetPendingMigrationsAsync(ct)).ToList();
             if (pending.Count > 0)
             {

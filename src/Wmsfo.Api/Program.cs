@@ -64,8 +64,11 @@ var connections = WmsfoConnectionStrings.Build(options);
 builder.Services.AddSingleton(connections);
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<WmsfoReadinessGate>();
+// Both registrations share one DbContextOptions<WmsfoDbContext>, so they must
+// agree: both serve requests on the app connection. Migrations build their own
+// context on the migrate connection inside DatabaseMigrator.
 builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
-    .UseNpgsql(connections.Migrate)
+    .UseNpgsql(connections.App)
     .UseSnakeCaseNamingConvention());
 builder.Services.AddDbContext<WmsfoDbContext>(o => o
     .UseNpgsql(connections.App)
@@ -196,7 +199,6 @@ static string? ResolveContractsRoot(string start)
 builder.Services.AddSingleton<IFirstBootHook, FleetFirstBootHook>();
 builder.Services.AddScoped<DatabaseMigrator>(sp => new DatabaseMigrator(
     connections.Migrate,
-    sp.GetRequiredService<IDbContextFactory<WmsfoDbContext>>(),
     sp.GetRequiredService<IFirstBootHook>(),
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<DatabaseMigrator>()));
 builder.Services.AddHostedService<MigrationHostedService>();

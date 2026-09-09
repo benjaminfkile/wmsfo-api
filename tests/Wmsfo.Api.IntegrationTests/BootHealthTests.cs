@@ -50,7 +50,6 @@ public sealed class BootHealthTests : IClassFixture<PostgresFixture>
         builder.Services.AddSingleton<IFirstBootHook, NoOpFirstBootHook>();
         builder.Services.AddScoped<DatabaseMigrator>(sp => new DatabaseMigrator(
             _fixture.ConnectionString,
-            sp.GetRequiredService<IDbContextFactory<WmsfoDbContext>>(),
             sp.GetRequiredService<IFirstBootHook>(),
             sp.GetRequiredService<ILoggerFactory>().CreateLogger<DatabaseMigrator>()));
         builder.Services.AddHostedService<MigrationHostedService>();
