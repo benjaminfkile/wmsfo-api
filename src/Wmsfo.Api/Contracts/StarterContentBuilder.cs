@@ -32,7 +32,7 @@ public static class StarterContentBuilder
         Theme = new SiteTheme
         {
             Accent = "red",
-            Surface = "night",
+            Surface = "snow",
             FontPairing = "festive",
             SnowDefault = true,
         },
