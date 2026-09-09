@@ -10,7 +10,7 @@ namespace Wmsfo.Migrate;
 // sql.md 15.10: the legacy-logo import slice. Runs the API's confirm pipeline
 // on the bytes read from the legacy bucket, PUTs the media/{uuid}/... object
 // (and raster variants) to the target bucket, and inserts a media_asset row
-// with title 'legacy:<legacy_key>' — the natural key that keeps this
+// with title 'legacy:<legacy_key>', the natural key that keeps this
 // idempotent. Sponsor.logo_media_id is updated last so a failure between the
 // media row and the link is caught by the next rerun.
 internal sealed class LogoImporter

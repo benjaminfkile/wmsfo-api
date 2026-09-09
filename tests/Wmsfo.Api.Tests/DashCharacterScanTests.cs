@@ -15,6 +15,7 @@ public class DashCharacterScanTests
         {
             Path.Combine(ContractsPaths.RepoRoot, "src"),
             Path.Combine(ContractsPaths.RepoRoot, "tests"),
+            Path.Combine(ContractsPaths.RepoRoot, "tools"),
         };
 
         var hits = new List<string>();
