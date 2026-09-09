@@ -1,0 +1,8 @@
+Thanks for signing up for Santa tracker alerts.
+
+Confirm this address by visiting:
+{{verifyUrl}}
+
+If you did not sign up, ignore this message and no email will follow.
+
+{{siteUrl}}
