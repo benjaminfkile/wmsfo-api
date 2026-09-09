@@ -47,10 +47,10 @@ jobs:
 
   deploy:
     needs: test
-    # Disabled until the service exists: no manifest entry, ECR repository, or
-    # environment secrets yet (docs/platform.md section 13). Restore the
-    # condition to `github.event_name == 'push'` at cut-over.
-    if: false
+    # Runs for pushes to dev (environment dev, service wmsfo-api-dev). Widen to
+    # every push once the prod manifest entry and the prod environment secrets
+    # exist (docs/platform.md section 13).
+    if: github.event_name == 'push' && github.ref_name == 'dev'
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     permissions:
