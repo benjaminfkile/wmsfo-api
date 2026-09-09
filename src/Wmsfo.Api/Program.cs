@@ -1,11 +1,14 @@
 using Amazon;
 using Amazon.S3;
+using Amazon.SimpleEmailV2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Wmsfo.Api.Chores;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
@@ -105,6 +108,42 @@ builder.Services.AddSingleton<LiveObjectWriter>();
 builder.Services.AddSingleton<SnapshotBootstrap>();
 builder.Services.AddHostedService<ReconcileTick>();
 builder.Services.AddHostedService<LeaderMonitor>();
+
+// api.md 13: the leader chores. Templates live under templates/email/; the
+// SES sender flips to log-only when WMSFO_SES_DRY_RUN=true (dev only).
+var templatesRoot = ResolveTemplatesRoot(AppContext.BaseDirectory);
+if (templatesRoot is not null)
+{
+    builder.Services.AddSingleton(_ => EmailTemplates.Load(templatesRoot));
+}
+if (!options.SesDryRun)
+{
+    builder.Services.AddSingleton<IAmazonSimpleEmailServiceV2>(_ =>
+        new AmazonSimpleEmailServiceV2Client(RegionEndpoint.GetBySystemName(options.AwsRegion)));
+}
+builder.Services.AddSingleton<ISesSender, SesSender>();
+builder.Services.AddSingleton<IChoreClock, SystemChoreClock>();
+builder.Services.AddSingleton<OutboxPublisher>();
+builder.Services.AddSingleton<AlertSender>();
+builder.Services.AddSingleton<StaleBeaconFlagger>();
+builder.Services.AddSingleton<MediaOrphanCollector>();
+builder.Services.AddSingleton<NightlyCleanup>();
+builder.Services.AddHostedService<ChoreHost>();
+
+static string? ResolveTemplatesRoot(string start)
+{
+    var dir = new DirectoryInfo(start);
+    for (var i = 0; i < 8 && dir is not null; i++)
+    {
+        var candidate = Path.Combine(dir.FullName, "templates", "email");
+        if (Directory.Exists(candidate) && File.Exists(Path.Combine(candidate, EmailTemplates.SubscriptionVerify + ".html")))
+        {
+            return candidate;
+        }
+        dir = dir.Parent;
+    }
+    return null;
+}
 
 // A8: the shared location transaction is the message-path and REST handler both.
 builder.Services.AddSingleton<LocationIngest>();

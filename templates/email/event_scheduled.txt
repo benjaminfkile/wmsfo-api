@@ -1,0 +1,9 @@
+{{eventName}} is scheduled.
+
+Lift-off is planned for {{scheduledAt}} Mountain time.
+
+Follow along at:
+{{siteUrl}}
+
+To stop receiving these alerts, use the one-click link:
+{{unsubscribeUrl}}
