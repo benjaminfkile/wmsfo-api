@@ -158,6 +158,7 @@ public sealed class A19Host : IAsyncDisposable
         AdminCookieModerationEndpoints.MapAll(app);
         AdminInboxEndpoints.MapAll(app);
         AdminContentEndpoints.MapAll(app);
+        AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
         // Local-upload route (Program.cs installs this when LocalObjectStore is
         // the backing store).

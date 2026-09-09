@@ -528,6 +528,48 @@ limit 1;", conn);
         }
     }
 
+    // api.md 7: every /admin/* route is Editor or Admin. The matrix above samples
+    // routes; this walks the route table so a newly mapped admin endpoint without
+    // RequireAuthorization fails the build instead of shipping open.
+    [Fact]
+    public void Every_admin_route_requires_authorization()
+    {
+        var sources = _host!.App.Services.GetServices<Microsoft.AspNetCore.Routing.EndpointDataSource>();
+        var open = new List<string>();
+        var seen = 0;
+        foreach (var endpoint in sources.SelectMany(s => s.Endpoints).OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>())
+        {
+            var pattern = endpoint.RoutePattern.RawText ?? "";
+            if (!pattern.StartsWith("/admin/", StringComparison.Ordinal)) continue;
+            seen++;
+            var authorize = endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>();
+            var anonymous = endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.Authorization.IAllowAnonymous>();
+            if (authorize is null || anonymous is not null) open.Add(pattern);
+        }
+        Assert.True(seen > 20, "expected the full admin route table, saw " + seen);
+        Assert.True(open.Count == 0, "admin routes without authorization: " + string.Join(", ", open));
+    }
+
+    [Theory]
+    [InlineData("GET", "/admin/live")]
+    [InlineData("GET", "/admin/snapshot")]
+    [InlineData("POST", "/admin/live/republish")]
+    [InlineData("POST", "/admin/snapshot/rebuild")]
+    public async Task Diagnostics_routes_refuse_anonymous_and_editor(string method, string path)
+    {
+        var httpMethod = new HttpMethod(method);
+        using (var anon = new HttpRequestMessage(httpMethod, path))
+        {
+            var response = await _host!.Client.SendAsync(anon);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+        using (var editor = _host!.EditorRequest(httpMethod, path))
+        {
+            var response = await _host.Client.SendAsync(editor);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
+
     // ---------------- helpers ----------------
 
     private async Task BootstrapAsync()

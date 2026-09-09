@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Wmsfo.Api.Auth;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Objects;
@@ -32,7 +33,7 @@ public static class AdminDiagnosticsEndpoints
                 S3Key = row.S3Key,
                 BuiltAt = row.BuiltAt,
             });
-        }).WithTags("AdminDiagnostics");
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin);
 
         app.MapPost("/admin/snapshot/rebuild", async (SnapshotBuilder builder, LiveObjectWriter writer, CancellationToken ct) =>
         {
@@ -45,7 +46,7 @@ public static class AdminDiagnosticsEndpoints
                 S3Key = info.Key,
                 BuiltAt = info.BuiltAt,
             });
-        }).WithTags("AdminDiagnostics");
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin);
 
         app.MapGet("/admin/live", async (WmsfoDbContext db, NodeStateService state, IGatewayInternalClient gateway, LiveObjectWriter writer, NodeCounters counters, CancellationToken ct) =>
         {
@@ -69,13 +70,13 @@ public static class AdminDiagnosticsEndpoints
                 },
             };
             return Results.Ok(response);
-        }).WithTags("AdminDiagnostics");
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin);
 
         app.MapPost("/admin/live/republish", async (LiveObjectWriter writer, CancellationToken ct) =>
         {
             await writer.WriteFromStateAsync("republish", ct);
             return Results.Ok(writer.LastWrittenObject ?? new LiveObject());
-        }).WithTags("AdminDiagnostics");
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin);
     }
 
     private static LiveObject BuildInMemoryObject(NodeStateService state, LiveObjectWriter writer)
