@@ -170,6 +170,25 @@ public sealed class NodeStateService
             }
         }
 
+        // The batch decided whether to read settings before it knew the version.
+        // When the version moved since the previous snapshot, re-read them now so
+        // an admin write that changed a setting publishes the new value (api.md 9).
+        if (!readSettings && snapshotVersion != previous.SnapshotVersion)
+        {
+            await using var settingsCmd = new NpgsqlCommand("select key, value from app_setting;", conn);
+            await using var settingsReader = await settingsCmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            var appSettings = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            while (await settingsReader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var key = settingsReader.GetString(0);
+                var value = settingsReader.GetString(1);
+                using var doc = JsonDocument.Parse(value);
+                appSettings[key] = doc.RootElement.Clone();
+            }
+            settings = NodeSettings.FromMap(appSettings);
+            readSettings = true;
+        }
+
         // The published-location and cookie-tally reads depend on the current event id.
         if (currentEvent is not null)
         {
@@ -246,10 +265,9 @@ public sealed class NodeStateService
     private bool ShouldReadSettings(NodeSnapshot previous, DateTimeOffset now)
     {
         // First refresh (RefreshedAt == MinValue) always reads settings so the node
-        // starts with real values. Later refreshes re-read on version change or
-        // after 5 s (api.md 9).
+        // starts with real values. Later refreshes re-read after 5 s here, and on a
+        // version change inside RefreshAsync once the new version is known (api.md 9).
         if (previous.RefreshedAt == DateTimeOffset.MinValue) return true;
-        if (previous.SnapshotVersion != Volatile.Read(ref _current).SnapshotVersion) return true;
         return now - _lastSettingsReadAt >= TimeSpan.FromSeconds(5);
     }
 
