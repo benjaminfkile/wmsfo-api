@@ -127,11 +127,13 @@ returning version;", connection, transaction);
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
 
-        // 1. current event (nullable) and its (optional) route URL.
+        // 1. current event (nullable). The route image media id and flight
+        // history population (A25) reads route_image_media_id and route_id via
+        // separate queries; A24 leaves those fields null so the builder still
+        // emits a valid snapshot.
         await using (var cmd = new NpgsqlCommand(@"
-select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at, e.funds_percent, r.url
+select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at, e.funds_percent, e.route_image_media_id
 from event e
-left join route r on r.id = e.route_id
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
@@ -147,7 +149,8 @@ where e.is_current;", conn, tx))
                     WentLiveAt = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
                     EndedAt = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
                     FundsPercent = reader.GetInt32(7),
-                    RouteUrl = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    RouteImageMediaId = reader.IsDBNull(8) ? null : reader.GetGuid(8).ToString(),
+                    FlightHistory = null,
                     LatestMessage = null,
                 };
                 currentYear = currentEvent.Year;

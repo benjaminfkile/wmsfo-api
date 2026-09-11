@@ -50,8 +50,23 @@ public sealed class SnapshotEvent
     [JsonPropertyOrder(5)] public DateTimeOffset? WentLiveAt { get; set; }
     [JsonPropertyOrder(6)] public DateTimeOffset? EndedAt { get; set; }
     [JsonPropertyOrder(7)] public int FundsPercent { get; set; }
-    [JsonPropertyOrder(8)] public string? RouteUrl { get; set; }
-    [JsonPropertyOrder(9)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    [JsonPropertyOrder(8)] public string? RouteImageMediaId { get; set; }
+    [JsonPropertyOrder(9)] public SnapshotFlightHistory? FlightHistory { get; set; }
+    [JsonPropertyOrder(10)] public SnapshotLatestMessage? LatestMessage { get; set; }
+}
+
+public sealed class SnapshotFlightHistory
+{
+    [JsonPropertyOrder(0)] public long RouteId { get; set; }
+    [JsonPropertyOrder(1)] public string Name { get; set; } = "";
+    [JsonPropertyOrder(2)] public IList<SnapshotFlightPoint> Points { get; set; } = new List<SnapshotFlightPoint>();
+}
+
+public sealed class SnapshotFlightPoint
+{
+    [JsonPropertyOrder(0)] public double Lat { get; set; }
+    [JsonPropertyOrder(1)] public double Lng { get; set; }
+    [JsonPropertyOrder(2)] public DateTimeOffset? RecordedAt { get; set; }
 }
 
 public sealed class SnapshotLatestMessage

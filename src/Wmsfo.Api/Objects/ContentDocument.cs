@@ -30,10 +30,8 @@ public sealed class SiteSettings
 
 public sealed class SiteTheme
 {
-    [JsonPropertyOrder(0)] public string Accent { get; set; } = "red";
-    [JsonPropertyOrder(1)] public string Surface { get; set; } = "night";
-    [JsonPropertyOrder(2)] public string FontPairing { get; set; } = "festive";
-    [JsonPropertyOrder(3)] public bool SnowDefault { get; set; }
+    [JsonPropertyOrder(0)] public bool SnowDefault { get; set; }
+    [JsonPropertyOrder(1)] public bool LightsDefault { get; set; }
 }
 
 public sealed class LinkValue

@@ -31,10 +31,8 @@ public static class StarterContentBuilder
         Favicon = new IconValue { Source = "library", Id = "santa-hat" },
         Theme = new SiteTheme
         {
-            Accent = "red",
-            Surface = "snow",
-            FontPairing = "festive",
             SnowDefault = true,
+            LightsDefault = true,
         },
         NavExtraLinks = new List<LinkValue>(),
         FooterLinks = new List<LinkValue>(),
@@ -116,7 +114,7 @@ public static class StarterContentBuilder
         s.Add(Hero(id.Next(), "tall", "{event:name}", "Watch this space for Santa's next flight."));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
-        s.Add(RoutePreview(id.Next(), "svg"));
+        s.Add(RoutePreview(id.Next(), "image", null));
         s.Add(SponsorCarousel(id.Next()));
         s.Add(AlertsSignup(id.Next()));
     }
@@ -127,7 +125,7 @@ public static class StarterContentBuilder
         s.Add(Countdown(id.Next()));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
-        s.Add(RoutePreview(id.Next(), "svg"));
+        s.Add(RoutePreview(id.Next(), "image", null));
         s.Add(SponsorCarousel(id.Next()));
         s.Add(AlertsSignup(id.Next()));
     }
@@ -174,7 +172,8 @@ public static class StarterContentBuilder
             Block("heading", new JsonObject { ["level"] = 2, ["text"] = "This year's route", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Here is the planned path. Weather may adjust the details on the day." }),
         }));
-        s.Add(RoutePreview(id.Next(), "svg"));
+        s.Add(RoutePreview(id.Next(), "viewer",
+            "The route is a plan, not a promise. Wind, air traffic, and the pilot's judgement change it on the night. Use the live tracker for where Santa actually is."));
     }
 
     private static void DonateStack(List<ContentSection> s, RefLong id)
@@ -252,7 +251,7 @@ public static class StarterContentBuilder
         },
     };
 
-    private static ContentSection RoutePreview(long id, string style) => new()
+    private static ContentSection RoutePreview(long id, string style, string? disclaimer) => new()
     {
         Id = id,
         Kind = "route_preview",
@@ -261,6 +260,7 @@ public static class StarterContentBuilder
         {
             ["heading"] = "This year's route",
             ["style"] = style,
+            ["disclaimer"] = disclaimer,
             ["emptyText"] = "The route will appear here once it is set.",
         },
     };
@@ -347,11 +347,12 @@ public static class StarterContentBuilder
                 ["themePicker"] = true,
                 ["terrain"] = true,
                 ["snow"] = true,
-                ["routeLines"] = true,
+                ["flightHistory"] = true,
                 ["timeLabels"] = true,
                 ["location"] = true,
                 ["dataRow"] = true,
             },
+            ["flightHistoryDefault"] = false,
             ["overlays"] = new JsonObject
             {
                 ["liveIndicator"] = true,

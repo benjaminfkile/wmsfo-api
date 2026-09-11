@@ -25,6 +25,8 @@ public static class AdminSponsorEndpoints
         MapDelete(app);
         MapUpsertYear(app);
         MapDeleteYear(app);
+        MapGetOrder(app);
+        MapPutOrder(app);
     }
 
     // GET /admin/sponsors → 200 { items: Sponsor[] } ordered by name asc.
@@ -250,8 +252,10 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PUT /admin/sponsors/{id}/years/{eventYear} [snapshot]. Upsert on (sponsor_id, event_year).
-    // amountDonated 0..1_000_000_000 with 2 decimals or null; eventYear 2000..2100.
+    // PUT /admin/sponsors/{id}/years/{eventYear} [snapshot]. Upsert on
+    // (sponsor_id, event_year). amountDonated 0..1_000_000_000 with 2 decimals
+    // or null; pinnedPosition 1..1000 or null; lingerMsOverride 0..600000 or
+    // null; eventYear 2000..2100. Pinning conflicts return 409 pinned_position_taken.
     private static void MapUpsertYear(IEndpointRouteBuilder app)
     {
         app.MapPut("/admin/sponsors/{id:long}/years/{eventYear:int}",
@@ -268,6 +272,10 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                     else if (decimal.Round(amt, 2) != amt)
                         v.Field("amountDonated", "must have at most 2 decimal places");
                 }
+                if (body.PinnedPosition is int pp && (pp < 1 || pp > 1000))
+                    v.Field("pinnedPosition", "must be between 1 and 1000");
+                if (body.LingerMsOverride is int lm && (lm < 0 || lm > 600000))
+                    v.Field("lingerMsOverride", "must be between 0 and 600,000");
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -280,22 +288,32 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound("sponsor not found");
                     }
-                    await using (var ins = new NpgsqlCommand(@"
-insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
-values ($1, $2, $3, $4, $5, $6)
-on conflict (sponsor_id, event_year) do update set
-  amount_donated = excluded.amount_donated,
-  active         = excluded.active,
-  can_advertise  = excluded.can_advertise,
-  anonymous      = excluded.anonymous;", conn, tx))
+                    try
                     {
+                        await using var ins = new NpgsqlCommand(@"
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
+on conflict (sponsor_id, event_year) do update set
+  amount_donated     = excluded.amount_donated,
+  active             = excluded.active,
+  can_advertise      = excluded.can_advertise,
+  anonymous          = excluded.anonymous,
+  pinned_position    = excluded.pinned_position,
+  linger_ms_override = excluded.linger_ms_override;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Numeric, Value = (object?)body.AmountDonated ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Active });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.CanAdvertise });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Anonymous });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = (object?)body.PinnedPosition ?? DBNull.Value });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = (object?)body.LingerMsOverride ?? DBNull.Value });
                         await ins.ExecuteNonQueryAsync(token);
+                    }
+                    catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == "sponsor_year_pinned_ux")
+                    {
+                        throw new ApiException(StatusCodes.Status409Conflict,
+                            "pinned_position_taken", "another sponsor holds that position for that year");
                     }
                     var dto = await ReadSponsorByIdAsync(conn, tx, id, options, token);
                     if (dto is null) throw NotFound("sponsor not found");
@@ -340,6 +358,152 @@ on conflict (sponsor_id, event_year) do update set
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // GET /admin/sponsors/order/{eventYear}. Returns SponsorOrderRow[] in
+    // snapshot order (contracts 1.3): pinned rows first (pinned_position asc),
+    // then the rest by amount_donated desc (nulls last), name asc, id asc.
+    // inSnapshot is the 1.3 filter (active, not anonymous, can_advertise).
+    private static void MapGetOrder(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/sponsors/order/{eventYear:int}",
+            async (int eventYear, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                if (eventYear < 2000 || eventYear > 2100)
+                    v.Field("eventYear", "must be between 2000 and 2100");
+                v.ThrowIfInvalid();
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                var items = await ReadSponsorOrderAsync(conn, null, eventYear, ct);
+                return Results.Ok(new ItemsResponse<SponsorOrderRow> { Items = items });
+            })
+            .WithTags("AdminSponsors")
+            .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // PUT /admin/sponsors/order/{eventYear} [snapshot]. Body:
+    //   { "pinnedSponsorIds": [4, 9, 2] }
+    // One transaction: the listed sponsors get pinned_position 1..n in list
+    // order; every other row for that year gets null. Empty list unpins all.
+    // 400 validation_failed (pinnedSponsorIds) for unknown id or a duplicate.
+    private static void MapPutOrder(IEndpointRouteBuilder app)
+    {
+        app.MapPut("/admin/sponsors/order/{eventYear:int}",
+            async (int eventYear, SponsorOrderRequest body, HttpContext ctx,
+                   AdminSnapshotTransaction snap, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                if (eventYear < 2000 || eventYear > 2100)
+                    v.Field("eventYear", "must be between 2000 and 2100");
+                var ids = body.PinnedSponsorIds ?? new List<long>();
+                if (ids.Count > 1000)
+                    v.Field("pinnedSponsorIds", "at most 1000 ids");
+                if (ids.Count != ids.Distinct().Count())
+                    v.Field("pinnedSponsorIds", "duplicate sponsor id");
+                v.ThrowIfInvalid();
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                var (items, _) = await snap.RunAsync<IList<SponsorOrderRow>>(async (conn, tx, token) =>
+                {
+                    // Every id must have a sponsor_year row for that year.
+                    if (ids.Count > 0)
+                    {
+                        var foundIds = new HashSet<long>();
+                        await using (var cmd = new NpgsqlCommand(
+                            "select sponsor_id from sponsor_year where event_year = $1 and sponsor_id = any($2);", conn, tx))
+                        {
+                            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
+                            cmd.Parameters.Add(new NpgsqlParameter
+                            {
+                                NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint,
+                                Value = ids.ToArray(),
+                            });
+                            await using var reader = await cmd.ExecuteReaderAsync(token);
+                            while (await reader.ReadAsync(token))
+                                foundIds.Add(reader.GetInt64(0));
+                        }
+                        var missing = ids.Where(i => !foundIds.Contains(i)).ToArray();
+                        if (missing.Length > 0)
+                        {
+                            var vv = new RequestValidation();
+                            vv.Field("pinnedSponsorIds",
+                                $"sponsor without a sponsor_year row for {eventYear}: " + string.Join(", ", missing));
+                            vv.ThrowIfInvalid();
+                        }
+                    }
+
+                    // Clear every existing pinned_position for the year first so
+                    // the partial unique index does not collide when we re-pin.
+                    await using (var clr = new NpgsqlCommand(
+                        "update sponsor_year set pinned_position = null where event_year = $1 and pinned_position is not null;", conn, tx))
+                    {
+                        clr.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
+                        await clr.ExecuteNonQueryAsync(token);
+                    }
+
+                    // Assign 1..n in list order.
+                    for (var i = 0; i < ids.Count; i++)
+                    {
+                        await using var upd = new NpgsqlCommand(
+                            "update sponsor_year set pinned_position = $1 where sponsor_id = $2 and event_year = $3;", conn, tx);
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = i + 1 });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = ids[i] });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
+                        await upd.ExecuteNonQueryAsync(token);
+                    }
+
+                    return await ReadSponsorOrderAsync(conn, tx, eventYear, token);
+                }, ct);
+                return Results.Ok(new ItemsResponse<SponsorOrderRow> { Items = items });
+            })
+            .WithTags("AdminSponsors")
+            .Accepts<SponsorOrderRequest>("application/json")
+            .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK)
+            .WithBodyLimit(BodyLimits.JsonDefault)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    private static async Task<IList<SponsorOrderRow>> ReadSponsorOrderAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, int eventYear, CancellationToken ct)
+    {
+        var (perDollar, minMs) = await ReadLingerSettingsAsync(conn, tx, ct);
+        var rows = new List<SponsorOrderRow>();
+        await using var cmd = new NpgsqlCommand(@"
+select s.id, s.name, y.pinned_position, y.amount_donated, y.linger_ms_override,
+       (y.active and not y.anonymous and y.can_advertise) as in_snapshot
+from sponsor s
+join sponsor_year y on y.sponsor_id = s.id
+where y.event_year = $1
+order by
+  case when y.pinned_position is null then 1 else 0 end,
+  y.pinned_position asc,
+  y.amount_donated desc nulls last,
+  s.name asc,
+  s.id asc;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var amount = reader.IsDBNull(3) ? (decimal?)null : reader.GetDecimal(3);
+            var lingerOverride = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4);
+            rows.Add(new SponsorOrderRow
+            {
+                SponsorId = reader.GetInt64(0),
+                Name = reader.GetString(1),
+                PinnedPosition = reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                AmountDonated = amount,
+                LingerMs = ComputeLingerMs(amount, lingerOverride, perDollar, minMs),
+                LingerMsOverride = lingerOverride,
+                InSnapshot = reader.GetBoolean(5),
+            });
+        }
+        return rows;
     }
 
     // --- helpers ---
@@ -405,8 +569,10 @@ left join media_asset m on m.id = s.logo_media_id";
     {
         if (byId.Count == 0) return;
         var ids = byId.Keys.ToArray();
+        var (perDollar, minMs) = await ReadLingerSettingsAsync(conn, tx, ct);
         await using var cmd = new NpgsqlCommand(@"
-select sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, registered_at
+select sponsor_id, event_year, amount_donated, active, can_advertise, anonymous,
+       pinned_position, linger_ms_override, registered_at
 from sponsor_year where sponsor_id = any($1)
 order by sponsor_id, event_year desc;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter
@@ -419,16 +585,54 @@ order by sponsor_id, event_year desc;", conn, tx);
         {
             var sponsorId = reader.GetInt64(0);
             if (!byId.TryGetValue(sponsorId, out var sponsor)) continue;
+            var amount = reader.IsDBNull(2) ? (decimal?)null : reader.GetDecimal(2);
+            var lingerOverride = reader.IsDBNull(7) ? (int?)null : reader.GetInt32(7);
             sponsor.Years.Add(new SponsorYearDto
             {
                 EventYear = reader.GetInt32(1),
-                AmountDonated = reader.IsDBNull(2) ? null : reader.GetDecimal(2),
+                AmountDonated = amount,
                 Active = reader.GetBoolean(3),
                 CanAdvertise = reader.GetBoolean(4),
                 Anonymous = reader.GetBoolean(5),
-                RegisteredAt = reader.GetFieldValue<DateTimeOffset>(6),
+                PinnedPosition = reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                LingerMsOverride = lingerOverride,
+                LingerMs = ComputeLingerMs(amount, lingerOverride, perDollar, minMs),
+                RegisteredAt = reader.GetFieldValue<DateTimeOffset>(8),
             });
         }
+    }
+
+    // Snapshot's lingerMs computation (contracts 1.3): the override wins when
+    // present; otherwise max(min_ms, round(amount * per_dollar)); no amount
+    // means the floor. The API exposes only the outcome.
+    private static int ComputeLingerMs(decimal? amount, int? lingerOverride, int perDollar, int minMs)
+    {
+        if (lingerOverride is int over) return over;
+        if (amount is null) return minMs;
+        var computed = (int)Math.Round((double)amount.Value * perDollar, 0, MidpointRounding.AwayFromZero);
+        return Math.Max(minMs, computed);
+    }
+
+    private static async Task<(int PerDollar, int MinMs)> ReadLingerSettingsAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)
+    {
+        var perDollar = 40;
+        var minMs = 2000;
+        await using var cmd = new NpgsqlCommand(@"
+select key, value from app_setting where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms');", conn, tx);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var key = reader.GetString(0);
+            var value = reader.GetString(1);
+            using var doc = System.Text.Json.JsonDocument.Parse(value);
+            if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Number && doc.RootElement.TryGetInt32(out var parsed))
+            {
+                if (key == "sponsor_linger_ms_per_dollar") perDollar = parsed;
+                else if (key == "sponsor_linger_min_ms") minMs = parsed;
+            }
+        }
+        return (perDollar, minMs);
     }
 
     private static SponsorDto ReadSponsorRow(NpgsqlDataReader reader, WmsfoOptions options)

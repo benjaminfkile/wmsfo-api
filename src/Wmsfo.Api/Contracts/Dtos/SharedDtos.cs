@@ -20,6 +20,8 @@ public sealed class EventDto
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
     public string? RouteUrl { get; set; }
+    public string? RouteImageMediaId { get; set; }
+    public MediaAssetDto? RouteImage { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -120,7 +122,27 @@ public sealed class SponsorYearDto
     public bool Active { get; set; }
     public bool CanAdvertise { get; set; }
     public bool Anonymous { get; set; }
+    public int? PinnedPosition { get; set; }
+    public int? LingerMsOverride { get; set; }
+    public int LingerMs { get; set; }
     public DateTimeOffset RegisteredAt { get; set; }
+}
+
+public sealed class SponsorOrderRow
+{
+    public long SponsorId { get; set; }
+    public string Name { get; set; } = "";
+    public int? PinnedPosition { get; set; }
+    [JsonConverter(typeof(NullableAmountDonatedDecimalConverter))]
+    public decimal? AmountDonated { get; set; }
+    public int LingerMs { get; set; }
+    public int? LingerMsOverride { get; set; }
+    public bool InSnapshot { get; set; }
+}
+
+public sealed class SponsorOrderRequest
+{
+    public IList<long> PinnedSponsorIds { get; set; } = new List<long>();
 }
 
 public sealed class CookieTypeDto

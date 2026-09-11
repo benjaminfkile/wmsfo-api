@@ -38,8 +38,10 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "routeUrl", "latestMessage",
+            "fundsPercent", "routeImageMediaId", "flightHistory", "latestMessage",
         };
+        var expectedFlightHistory = new[] { "routeId", "name", "points" };
+        var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
         var expectedLatestMessage = new[] { "id", "body", "eventTime", "createdAt" };
         var expectedSponsor = new[]
         {
@@ -51,6 +53,8 @@ public class KeyOrderTests
         using var doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")));
         var root = doc.RootElement;
         Assert.Equal(expectedEvent, KeysOf(root.GetProperty("event")));
+        Assert.Equal(expectedFlightHistory, KeysOf(root.GetProperty("event").GetProperty("flightHistory")));
+        Assert.Equal(expectedFlightPoint, KeysOf(root.GetProperty("event").GetProperty("flightHistory").GetProperty("points")[0]));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));
@@ -95,8 +99,10 @@ public class KeyOrderTests
         var bytes = CanonicalJson.SerializeToUtf8Bytes(snap);
         using var doc = JsonDocument.Parse(bytes);
         var mediaKeys = KeysOf(doc.RootElement.GetProperty("media"));
-        // Original UUID plus the three we added, in ordinal string order.
-        Assert.Equal(new[] { "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc" }, mediaKeys);
+        // The two seeded UUIDs plus the three we added, in ordinal string order.
+        Assert.Equal(
+            new[] { "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44", "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc" },
+            mediaKeys);
     }
 
     private static string[] ReadTopLevelKeys(string path)

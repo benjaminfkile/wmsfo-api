@@ -112,6 +112,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Cheer meter, 0 to 100.");
             e.Property(x => x.RouteId).HasColumnType("bigint")
                 .HasComment("Route shown for this event; null when unlinked.");
+            e.Property(x => x.RouteImageMediaId).HasColumnType("uuid")
+                .HasComment("The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.");
             e.Property(x => x.FinalCookieTally).HasColumnType("jsonb");
             e.Property(x => x.NextSeq).HasColumnType("bigint").IsRequired().HasDefaultValue(1L)
                 .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
@@ -124,6 +126,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasConstraintName("event_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
                 .HasConstraintName("event_route_id_fkey").OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.RouteImageMediaId)
+                .HasConstraintName("event_route_image_media_id_fkey").OnDelete(DeleteBehavior.NoAction);
 
             e.HasIndex(x => x.StatusId).HasDatabaseName("event_one_live").IsUnique().HasFilter("status_id = 3");
             e.HasIndex(x => x.IsCurrent).HasDatabaseName("event_one_current").IsUnique().HasFilter("is_current");
@@ -355,6 +359,8 @@ public sealed class WmsfoDbContext : DbContext
             {
                 t.HasComment("A sponsor's participation in one year. Upserted on (sponsor_id, event_year).");
                 t.HasCheckConstraint("sponsor_year_amount_donated_check", "amount_donated >= 0");
+                t.HasCheckConstraint("sponsor_year_pinned_position_check", "pinned_position is null or (pinned_position between 1 and 1000)");
+                t.HasCheckConstraint("sponsor_year_linger_ms_override_check", "linger_ms_override is null or (linger_ms_override between 0 and 600000)");
             });
             e.HasKey(x => x.Id).HasName("sponsor_year_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
@@ -365,10 +371,17 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Active).HasColumnType("boolean").IsRequired().HasDefaultValue(true);
             e.Property(x => x.CanAdvertise).HasColumnType("boolean").IsRequired().HasDefaultValue(true);
             e.Property(x => x.Anonymous).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.PinnedPosition).HasColumnType("integer")
+                .HasComment("1..1000, pins the sponsor's slot for this year. Snapshot orders pinned rows first, pinned_position asc.");
+            e.Property(x => x.LingerMsOverride).HasColumnType("integer")
+                .HasComment("0..600000, overrides the computed lingerMs for this year. Snapshot exposes only lingerMs; whether it was overridden is not revealed.");
             e.Property(x => x.RegisteredAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.HasAlternateKey(x => new { x.SponsorId, x.EventYear }).HasName("sponsor_year_sponsor_id_event_year_key");
             e.HasOne<Sponsor>().WithMany().HasForeignKey(x => x.SponsorId)
                 .HasConstraintName("sponsor_year_sponsor_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.EventYear, x.PinnedPosition })
+                .HasDatabaseName("sponsor_year_pinned_ux").IsUnique()
+                .HasFilter("pinned_position is not null");
         });
 
         // 3.12 person
