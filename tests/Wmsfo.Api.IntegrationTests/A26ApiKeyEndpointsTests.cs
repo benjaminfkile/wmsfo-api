@@ -307,7 +307,7 @@ public sealed class A26ApiKeyEndpointsTests : IClassFixture<PostgresFixture>, IA
 
     // A write with an API key records `key:<name>` in the audit column.
     [Fact]
-    public async Task Key_write_records_key_prefix_in_audit_column()
+    public async Task Key_write_records_key_name_in_audit_column()
     {
         var (key, _) = await MintKeyReturnKeyAsync("audit-cat", capabilities: new[] { "events" });
 
