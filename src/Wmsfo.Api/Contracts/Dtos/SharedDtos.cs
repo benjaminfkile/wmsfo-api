@@ -145,6 +145,44 @@ public sealed class SponsorOrderRequest
     public IList<long> PinnedSponsorIds { get; set; } = new List<long>();
 }
 
+public sealed class ApiKeyDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string KeyPrefix { get; set; } = "";
+    public bool AllCapabilities { get; set; }
+    public IList<string> Capabilities { get; set; } = new List<string>();
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
+public sealed class ApiKeyMintedDto
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string KeyPrefix { get; set; } = "";
+    public bool AllCapabilities { get; set; }
+    public IList<string> Capabilities { get; set; } = new List<string>();
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    // The plaintext key. Appears in this response and nowhere else.
+    public string Key { get; set; } = "";
+}
+
+public sealed class CreateApiKeyRequest
+{
+    public string? Name { get; set; }
+    public bool? AllCapabilities { get; set; }
+    public IList<string>? Capabilities { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+}
+
 public sealed class CookieTypeDto
 {
     public long Id { get; set; }

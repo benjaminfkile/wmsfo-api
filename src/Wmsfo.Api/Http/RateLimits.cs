@@ -130,8 +130,16 @@ public static class RateLimitPipeline
 
         public RateLimitPartition<string> GetPartition(HttpContext httpContext)
         {
-            var personId = CognitoAuth.TryGetPersonId(httpContext.User);
+            // contracts 4.0: the /admin/* bucket is keyed by person id, or by
+            // API key id when the caller is an API key (3.6).
+            var apiKeyId = ApiKeyAuthenticationHandler.TryGetApiKeyId(httpContext.User);
             string key;
+            if (apiKeyId.HasValue)
+            {
+                key = $"api-key:{apiKeyId.Value.ToString(CultureInfo.InvariantCulture)}";
+                return RateLimitPartition.GetTokenBucketLimiter(key, _ => Copy(_template));
+            }
+            var personId = CognitoAuth.TryGetPersonId(httpContext.User);
             if (personId.HasValue)
             {
                 key = $"person:{personId.Value.ToString(CultureInfo.InvariantCulture)}";

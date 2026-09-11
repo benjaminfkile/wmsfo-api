@@ -53,4 +53,7 @@ public static class ApiErrorCodes
     public const string ContentUnchanged = "content_unchanged";
     public const string ContentInvalid = "content_invalid";
     public const string PreviewTokenInvalid = "preview_token_invalid";
+
+    // A26: /admin/api-keys mint (contracts 4.5 API keys).
+    public const string NameTaken = "name_taken";
 }

@@ -46,6 +46,7 @@ order by sort, id;", conn);
             .WithTags("AdminCookieTypes")
             .Produces<ItemsResponse<CookieTypeDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.CookieTypes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -96,6 +97,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .Produces<CookieTypeDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.CookieTypes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -162,6 +164,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .Produces<CookieTypeDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.CookieTypes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

@@ -32,6 +32,7 @@ public static class AdminIconEndpoints
             .WithTags("AdminIcons")
             .Produces<ItemsResponse<IconInfoDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Icons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 }

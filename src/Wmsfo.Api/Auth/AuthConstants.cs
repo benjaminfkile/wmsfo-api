@@ -8,6 +8,10 @@ public static class AuthSchemes
     public const string CognitoJwt = "CognitoJwt";
     // Composite that lets a single request produce either principal.
     public const string BeaconOrCognito = "BeaconOrCognito";
+    // 6.4: wak_ bearer scheme, selected by prefix on the Authorization header.
+    public const string ApiKey = "ApiKey";
+    // Composite that hands a wak_ bearer to ApiKey and anything else to CognitoJwt.
+    public const string CognitoOrApiKey = "CognitoOrApiKey";
 }
 
 public static class AuthPolicies
@@ -39,4 +43,44 @@ public static class PersonClaims
     public const string Email = "email";
     public const string Groups = "cognito:groups";
     public const string TokenUse = "token_use";
+}
+
+// api.md 6.4 principal claims for an API key request.
+public static class ApiKeyClaims
+{
+    public const string ApiKeyId = "api_key_id";
+    public const string ApiKeyName = "api_key_name";
+    public const string ApiKeyAll = "api_key_all";           // "true" for all-capabilities keys
+    public const string ApiKeyCapability = "api_key_capability";  // one per capability entry
+}
+
+// contracts 3.6: one per endpoint group of 4.5.
+public static class ApiKeyCapabilities
+{
+    public const string Events = "events";
+    public const string Routes = "routes";
+    public const string Beacons = "beacons";
+    public const string Sponsors = "sponsors";
+    public const string CookieTypes = "cookie_types";
+    public const string Pages = "pages";
+    public const string Sections = "sections";
+    public const string SiteSettings = "site_settings";
+    public const string Content = "content";
+    public const string Media = "media";
+    public const string Icons = "icons";
+    public const string Cookies = "cookies";
+    public const string Settings = "settings";
+    public const string ContactMessages = "contact_messages";
+    public const string Subscribers = "subscribers";
+    public const string People = "people";
+    public const string Diagnostics = "diagnostics";
+
+    public static readonly IReadOnlyList<string> All = new[]
+    {
+        Events, Routes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
+        Content, Media, Icons, Cookies, Settings, ContactMessages, Subscribers, People,
+        Diagnostics,
+    };
+
+    public static bool IsKnown(string value) => All.Contains(value, StringComparer.Ordinal);
 }

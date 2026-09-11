@@ -34,6 +34,7 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<Sponsor> Sponsor => Set<Sponsor>();
     public DbSet<SponsorYear> SponsorYear => Set<SponsorYear>();
     public DbSet<Person> Person => Set<Person>();
+    public DbSet<ApiKey> ApiKey => Set<ApiKey>();
     public DbSet<Subscriber> Subscriber => Set<Subscriber>();
     public DbSet<CookieType> CookieType => Set<CookieType>();
     public DbSet<Cookie> Cookie => Set<Cookie>();
@@ -382,6 +383,33 @@ public sealed class WmsfoDbContext : DbContext
             e.HasIndex(x => new { x.EventYear, x.PinnedPosition })
                 .HasDatabaseName("sponsor_year_pinned_ux").IsUnique()
                 .HasFilter("pinned_position is not null");
+        });
+
+        // 3.6 api_key (contracts 5). Bearer scheme wak_* selected by prefix on
+        // the Authorization header, with per-key capabilities and an optional
+        // expiry.
+        mb.Entity<ApiKey>(e =>
+        {
+            e.ToTable("api_key", t =>
+                t.HasComment("Bearer keys with capability sets and an optional expiry. Lookup is by sha256(key)."));
+            e.HasKey(x => x.Id).HasName("api_key_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Name).HasColumnType("text").IsRequired();
+            e.Property(x => x.KeyPrefix).HasColumnType("text").IsRequired()
+                .HasComment("First 12 characters of the key, for display.");
+            e.Property(x => x.KeyHash).HasColumnType("bytea").IsRequired()
+                .HasComment("sha256 of the plaintext key, 32 bytes. The plaintext is never stored.");
+            e.Property(x => x.AllCapabilities).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.Capabilities).HasColumnType("text[]").IsRequired().HasDefaultValueSql("'{}'");
+            e.Property(x => x.ExpiresAt).HasColumnType("timestamptz")
+                .HasComment("Null (never) or rfc3339. Past it the key answers 401 unauthenticated.");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.LastUsedAt).HasColumnType("timestamptz");
+            e.Property(x => x.RevokedAt).HasColumnType("timestamptz")
+                .HasComment("Set once by revoke. A revoked key never authenticates again.");
+            e.HasAlternateKey(x => x.KeyHash).HasName("api_key_key_hash_key");
+            e.HasIndex(x => x.Name).HasDatabaseName("api_key_name_ux").IsUnique().HasFilter("revoked_at is null");
         });
 
         // 3.12 person

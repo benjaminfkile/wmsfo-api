@@ -57,6 +57,7 @@ public static class AdminEventEndpoints
             .WithTags("AdminEvents")
             .Produces<ItemsResponse<EventDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -121,6 +122,7 @@ returning id;", conn, tx))
             .Produces<EventDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -139,6 +141,7 @@ returning id;", conn, tx))
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -281,6 +284,7 @@ returning id;", conn, tx))
             .Produces<EventDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -329,6 +333,7 @@ returning id;", conn, tx))
             .WithTags("AdminEvents")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -408,6 +413,7 @@ returning id;", conn, tx))
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -544,6 +550,7 @@ insert into outbox (topic, payload) values ('event.status_changed', $1::jsonb);"
             .Produces<EventDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -580,6 +587,7 @@ order by changed_at desc, id desc;", conn);
             .WithTags("AdminEvents")
             .Produces<ItemsResponse<StatusHistoryDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -605,6 +613,7 @@ order by created_at desc, id desc;", conn);
             .WithTags("AdminEvents")
             .Produces<ItemsResponse<EventMessageDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -662,6 +671,7 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
             .Produces<EventMessageDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -715,6 +725,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             .Produces<EventMessageDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -740,6 +751,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             .WithTags("AdminEvents")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -828,6 +840,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             .WithTags("AdminEvents")
             .Produces<PageResponse<LocationRowDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -1010,6 +1023,7 @@ limit $" + limitIdx + ";";
             .WithTags("AdminEvents")
             .Produces<PageResponse<CookieAdminDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

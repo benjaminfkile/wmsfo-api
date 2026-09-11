@@ -14,6 +14,7 @@ public static class Keys
     public const string SubscribeVerifyPrefix = "wsv_";
     public const string SubscribeUnsubscribePrefix = "wsu_";
     public const string PreviewTokenPrefix = "wpv_";
+    public const string ApiKeyPrefix = "wak_";
 
     public const int TokenBodyChars = 43;   // 32 bytes as unpadded url-safe base64.
     public const int DisplayPrefixChars = 12;
@@ -23,6 +24,7 @@ public static class Keys
     public static MintedKey MintVerifyToken() => Mint(SubscribeVerifyPrefix);
     public static MintedKey MintUnsubscribeToken() => Mint(SubscribeUnsubscribePrefix);
     public static MintedKey MintPreviewToken() => Mint(PreviewTokenPrefix);
+    public static MintedKey MintApiKey() => Mint(ApiKeyPrefix);
 
     public static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));
 
