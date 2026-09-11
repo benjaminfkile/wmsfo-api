@@ -1,13 +1,14 @@
-using System.Text;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// api.md 21: Testcontainers when Docker is available, otherwise
-// WMSFO_TEST_DB_CONNECTION (the grunt runner's local cluster). Each test
-// database is created fresh per collection run, dropped afterwards, so no state
-// leaks between runs.
+// api.md 21: `WMSFO_TEST_DB_CONNECTION` when supplied wins; otherwise, when
+// libpq's `PGHOST` is set (the grunt runner's local cluster on 127.0.0.1:5432
+// with trust auth), the fixture builds a connection string from `PGHOST` /
+// `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE`; otherwise Testcontainers.
+// Each test database is created fresh per collection run and dropped
+// afterwards, so no state leaks between runs.
 public sealed class PostgresFixture : IAsyncLifetime
 {
     private PostgreSqlContainer? _container;
@@ -19,26 +20,28 @@ public sealed class PostgresFixture : IAsyncLifetime
     {
         _databaseName = "wmsfo_it_" + Guid.NewGuid().ToString("N")[..12];
 
-        var supplied = Environment.GetEnvironmentVariable("WMSFO_TEST_DB_CONNECTION");
-        if (!string.IsNullOrEmpty(supplied))
+        var choice = IntegrationDatabaseSelector.Choose(Environment.GetEnvironmentVariable);
+        switch (choice.Source)
         {
-            _baseConnectionString = supplied;
-        }
-        else
-        {
-            try
-            {
-                _container = new PostgreSqlBuilder("postgres:16-alpine")
-                    .Build();
-                await _container.StartAsync();
-                _baseConnectionString = _container.GetConnectionString();
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException(
-                    "Integration tests need Docker (Testcontainers) or WMSFO_TEST_DB_CONNECTION set to a Postgres server the tests can create databases on.",
-                    ex);
-            }
+            case IntegrationDatabaseSource.SuppliedConnectionString:
+            case IntegrationDatabaseSource.LibpqEnvironment:
+                _baseConnectionString = choice.ConnectionString!;
+                break;
+            case IntegrationDatabaseSource.Testcontainers:
+                try
+                {
+                    _container = new PostgreSqlBuilder("postgres:16-alpine")
+                        .Build();
+                    await _container.StartAsync();
+                    _baseConnectionString = _container.GetConnectionString();
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        "Integration tests need one of: `WMSFO_TEST_DB_CONNECTION` pointing at a Postgres server, libpq's `PGHOST` (the grunt runner exports this), or Docker for Testcontainers.",
+                        ex);
+                }
+                break;
         }
 
         await CreateFreshDatabaseAsync();
