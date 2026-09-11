@@ -124,15 +124,41 @@ returning version;", connection, transaction);
         var snap = new Snapshot { SchemaVersion = 1 };
         SnapshotEvent? currentEvent = null;
         int? currentYear = null;
+        long? currentRouteId = null;
+        Guid? routePosterMediaId = null;
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
+        int flightHistoryMaxPoints = 2000;
 
-        // 1. current event (nullable). The route image media id and flight
-        // history population (A25) reads route_image_media_id and route_id via
-        // separate queries; A24 leaves those fields null so the builder still
-        // emits a valid snapshot.
+        // 1. settings (linger constants + flight history cap). Read up-front so
+        // the sponsor and flight-history reads compose the final numbers in a
+        // single pass.
         await using (var cmd = new NpgsqlCommand(@"
-select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at, e.funds_percent, e.route_image_media_id
+select key, value from app_setting
+where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_history_max_points');", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var key = reader.GetString(0);
+                var value = reader.GetString(1);
+                using var doc = JsonDocument.Parse(value);
+                if (doc.RootElement.ValueKind == JsonValueKind.Number && doc.RootElement.TryGetInt32(out var parsed))
+                {
+                    switch (key)
+                    {
+                        case "sponsor_linger_ms_per_dollar": lingerMsPerDollar = parsed; break;
+                        case "sponsor_linger_min_ms":        lingerMinMs = parsed; break;
+                        case "flight_history_max_points":    flightHistoryMaxPoints = parsed; break;
+                    }
+                }
+            }
+        }
+
+        // 2. current event (nullable).
+        await using (var cmd = new NpgsqlCommand(@"
+select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
+       e.funds_percent, e.route_image_media_id, e.route_id
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -154,10 +180,12 @@ where e.is_current;", conn, tx))
                     LatestMessage = null,
                 };
                 currentYear = currentEvent.Year;
+                currentRouteId = reader.IsDBNull(9) ? null : reader.GetInt64(9);
+                if (!reader.IsDBNull(8)) routePosterMediaId = reader.GetGuid(8);
             }
         }
 
-        // 2. latest message of the current event.
+        // 3. latest message of the current event.
         if (currentEvent is not null)
         {
             await using var cmd = new NpgsqlCommand(@"
@@ -180,16 +208,50 @@ limit 1;", conn, tx);
             }
         }
 
+        // 4. flight history: when the current event links a route (route_id),
+        // read the route row's `name` and `s3_key`, then read the route object
+        // from the object store and thin its points. The linked route is small
+        // (at most 50,000 points, cap of 5 MB - contracts 1.4), so the read
+        // stays cheap enough to run inside the admin transaction; api.md 10.2
+        // documents this choice as the default.
+        if (currentEvent is not null && currentRouteId is long linkedRouteId)
+        {
+            string? routeName = null;
+            string? routeS3Key = null;
+            await using (var cmd = new NpgsqlCommand(
+                "select name, s3_key from route where id = $1;", conn, tx))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = linkedRouteId });
+                await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    routeName = reader.GetString(0);
+                    routeS3Key = reader.GetString(1);
+                }
+            }
+            if (routeS3Key is not null)
+            {
+                currentEvent.FlightHistory = await LoadFlightHistoryAsync(
+                    linkedRouteId, routeName ?? "", routeS3Key, flightHistoryMaxPoints, ct)
+                    .ConfigureAwait(false);
+            }
+        }
+
         snap.Event = currentEvent;
 
-        // 3. sponsors of the current event's year.
+        // 5. sponsors of the current event's year. Order (contracts 1.3):
+        // rows with `pinned_position` first (asc), then the rest by
+        // `amount_donated` desc (nulls last), `name` asc, `id` asc.
+        // `lingerMs` uses `linger_ms_override` when set, otherwise the formula
+        // `max(sponsor_linger_min_ms, round(amount * sponsor_linger_ms_per_dollar))`
+        // with the floor when `amount_donated` is null.
         var sponsorLogos = new List<Guid>();
         var sponsors = new List<SnapshotSponsor>();
         if (currentYear is not null)
         {
             await using var cmd = new NpgsqlCommand(@"
 select s.id, s.name, s.website_url, s.fb_url, s.ig_url, s.logo_media_id,
-       y.amount_donated,
+       y.amount_donated, y.pinned_position, y.linger_ms_override,
        agg.latest_year, agg.years_as_sponsor
 from sponsor s
 join sponsor_year y on y.sponsor_id = s.id and y.event_year = $1
@@ -198,7 +260,12 @@ join lateral (
   from sponsor_year where sponsor_id = s.id
 ) agg on true
 where y.active and not y.anonymous and y.can_advertise
-order by y.amount_donated desc nulls last, s.name asc, s.id asc;", conn, tx);
+order by
+  case when y.pinned_position is null then 1 else 0 end,
+  y.pinned_position asc,
+  y.amount_donated desc nulls last,
+  s.name asc,
+  s.id asc;", conn, tx);
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = currentYear });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -211,17 +278,18 @@ order by y.amount_donated desc nulls last, s.name asc, s.id asc;", conn, tx);
                     FbUrl = reader.IsDBNull(3) ? null : reader.GetString(3),
                     IgUrl = reader.IsDBNull(4) ? null : reader.GetString(4),
                     LogoMediaId = reader.IsDBNull(5) ? null : reader.GetGuid(5).ToString(),
-                    LatestYear = reader.GetInt32(7),
-                    YearsAsSponsor = (int)reader.GetInt64(8),
+                    LatestYear = reader.GetInt32(9),
+                    YearsAsSponsor = (int)reader.GetInt64(10),
                 };
                 var amount = reader.IsDBNull(6) ? (decimal?)null : reader.GetDecimal(6);
-                s.LingerMs = ComputeLingerMs(amount, lingerMsPerDollar, lingerMinMs);
+                var lingerOverride = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8);
+                s.LingerMs = ComputeLingerMs(amount, lingerOverride, lingerMsPerDollar, lingerMinMs);
                 sponsors.Add(s);
                 if (!reader.IsDBNull(5)) sponsorLogos.Add(reader.GetGuid(5));
             }
         }
 
-        // 4. cookie types.
+        // 6. cookie types.
         var cookieTypes = new List<SnapshotCookieType>();
         var cookieTypeMediaIds = new List<Guid>();
         await using (var cmd = new NpgsqlCommand(@"
@@ -257,49 +325,10 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
             }
         }
 
-        // 5. settings - needed for lingerMs; re-read the two keys since we already
-        // filled sponsors with a temporary computation. Do this before sponsors in
-        // real use; the code above recomputes lingerMs after reading settings.
-        await using (var cmd = new NpgsqlCommand(@"
-select key, value from app_setting where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms');", conn, tx))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
-        {
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                var key = reader.GetString(0);
-                var value = reader.GetString(1);
-                using var doc = JsonDocument.Parse(value);
-                if (doc.RootElement.ValueKind == JsonValueKind.Number && doc.RootElement.TryGetInt32(out var parsed))
-                {
-                    if (key == "sponsor_linger_ms_per_dollar") lingerMsPerDollar = parsed;
-                    else if (key == "sponsor_linger_min_ms") lingerMinMs = parsed;
-                }
-            }
-        }
-        // Recompute lingerMs with the actual settings (they may have moved).
-        if (sponsors.Count > 0 && currentYear is not null)
-        {
-            var i = 0;
-            await using var cmd = new NpgsqlCommand(@"
-select s.id, y.amount_donated
-from sponsor s
-join sponsor_year y on y.sponsor_id = s.id and y.event_year = $1
-where y.active and not y.anonymous and y.can_advertise
-order by y.amount_donated desc nulls last, s.name asc, s.id asc;", conn, tx);
-            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = currentYear });
-            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false) && i < sponsors.Count)
-            {
-                var amount = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
-                sponsors[i].LingerMs = ComputeLingerMs(amount, lingerMsPerDollar, lingerMinMs);
-                i++;
-            }
-        }
-
         snap.Sponsors = sponsors;
         snap.CookieTypes = cookieTypes;
 
-        // 6. the published content document (newest content_version row) verbatim.
+        // 7. the published content document (newest content_version row) verbatim.
         Guid[] contentMediaIds = Array.Empty<Guid>();
         ContentDocument content = new ContentDocument
         {
@@ -307,7 +336,6 @@ order by y.amount_donated desc nulls last, s.name asc, s.id asc;", conn, tx);
             Settings = new SiteSettings { SiteName = "", HomeNavLabel = "" },
             Pages = new List<ContentPage>(),
         };
-        bool contentFromVersion = false;
         await using (var cmd = new NpgsqlCommand(@"
 select id, document, media_ids from content_version order by id desc limit 1;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -322,16 +350,17 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
                     var arr = (Guid[])reader.GetValue(2);
                     contentMediaIds = arr;
                 }
-                contentFromVersion = true;
             }
         }
         snap.Content = content;
 
-        // 7. media map: content media ids + sponsor logos + cookie type media icons.
+        // 8. media map: content media ids + sponsor logos + cookie type media
+        // icons + the current event's route poster (contracts 1.3).
         var mediaIds = new HashSet<Guid>();
         foreach (var id in contentMediaIds) mediaIds.Add(id);
         foreach (var id in sponsorLogos) mediaIds.Add(id);
         foreach (var id in cookieTypeMediaIds) mediaIds.Add(id);
+        if (routePosterMediaId is Guid poster) mediaIds.Add(poster);
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (mediaIds.Count > 0)
@@ -378,21 +407,88 @@ order by id;", conn, tx);
         }
         snap.Media = media;
 
-        // 8. icon library map - from the compiled library (not the database).
+        // 9. icon library map - from the compiled library (not the database).
         var icons = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var kv in _icons.Map) icons[kv.Key] = kv.Value;
         snap.Icons = icons;
 
-        _ = contentFromVersion;   // Silences the unused-warn - kept for future guard.
-
         return snap;
     }
 
-    private static int ComputeLingerMs(decimal? amount, int perDollar, int minMs)
+    private static int ComputeLingerMs(decimal? amount, int? lingerOverride, int perDollar, int minMs)
     {
+        if (lingerOverride is int over) return over;
         if (amount is null) return minMs;
         var computed = (int)Math.Round((double)amount.Value * perDollar, 0, MidpointRounding.AwayFromZero);
         return Math.Max(minMs, computed);
+    }
+
+    // Fetches the linked route's stored object from the object store, decodes
+    // it as a RouteObject, then thins the point list to at most `maxPoints` by
+    // keeping every `ceil(n / max)`-th point starting from the first and always
+    // including the last (contracts 1.3, api.md 10.2). A missing or unreadable
+    // object logs at Warning and leaves flightHistory null so the snapshot
+    // still commits.
+    private async Task<SnapshotFlightHistory?> LoadFlightHistoryAsync(
+        long routeId, string routeName, string s3Key, int maxPoints, CancellationToken ct)
+    {
+        try
+        {
+            var content = await _store.GetObjectAsync(s3Key, ct).ConfigureAwait(false);
+            if (content is null)
+            {
+                _logger.LogWarning(
+                    "flight history route object missing; routeId={RouteId} key={Key}", routeId, s3Key);
+                return null;
+            }
+            var route = JsonSerializer.Deserialize<RouteObject>(content.Bytes, ContentReadOptions);
+            if (route is null) return null;
+            var thinned = ThinPoints(route.Points, maxPoints);
+            var name = string.IsNullOrEmpty(routeName) ? route.Name : routeName;
+            return new SnapshotFlightHistory
+            {
+                RouteId = routeId,
+                Name = name,
+                Points = thinned,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "flight history load failed; routeId={RouteId} key={Key}", routeId, s3Key);
+            return null;
+        }
+    }
+
+    // contracts 1.3: keep every ceil(n / max)-th point starting from the first
+    // and always include the last. Exposed for tests; the docs example is
+    // 7 at max 3 -> 1, 4, 7.
+    internal static List<SnapshotFlightPoint> ThinPoints(IList<RoutePoint> source, int maxPoints)
+    {
+        var n = source.Count;
+        var result = new List<SnapshotFlightPoint>();
+        if (n == 0 || maxPoints <= 0) return result;
+        if (n <= maxPoints)
+        {
+            foreach (var p in source) result.Add(Convert(p));
+            return result;
+        }
+        var step = (n + maxPoints - 1) / maxPoints; // ceil(n / max)
+        int lastKept = -1;
+        for (var i = 0; i < n; i += step)
+        {
+            result.Add(Convert(source[i]));
+            lastKept = i;
+        }
+        if (lastKept != n - 1) result.Add(Convert(source[n - 1]));
+        return result;
+
+        static SnapshotFlightPoint Convert(RoutePoint p) => new()
+        {
+            Lat = p.Lat,
+            Lng = p.Lng,
+            RecordedAt = p.RecordedAt,
+        };
     }
 
     private static readonly JsonSerializerOptions ContentReadOptions = BuildContentReadOptions();
