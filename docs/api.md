@@ -53,11 +53,12 @@ wmsfo-api/
     Auth/BeaconKeyAuthHandler.cs      # X-Beacon-Key scheme
     Auth/CognitoAuth.cs               # JwtBearer options, admin policy, person upsert
     Auth/AdminTotpGate.cs             # section 6.3
+    Auth/ApiKeyAuthHandler.cs         # section 6.4: wak_ bearer scheme, capability requirement, DenyApiKeys
     Endpoints/Health.cs
     Endpoints/Beacons.cs              # enroll, me, locations, heartbeat, logs
     Endpoints/PublicWrites.cs         # contact, subscriptions verify and unsubscribe
     Endpoints/Me.cs                   # me, subscriptions, cookies
-    Endpoints/Admin/Events.cs  Routes.cs  Beacons.cs  Sponsors.cs  CookieTypes.cs  Cookies.cs
+    Endpoints/Admin/Events.cs  Routes.cs  Beacons.cs  Sponsors.cs  CookieTypes.cs  Cookies.cs  ApiKeys.cs
     Endpoints/Admin/Settings.cs  Inbox.cs (contact, subscribers, people)  Diagnostics.cs (snapshot, live)
     Endpoints/Admin/Pages.cs  Sections.cs (sections, items, order, move, duplicate)  SiteSettings.cs
     Endpoints/Admin/Content.cs (kinds, status, draft, publish, versions, restore, preview token)  Media.cs  Icons.cs
@@ -205,13 +206,25 @@ After validation an endpoint filter upserts the person (contracts 3.1 SQL) and a
 
 ### 6.3 Admin TOTP gate
 
-`AdminTotpGate` is an endpoint filter on both the `Editor` and the `Admin` policy that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the instance role and `WMSFO_COGNITO_USER_POOL_ID` in the secret. A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most.
+`AdminTotpGate` is an endpoint filter on both the `Editor` and the `Admin` policy that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the instance role and `WMSFO_COGNITO_USER_POOL_ID` in the secret. A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most. The gate skips requests authenticated by an API key (6.4).
+
+### 6.4 API key scheme
+
+`ApiKeyAuthHandler` (an `AuthenticationHandler`), registered alongside the JWT scheme on the same `Authorization` header; the composite `CognitoOrApiKey` scheme picks by prefix: a bearer value starting with `wak_` goes here, anything else goes to JwtBearer.
+
+1. Check the regex `^wak_[A-Za-z0-9_-]{43}$`; on mismatch fail with `401 unauthenticated`.
+2. `select id, name, all_capabilities, capabilities, expires_at, revoked_at from api_key where key_hash = sha256($key)`; missing, `revoked_at` set, or `expires_at` in the past: `401 unauthenticated`. One indexed read on the hash, no timing-sensitive comparison.
+3. Principal claims: `api_key_id`, `api_key_name`, `api_key_all`, and one `api_key_capability` claim per entry. Audit actor is `key:<name>`; no `person` upsert; `last_used_at` stamped fire-and-forget at most once a minute per key.
+
+Capabilities are endpoint metadata: every `/admin/*` endpoint group is mapped with `.RequireCapability("<group>")` (the names in contracts 3.6), and the `Editor` and `Admin` policies each carry a second requirement, `CapabilityOrGroup`, which passes when the principal is a Cognito user in an admitted group, or an API key with `api_key_all` or a matching `api_key_capability`. The three API-key endpoints carry `.DenyApiKeys()` and answer `403 forbidden` to a key principal. `BothAuthHeadersGuard` keeps rejecting `X-Beacon-Key` alongside `Authorization`.
+
+Minting (`POST /admin/api-keys`): generate 32 CSPRNG bytes, base64url without padding, prefix `wak_`; store `sha256` and the first 12 characters; validate `name` (unique among unrevoked, `409 name_taken`), `allCapabilities` with `capabilities` (empty when all, a non-empty distinct subset otherwise), `expiresAt` (null or `>= now + 1h`); answer `201` with the key once. `Keys.cs` already holds the hashing and generation used for beacon keys; the same helpers apply.
 
 ---
 
 ## 7. Endpoint map
 
-Every endpoint from contracts section 4, with the handler responsibility and the recipe it runs. Bodies, responses, and error codes are as the contracts specify and are not repeated.
+Every endpoint from contracts section 4, with the handler responsibility and the recipe it runs. Bodies, responses, and error codes are as the contracts specify and are not repeated. The capability in parentheses after the policy is the API-key capability that also admits the group (6.4).
 
 | Endpoint | Policy | Handler responsibility | Recipe |
 |---|---|---|---|
@@ -228,10 +241,11 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /me/subscriptions`, `POST`, `POST .../resend-verification`, `DELETE .../{id}` | Person | per contracts 4.4; verify token mint and outbox `subscription.verify` in the same transaction | |
 | `GET /me/cookies` | Person | current event, limit from settings, counts | |
 | `POST /cookies` | Person | cookie transaction; increment the node tally | sql.md 8 cookie |
-| `/admin/events*` | Admin | events, status, messages, status history, locations export, cookies list | contracts 7.3 for the [snapshot] writes; status transaction per contracts 4.5 |
-| `/admin/routes*` | Admin | canonicalize, hash, existing-row check, PUT, insert; `from-event` reads the event's published locations in `seq` order and feeds the same path | section 11.1 |
+| `/admin/events*` | Admin (`events`) | events, status, messages, status history, locations export, cookies list; `routeImageMediaId` must name a `ready` raster asset (`409 media_not_ready`, `400` for svg or gif) | contracts 7.3 for the [snapshot] writes; status transaction per contracts 4.5 |
+| `/admin/routes*` | Admin (`routes`) | flight recordings: canonicalize, hash, existing-row check, PUT, insert; `from-event` reads the event's published locations in `seq` order and feeds the same path | section 11.1 |
 | `/admin/beacons*` | Admin | create, patch, activate, deactivate, rotate, revoke, logs; list and get resolve `hubConnected` from one presence call | section 14 |
-| `/admin/sponsors*` | Editor | CRUD, years upsert; `logoMediaId` must name a `ready` asset (`409 media_not_ready`) | [snapshot] |
+| `/admin/sponsors*` | Editor (`sponsors`) | CRUD, years upsert with `pinnedPosition` (`409 pinned_position_taken` from the partial unique index) and `lingerMsOverride`; `order/{eventYear}` reads and rewrites the pinned list for a year in one transaction; `logoMediaId` must name a `ready` asset (`409 media_not_ready`); every `SponsorYear` answered carries the computed `lingerMs` | [snapshot] |
+| `/admin/api-keys*` | Admin, Cognito only (`DenyApiKeys`) | list, mint, revoke | section 6.4 |
 | `/admin/cookie-types*` | Admin | CRUD with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
 | `/admin/site-settings` | Editor | read and replace the single row; draft validation | sql.md 8.21 |
@@ -311,7 +325,7 @@ Runs inside the admin transaction (contracts 7.3) on the transaction's connectio
 
 1. `select * from snapshot where id = 1 for update`.
 2. Apply the write (the endpoint's own statements).
-3. Run the snapshot reads of sql.md 7 in the same transaction; build `CdnObjects.Snapshot` in contract key order with the sponsor filter and ordering of contracts 1.3, `lingerMs` from the settings read in the transaction, `content` as the newest `content_version.document` parsed and re-serialized through the same options (byte-identical by construction), `media` from the referenced assets (the version's `media_ids`, the listed sponsors' logos, the cookie types' media icons) with keys in ascending order, and `icons` from `IconLibrary.Map` (id to CDN URL, ascending).
+3. Run the snapshot reads of sql.md 7 in the same transaction; build `CdnObjects.Snapshot` in contract key order with the sponsor filter and ordering of contracts 1.3, `lingerMs` from the settings read in the transaction, `event.flightHistory` from the linked `route` row's object (read back from the object store, or from the `route_point` cache table if the implementation keeps one) thinned to `flight_history_max_points` by keeping every `ceil(n / max)`-th point and always the last, `content` as the newest `content_version.document` parsed and re-serialized through the same options (byte-identical by construction), `media` from the referenced assets (the version's `media_ids`, the listed sponsors' logos, the cookie types' media icons) with keys in ascending order, and `icons` from `IconLibrary.Map` (id to CDN URL, ascending).
 4. `bytes = CanonicalJson.Serialize(snapshot)`, `key = "snapshots/" + sha256hex + ".json"`.
 5. `objectStore.PutAsync(key, bytes, immutable)` with a 3 s timeout and one attempt; any failure throws `ApiException(502, "snapshot_write_failed")`, which rolls the transaction back.
 6. `update snapshot set version = version + 1, url = $cdn + '/' + key, s3_key = key, built_at = now() where id = 1`.
@@ -553,7 +567,7 @@ Tests:
 | Suite | Covers |
 |---|---|
 | Unit | key minting and hashing, AES-GCM round trip, canonical JSON byte equality against every fixture, SVG validator cases (and every library icon), image sniffing, variant width selection (700 px source yields 480 only), filename sanitizing, validation tables (every rule, one case each), the inline grammar (each token, malformed constructs, reference extraction), the reference walker over every kind's `defaults`, draft-schema derivation, apply-order of the live object builder, template substitution |
-| Integration (Postgres through Testcontainers when Docker is available, else the server named by `WMSFO_TEST_DB_CONNECTION`, which is how they run inside the grunt runner against its local cluster; local object store; fake gateway client) | every endpoint's success and every listed error code; the location transaction under concurrency (two beacons, one active); `seq` monotonic across 1,000 concurrent inserts; the snapshot transaction rollback on a failing PUT; partial unique indexes (`23505` on the three); the tick rewrite rule; leader gating of chores with an overlapping leader; outbox and alert idempotency; nightly cleanup counts; the callback guard on forwarded headers; rate limits; the media pipeline end to end against the local store (ticket, PUT, confirm, variants, tag removal, usage, `409 media_in_use`, delete); publish with problems, unchanged, and success (version pruned at 51, snapshot embeds the document, media map contains exactly the referenced assets); restore recreates six role pages; preview token expiry; the orphan collector's four transitions with a clock stub; `Editor` and `Admin` policy matrix over every `/admin/*` route |
+| Integration (Postgres through Testcontainers when Docker is available, else the server named by `WMSFO_TEST_DB_CONNECTION`, which is how they run inside the grunt runner against its local cluster; local object store; fake gateway client) | every endpoint's success and every listed error code; the location transaction under concurrency (two beacons, one active); `seq` monotonic across 1,000 concurrent inserts; the snapshot transaction rollback on a failing PUT; partial unique indexes (`23505` on the three); the tick rewrite rule; leader gating of chores with an overlapping leader; outbox and alert idempotency; nightly cleanup counts; the callback guard on forwarded headers; rate limits; the media pipeline end to end against the local store (ticket, PUT, confirm, variants, tag removal, usage, `409 media_in_use`, delete); publish with problems, unchanged, and success (version pruned at 51, snapshot embeds the document, media map contains exactly the referenced assets); restore recreates six role pages; preview token expiry; the orphan collector's four transitions with a clock stub; `Editor` and `Admin` policy matrix over every `/admin/*` route, and the API-key matrix over the same routes (all capabilities, one capability, the wrong capability, expired, revoked, a key on the key endpoints); sponsor order rewrite and `pinned_position_taken`; route image linking and its two rejections |
 | Contract | `openapi.json` up to date; schemas validate the fixtures; the migration has no pending model changes; templates contain their required substitutions |
 
 ---
@@ -565,6 +579,7 @@ Tests:
 - The publish body splices the exact bytes the writer PUT, so hub and CDN payloads are identical without a second serialization.
 - Leadership expires 10 s after the last good answer on its own, so a stalled poll can never leave a node believing it is leader.
 - The tally delta counter bridges the second between a cookie insert and the next tick on the inserting node; the tick's SQL count is the truth every second.
+- API keys share the `Authorization` header with ID tokens and are told apart by the `wak_` prefix; capabilities are endpoint metadata checked by one authorization requirement, so adding an endpoint group is one `.RequireCapability` call.
 - Raster uploads decode with a 40-megapixel ceiling; the width variants are WebP quality 82 at 480, 960, and 1600 px, each only when narrower than the source.
 - SVG validation uses a non-resolving `XmlReader` with DTDs prohibited and keeps the uploaded bytes.
 - Enrollment QR codes are PNG, 8 px per module, error correction M.

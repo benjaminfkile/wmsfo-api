@@ -203,7 +203,15 @@ Rules:
     "wentLiveAt": "2026-12-22T01:02:11.000Z",
     "endedAt": null,
     "fundsPercent": 63,
-    "routeUrl": "https://<cdn-domain>/routes/9c0e...77ab.json",
+    "routeImageMediaId": "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44",
+    "flightHistory": {
+      "routeId": 3,
+      "name": "2025 flight",
+      "points": [
+        { "lat": 46.8721, "lng": -114.0012, "recordedAt": "2025-12-22T01:31:07.000Z" },
+        { "lat": 46.8730, "lng": -114.0030, "recordedAt": "2025-12-22T01:31:37.000Z" }
+      ]
+    },
     "latestMessage": {
       "id": 12,
       "body": "Santa is airborne over the valley.",
@@ -236,7 +244,7 @@ Rules:
       "homeNavLabel": "Track Santa",
       "logo": { "source": "library", "id": "sleigh" },
       "favicon": { "source": "library", "id": "santa-hat" },
-      "theme": { "accent": "red", "surface": "night", "fontPairing": "festive", "snowDefault": true },
+      "theme": { "snowDefault": true, "lightsDefault": true },
       "navExtraLinks": [],
       "footerLinks": [ { "label": "Facebook", "href": "https://facebook.com/example", "icon": { "source": "library", "id": "facebook" }, "newTab": true } ],
       "footerText": "A volunteer project. {icon:heart}",
@@ -293,15 +301,16 @@ Keys appear in this order.
 | `event.wentLiveAt` | `rfc3339 \| null` | Stamped by the API on every entry into status 3; admin-patchable. Liftoff timer origin. |
 | `event.endedAt` | `rfc3339 \| null` | Stamped by the API on every entry into status 4; admin-patchable. |
 | `event.fundsPercent` | `int` | 0 to 100. Cheer meter. |
-| `event.routeUrl` | `string \| null` | Absolute CDN URL of the event's route; `null` when unlinked. |
+| `event.routeImageMediaId` | `string \| null` | The event's route poster as a media asset id (a raster asset), resolved through `media`; `null` when none is linked. |
+| `event.flightHistory` | `object \| null` | The flight recording linked to the event (`event.route_id`, 1.4), embedded so the tracker's "flight history" toggle needs no second fetch: `routeId`, `name`, and `points[]` (`lat`, `lng`, `recordedAt`) in route order, thinned to at most `flight_history_max_points` (section 6) by keeping every k-th point plus the last. `null` when no recording is linked. The admin changes it with `PATCH /admin/events/{id} { routeId }`, a snapshot-affecting write, so every new or rebuilt snapshot carries the history the admin chose. |
 | `event.latestMessage` | `object \| null` | The `event_message` with the greatest `created_at` for this event (not `eventTime`; ties on `created_at` broken by greatest `id`), or `null`. |
 | `event.latestMessage.id`, `body`, `eventTime`, `createdAt` | `int64`, `string`, `rfc3339 \| null`, `rfc3339` | As stored. |
-| `sponsors[]` | `object[]` | Sponsors having a `sponsor_year` row with `event_year = event.year`, `active = true`, `anonymous = false`, `can_advertise = true`; ordered `amount_donated` desc (nulls last), `name` asc, `id` asc. Empty when `event` is null. |
+| `sponsors[]` | `object[]` | Sponsors having a `sponsor_year` row with `event_year = event.year`, `active = true`, `anonymous = false`, `can_advertise = true`. Order: rows with `pinned_position` set first, `pinned_position` asc; then the rest by `amount_donated` desc (nulls last), `name` asc, `id` asc. This is the display order everywhere on the site (grid, carousel, live overlay); nothing reshuffles it. Empty when `event` is null. |
 | `sponsors[].websiteUrl`, `fbUrl`, `igUrl` | `string \| null` | As stored. |
 | `sponsors[].logoMediaId` | `string \| null` | The sponsor's logo as a media asset id, resolved through `media`; `null` when no logo. |
 | `sponsors[].latestYear` | `int` | Greatest `event_year` among the sponsor's rows. |
 | `sponsors[].yearsAsSponsor` | `int` | Count of distinct `event_year` rows for the sponsor. |
-| `sponsors[].lingerMs` | `int` | `max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`; `sponsor_linger_min_ms` alone when `amount_donated` is null. |
+| `sponsors[].lingerMs` | `int` | `linger_ms_override` when the year row has one; otherwise `max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` alone when `amount_donated` is null. Whether a value was overridden or pinned is not exposed. |
 | `cookieTypes[]` | `object[]` | Rows with `active = true`, ordered `sort` asc, `id` asc. |
 | `cookieTypes[].id`, `name`, `icon`, `sort` | `int64`, `string`, `Icon \| null`, `int` | As stored; `icon` is the value type in 1.3a. |
 | `content` | `object` | The published content document (1.3a), byte for byte the `document` of the newest `content_version` row. Never null after first boot. |
@@ -310,7 +319,7 @@ Keys appear in this order.
 
 The snapshot row's `version` and `built_at` stay on the row and on `GET /admin/snapshot`; they are not part of the object, so two rebuilds with identical data produce identical bytes. Amounts donated never appear in any public object. The snapshot never contains cookie notes, person data, beacon data, telemetry, or donation amounts.
 
-A snapshot-affecting write is any admin write to: `event` (create, update, delete, status, current, route link), `event_message`, `sponsor`, `sponsor_year`, `cookie_type`, any `app_setting` key, a media asset's `alt` (it rides in `media`), and a content publish (4.5 Content). Working-set writes (pages, sections, items, site settings draft) and media uploads are not snapshot-affecting; nothing reaches the site until a publish. Section 7.3 gives the transaction.
+A snapshot-affecting write is any admin write to: `event` (create, update, delete, status, current, route image link, flight history link), `event_message`, `sponsor`, `sponsor_year`, `cookie_type`, any `app_setting` key, a media asset's `alt` (it rides in `media`), and a content publish (4.5 Content). Working-set writes (pages, sections, items, site settings draft) and media uploads are not snapshot-affecting; nothing reaches the site until a publish. Section 7.3 gives the transaction.
 
 ### 1.3a Content document
 
@@ -371,11 +380,11 @@ type Block =
 | `countdown` | yes | `{ heading: Inline \| null }` | none | reads `snapshot.event.scheduledAt`; renders nothing unless `live.eventStatusId` is 2 and `now < scheduledAt` |
 | `event_times` | yes | `{ fields: ("scheduledAt" \| "wentLiveAt" \| "endedAt" \| "airborneFor")[]; labels: { scheduledAt: Inline; wentLiveAt: Inline; endedAt: Inline; airborneFor: Inline } }` (`fields` 1 to 4, distinct) | none | each field renders only when its value exists; `airborneFor` is the elapsed time since `wentLiveAt` while status is 3 |
 | `latest_message` | yes | `{ heading: Inline \| null; style: "card" \| "ticker" }` | none | reads `snapshot.event.latestMessage`; renders nothing when null |
-| `map` | yes | `{ themes: string[]; defaultTheme: string; defaultCenter: { lat: number; lng: number }; defaultZoom: number; controls: { themePicker: boolean; terrain: boolean; snow: boolean; routeLines: boolean; timeLabels: boolean; location: boolean; dataRow: boolean }; overlays: { liveIndicator: boolean; liftoffTimer: boolean; latestMessage: boolean; leaderboardPanel: boolean; sponsorCarousel: boolean; cookieControl: boolean; distanceChip: boolean } }` (`themes` 1 to 10 from the site's theme registry; `defaultTheme` in `themes`; `defaultZoom` 3 to 18) | none | allowed only on the page with role `live`; reads the live object and the route; the full-viewport live screen of site.md section 8 |
+| `map` | yes | `{ themes: string[]; defaultTheme: string; defaultCenter: { lat: number; lng: number }; defaultZoom: number; controls: { themePicker: boolean; terrain: boolean; snow: boolean; flightHistory: boolean; timeLabels: boolean; location: boolean; dataRow: boolean }; flightHistoryDefault: boolean; overlays: { liveIndicator: boolean; liftoffTimer: boolean; latestMessage: boolean; leaderboardPanel: boolean; sponsorCarousel: boolean; cookieControl: boolean; distanceChip: boolean } }` (`themes` 1 to 10 from the site's theme registry; `defaultTheme` in `themes`; `defaultZoom` 3 to 18; `flightHistoryDefault` defaults false) | none | allowed only on the page with role `live`; reads the live object and `snapshot.event.flightHistory`; the full-viewport live screen of site.md section 8 |
 | `leaderboard` | yes | `{ heading: Inline \| null; variant: "panel" \| "full"; emptyText: Inline }` | none | reads `live.cookieTally` joined with `snapshot.cookieTypes` |
 | `sponsor_carousel` | yes | `{ heading: Inline \| null; logoWidth: 480 \| 960 }` | none | reads `snapshot.sponsors` and `lingerMs` |
 | `sponsor_grid` | yes | `{ heading: Inline \| null; columns: 2 \| 3 \| 4; showYears: boolean; emptyText: Inline }` | none | reads `snapshot.sponsors` |
-| `route_preview` | yes | `{ heading: Inline \| null; style: "svg" \| "map"; emptyText: Inline }` | none | reads `route`; `svg` draws the points without the Maps script; `map` is the route viewer of site.md section 8 |
+| `route_preview` | yes | `{ heading: Inline \| null; style: "image" \| "viewer"; disclaimer: Inline \| null; emptyText: Inline }` | none | reads `event.routeImageMediaId` through `media`; `image` renders the poster as a linked picture (the 960 variant, `srcset`); `viewer` is the pan-and-zoom poster viewer of site.md section 8.5 over the original bytes, with `disclaimer` shown above it |
 | `cookie_control` | yes | `{ heading: Inline \| null; copy: Inline \| null; signedOutCopy: Inline; closedCopy: Inline }` | none | the leave-a-cookie control; `signedOutCopy` when signed out; `closedCopy` when `live.eventStatusId` is not 3 |
 | `alerts_signup` | yes | `{ heading: Inline \| null; copy: Inline \| null; signedOutCopy: Inline }` | none | the subscription manager of 4.4 when signed in; `signedOutCopy` and a sign-in link otherwise |
 | `contact_form` | yes | `{ heading: Inline \| null; copy: Inline \| null; successText: Inline }` | none | posts `POST /contact` |
@@ -389,7 +398,7 @@ type SiteSettings = {
   homeNavLabel: Inline;                      // required; the nav entry for "/"
   logo: Icon | null;
   favicon: Icon | null;
-  theme: { accent: "red" | "green" | "gold" | "blue"; surface: "night" | "snow" | "forest"; fontPairing: "classic" | "festive" | "modern"; snowDefault: boolean };
+  theme: { snowDefault: boolean; lightsDefault: boolean };   // seasonal layers only; colours, fonts, and light/dark are the site's own (site.md 7.7)
   navExtraLinks: Link[];                     // 0 to 5, appended after the pages
   footerLinks: Link[];                       // 0 to 10
   footerText: Inline | null;
@@ -419,7 +428,9 @@ A variant exists only when the source is a raster image wider than that width; a
 
 The icon library is a directory of SVG files in the API repository, `icons/<id>.svg`, each with a name and tags in `icons/library.json`. `icons` in the snapshot maps every id to `https://<cdn-domain>/icons/{sha256}.svg`. The library is written to the bucket by the migrating node under the migration lock whenever its hash differs from `icon_library_state.library_sha256`, followed by a snapshot rebuild, so a deploy that adds icons needs no operator action. Uploaded icons are media assets of kind `svg` and resolve through `media`. Every SVG, library or uploaded, passes the validator in 4.5 Media and renders through `<img>` only.
 
-### 1.4 Route: `routes/{sha256}.json`
+### 1.4 Flight recording: `routes/{sha256}.json`
+
+A route object is a recording of a flight (or a hand-made point list). It serves two things: Red-Nose replay, exports, and tests read it from this URL; and the tracker's "flight history" toggle draws the recording linked to the current event as a projected route, read from the copy embedded in the snapshot as `event.flightHistory` (1.3), never from this object. The route the public sees on the route page is the event's poster image (`event.routeImageMediaId`). The tracker never draws where Santa has been; it shows where he is. The object, its endpoints (4.5 Routes), and `event.route_id` are unchanged.
 
 ```json
 {
@@ -444,7 +455,7 @@ No other keys anywhere. The stored object is the canonical re-serialization (1.6
 
 ### 1.5 Images
 
-Every image on the site is a media asset or a library icon resolved through `snapshot.media` and `snapshot.icons` (1.3b). The site never constructs image URLs and renders SVG only through `<img>` elements, never inline. A reference that resolves to nothing (an id missing from the map) renders nothing and logs once.
+Every image on the site is a media asset or a library icon resolved through `snapshot.media` and `snapshot.icons` (1.3b). The site never constructs image URLs. Uploaded SVGs (a media-sourced icon, a media asset of kind `svg`) render only through `<img>` elements, never inline. Library icons are different: they ship in the site's own bundle as inline SVG components on one drawing rule (24 px grid, 1.75 px stroke, `currentColor`), so they take the theme's colour; `snapshot.icons` remains the source for the admin panel, the API's validation, and any consumer without the bundle. A library id the bundle does not know falls back to `<img>` from `snapshot.icons`. A reference that resolves to nothing (an id missing from the map) renders nothing and logs once.
 
 ### 1.6 Canonical JSON and hashing
 
@@ -491,8 +502,6 @@ type Store = {
   live: LiveObject | null;
   snapshot: Snapshot | null;
   snapshotUrl: string | null;        // the URL store.snapshot was fetched from
-  route: Route | null;
-  routeUrl: string | null;           // the URL store.route was fetched from
   hub: "connecting" | "connected" | "reconnecting" | "disconnected";
                                      // "connected" is set on the `joined` ack for `<service>:location`,
                                      // not when start() resolves; start() resolving leaves it "connecting"
@@ -506,15 +515,14 @@ type Store = {
 Startup:
 
 1. `GET <cdn>/live/location.json`. On failure retry after 1 s, 2 s, 3 s, then every 5 s; render a loading state until the first success.
-2. Apply it (below), which fetches `snapshotUrl` and then `routeUrl`.
+2. Apply it (below), which fetches `snapshotUrl`.
 3. Start the hub connection (section 2.2) and the poll timer.
 
 Apply a live object `L` (from either path):
 
-- If `L.schemaVersion !== 1`: set `schemaMismatch`, show the reload prompt, apply nothing further. The same check applies to a fetched snapshot or route: `schemaVersion !== 1` sets `schemaMismatch`, shows the reload prompt, and the object is not stored; so does `snapshot.content.schemaVersion !== 1`.
+- If `L.schemaVersion !== 1`: set `schemaMismatch`, show the reload prompt, apply nothing further. The same check applies to a fetched snapshot: `schemaVersion !== 1` sets `schemaMismatch`, shows the reload prompt, and the object is not stored; so does `snapshot.content.schemaVersion !== 1`.
 - Discard per the rule in 1.2 (an older event, a lower `seq`, a null `seq` after a non-null one, or an older `publishedAt` on equal `seq`); otherwise `store.live = L`, and when `L.seq` differs from the previous `seq` (or this is the first apply) set `lastSeqChangeAt = performance.now()`.
 - If `L.snapshotUrl !== store.snapshotUrl`: fetch it; on success `store.snapshot = S; store.snapshotUrl = L.snapshotUrl`. On failure retry with the same backoff; keep rendering the old snapshot meanwhile.
-- Let `routeUrl = store.snapshot?.event?.routeUrl ?? null`. If `routeUrl !== store.routeUrl`: fetch it (or set `store.route = null` when `routeUrl` is null) and set `store.routeUrl = routeUrl`.
 
 Poll timer:
 
@@ -527,7 +535,7 @@ Hub `location` event: apply its `data` as a live object and set `lastHubLocation
 
 Page choice at `/`: `live.eventStatusId` picks the role per the table in 0.5 (`null` is `no_event`) and the site renders the page in `snapshot.content.pages` with that role. The switch happens the moment the live object is applied; until the snapshot named by the new `snapshotUrl` arrives the site keeps rendering the page it has for the new role from the snapshot it holds (the pages rarely change between snapshots; only the event fields do). While `(store.snapshot?.event?.statusId ?? null) !== live.eventStatusId` (the snapshot named by the new `snapshotUrl` is still in flight) the time-shaped elements (`countdown`, liftoff timer, end time) render blank; they fill on the snapshot's arrival. When both are null there are no time-shaped elements.
 
-Live-screen states while status 3: `seq === null` renders the map with the route and a "waiting for the first fix" marker state. `seq !== null && performance.now() - lastSeqChangeAt > 30000` renders the signal-lost indicator on the marker; the marker stays where it is.
+Live-screen states while status 3: `seq === null` renders the map at its default view and a "waiting for the first fix" marker state. `seq !== null && performance.now() - lastSeqChangeAt > 30000` renders the signal-lost indicator on the marker; the marker stays where it is.
 
 ### 1.10 Field map per surface
 
@@ -535,11 +543,11 @@ Content kinds read only their own `data` and `items` plus `snapshot.media` and `
 
 | Surface | Reads |
 |---|---|
-| Shell (nav, footer, theme, favicon, snow default) | `snapshot.content.settings`, `snapshot.content.pages[]` (`navLabel`, `navPosition`, `slug`) |
+| Shell (nav, footer, favicon, snow and lights defaults, the light/dark/system toggle) | `snapshot.content.settings`, `snapshot.content.pages[]` (`navLabel`, `navPosition`, `slug`); the colour scheme is the visitor's own (`localStorage["wmsfo.theme"]`, else the OS) and never comes from the snapshot |
 | Page at `/` | the page whose `role` matches `live.eventStatusId` |
 | Page at `/<slug>` | the `none` page with that slug; unknown slug renders the not-found page |
 | Every inline text | `snapshot.event.name`, `year`, `scheduledAt` for the placeholders |
-| Live screen (`map` section) | `live.lat/lng/headingDeg/speedMps/altitudeM/accuracyM/receivedAt/recordedAt/publishedAt`, `route.points`, `snapshot.event.wentLiveAt`, `live.cookieTally` with `snapshot.cookieTypes`, `snapshot.sponsors` with `lingerMs`, `snapshot.event.latestMessage`, `store.hub` and quiet state |
+| Live screen (`map` section) | `live.lat/lng/headingDeg/speedMps/altitudeM/accuracyM/receivedAt/recordedAt/publishedAt`, `snapshot.event.flightHistory`, `snapshot.event.wentLiveAt`, `live.cookieTally` with `snapshot.cookieTypes`, `snapshot.sponsors` with `lingerMs`, `snapshot.event.latestMessage`, `store.hub` and quiet state |
 | Alerts landing pages `/alerts/verify`, `/alerts/unsubscribe` | `token` from the query string, then `POST /subscriptions/verify` or `POST /subscriptions/unsubscribe` (section 4.3) |
 | `alerts_signup` (signed in) | `GET /me`, `GET /me/subscriptions` (section 4.4) |
 | `cookie_control` (signed in, status 3) | `snapshot.cookieTypes`, `GET /me/cookies`, `POST /cookies` |
@@ -807,6 +815,24 @@ Every key mint (create or rotate) also mints one enrollment token so the phone c
 - **Activate** (`POST /admin/beacons/{id}/activate`): clears `is_active` on every other row, then sets this beacon's `is_active = true`, in that order in one transaction (the partial unique index is checked per statement). `409 beacon_revoked` on a revoked beacon. Takes effect on the next stored update (the location transaction reads `is_active`, 7.2).
 - **Deactivate** (`POST /admin/beacons/{id}/deactivate`): clears `is_active`. Zero active beacons means nothing fans out until another is activated. Idempotent.
 
+### 3.6 API keys
+
+An API key lets a script or an agent (Claude Code configuring the site, a posting bot) call the admin surface without Cognito. Modeled on the portfolio's machine keys, with two additions: a key carries a capability set, and a key can expire.
+
+| Item | Value |
+|---|---|
+| Format | `wak_` followed by 43 characters of unpadded URL-safe base64 (32 random bytes from a CSPRNG). 47 characters total. Regex `^wak_[A-Za-z0-9_-]{43}$`. |
+| Header | `Authorization: Bearer <key>`; the `wak_` prefix tells it apart from an ID token. A request carrying `X-Beacon-Key` as well is `400 validation_failed`. |
+| At rest | `api_key.key_hash = sha256(key)` (unique index) plus `api_key.key_prefix` = the first 12 characters for display. Lookup is by hash; keys are never logged. |
+| Shown | Once, in the mint response. Never retrievable afterwards. |
+| Capabilities | `api_key.all_capabilities = true`, or `api_key.capabilities` = a non-empty subset of the capability list below. `all_capabilities` covers capabilities added after the key was minted. |
+| Expiry | `api_key.expires_at` null (never) or an rfc3339 instant at least one hour after mint. Past it the key answers `401 unauthenticated`, same as revoked. |
+| Minting | `POST /admin/api-keys`, Cognito `Admin` policy only (TOTP applies). A key can never mint, list, or revoke keys. |
+| Acting as | Requests carry no `email`; audit columns record `key:<name>`. No `person` row is upserted. The TOTP gate does not apply to keys. |
+| Rate limit | The `/admin/*` bucket is keyed by key id instead of person id. |
+
+Capabilities, one per endpoint group of 4.5, each named after its heading: `events`, `routes`, `beacons`, `sponsors`, `cookie_types`, `pages`, `sections`, `site_settings`, `content`, `media`, `icons`, `cookies`, `settings`, `contact_messages`, `subscribers`, `people`, `diagnostics`. Every `/admin/*` endpoint except the API-key endpoints names its capability in the endpoint metadata; a key request whose key lacks it is `403 forbidden`. A key with a capability reaches every endpoint in that group regardless of the group's Cognito policy (a key with `events` can change status; a key with `sponsors` can pin sponsors).
+
 ### 3.5 Protecting the callback endpoints
 
 `/realtime/authorize` and `/realtime/message` are ordinary routes on the container port, so the public proxy would forward `https://<api-domain>/realtime/message` to them. The gateway's own callback client attaches no credential. Proxied requests always carry `X-Forwarded-For` (added by the load balancer and by the proxy); the gateway's direct callbacks never do. The API therefore answers `404` with an empty body to any request on these two paths that carries `X-Forwarded-For`, `X-Forwarded-Host`, or `X-Forwarded-Proto`, and processes the rest. Before the event an operator confirms whether the gateway already refuses these two paths on its public listener; a gateway feature that attaches `X-Gateway-Realtime-Token` on its callbacks is on the gateway backlog, and when it lands the API switches to comparing that header.
@@ -821,7 +847,7 @@ Every key mint (create or rotate) also mints one enrollment token so the phone c
 |---|---|
 | Content type | Requests with a body send `Content-Type: application/json` unless marked multipart or text. Responses are `application/json; charset=utf-8`. |
 | Body limits | 64 KB for JSON, 256 KB for section, item, and site settings bodies, 5 MB for route uploads, 2 MB for beacon logs, 8 KB for heartbeats. Media bytes never pass through the API (presigned upload, 4.5 Media): 20 MB for raster and GIF, 1 MB for SVG, checked at confirm. Over the limit: `413 payload_too_large`. |
-| Auth headers | `X-Beacon-Key` (beacon), `Authorization: Bearer <id-token>` (person, admin). A request that carries both is `400 validation_failed`. |
+| Auth headers | `X-Beacon-Key` (beacon), `Authorization: Bearer <id-token>` (person, admin), `Authorization: Bearer wak_…` (API key, 3.6). A request that carries `X-Beacon-Key` and `Authorization` is `400 validation_failed`. |
 | Common errors | `400 validation_failed`, `401 unauthenticated`, `403 forbidden`, `404 not_found`, `405` (no body), `413 payload_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500 internal_error`, `502 upstream_failed`. Listed per endpoint only when the endpoint adds a code. |
 | CORS | The API answers CORS for the exact origins in `WMSFO_CORS_ORIGINS`: methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version`, `Access-Control-Max-Age: 600`, no credentials. Red-Nose is not a browser and needs none. |
 | Client IP | Taken from `X-Forwarded-For` counting `WMSFO_TRUSTED_PROXY_HOPS` (default 2: the load balancer and the gateway proxy) entries from the right. Used for rate limiting and contact-message records only. |
@@ -841,7 +867,7 @@ Every key mint (create or rotate) also mints one enrollment token so the phone c
 | `POST /me/subscriptions`, `.../resend-verification` | person id | 5/hour | 5 |
 | `GET /preview/document` | client IP | 60/min | 60 |
 | `POST /admin/media/upload-url` | person id | 30/min | 30 |
-| `/admin/*` | person id | 20/s | 40 |
+| `/admin/*` | person id, or API key id | 20/s | 40 |
 
 Shared resource shapes (all camelCase, all timestamps rfc3339). Column-to-wire mapping is mechanical snake_case to camelCase; the only non-mechanical names are `contact_message.body` (request field `message`), `beacon.key_prefix` (`keyPrefix`), and `media_asset.s3_key` and `variants` (exposed as absolute CDN URLs `url` and `variants`).
 
@@ -850,6 +876,7 @@ type Event = {
   id: number; year: number; name: string; statusId: number; isCurrent: boolean;
   scheduledAt: string | null; wentLiveAt: string | null; endedAt: string | null;
   fundsPercent: number; routeId: number | null; routeUrl: string | null;
+  routeImageMediaId: string | null; routeImage: MediaAsset | null;
   createdBy: string; createdAt: string; updatedAt: string;
 };
 type EventMessage = { id: number; eventId: number; body: string; eventTime: string | null; createdBy: string; createdAt: string; updatedAt: string };
@@ -868,7 +895,11 @@ type Sponsor = {
   websiteUrl: string | null; fbUrl: string | null; igUrl: string | null;
   logoMediaId: string | null; logo: MediaAsset | null; years: SponsorYear[]; createdAt: string; updatedAt: string;
 };
-type SponsorYear = { eventYear: number; amountDonated: number | null; active: boolean; canAdvertise: boolean; anonymous: boolean; registeredAt: string };
+type SponsorYear = { eventYear: number; amountDonated: number | null; active: boolean; canAdvertise: boolean; anonymous: boolean; pinnedPosition: number | null; lingerMsOverride: number | null; lingerMs: number; registeredAt: string };
+                    // lingerMs is the value the snapshot would carry (1.3), computed by the API for the panel to show
+type ApiKeyCapability = "events" | "routes" | "beacons" | "sponsors" | "cookie_types" | "pages" | "sections" | "site_settings" | "content" | "media" | "icons" | "cookies" | "settings" | "contact_messages" | "subscribers" | "people" | "diagnostics";
+type ApiKey = { id: number; name: string; keyPrefix: string; allCapabilities: boolean; capabilities: ApiKeyCapability[]; expiresAt: string | null; createdBy: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
+type ApiKeyMinted = ApiKey & { key: string };   // the only response that ever carries the full key
 type CookieType = { id: number; name: string; icon: Icon | null; sort: number; active: boolean; createdAt: string; updatedAt: string };
 type CookieAdmin = { id: number; eventId: number; personId: number; personEmail: string; cookieTypeId: number; note: string | null; leftAt: string; hiddenAt: string | null; hiddenBy: string | null };
 type Subscription = { id: number; channel: "email"; address: string; verifiedAt: string | null; unsubscribedAt: string | null; createdAt: string };
@@ -1026,16 +1057,16 @@ Rules: `name` 1 to 100, `email` a valid address 3 to 254, `message` 1 to 2000. S
 
 ### 4.5 Admin endpoints (`Authorization: Bearer <id-token>` with group `admin` or `editor`)
 
-Each group of endpoints names its policy (3.1): **Editor** admits both groups, **Admin** admits `admin` only. Editor endpoints: Sponsors, Pages, Sections and items, Site settings, Content, Media, Icons. Everything else is Admin. All admin writes record the caller's `email` claim in the audit column named per table. Writes marked **[snapshot]** run the transaction in 7.3 and answer `502 snapshot_write_failed` if the snapshot upload fails; after commit the node writes the live object (1.8). The response is sent immediately after commit. The live-object write and publish run after the response and never delay it; their outcome is visible only through `GET /admin/live`.
+Each group of endpoints names its policy (3.1): **Editor** admits both groups, **Admin** admits `admin` only. Editor endpoints: Sponsors, Pages, Sections and items, Site settings, Content, Media, Icons. Everything else is Admin. Every group except API keys is also reachable with an API key carrying that group's capability (3.6). All admin writes record the caller's `email` claim, or `key:<name>` for a key, in the audit column named per table. Writes marked **[snapshot]** run the transaction in 7.3 and answer `502 snapshot_write_failed` if the snapshot upload fails; after commit the node writes the live object (1.8). The response is sent immediately after commit. The live-object write and publish run after the response and never delay it; their outcome is visible only through `GET /admin/live`.
 
 #### Events (Admin)
 
 | Method and path | Body | Success | Endpoint-specific errors |
 |---|---|---|---|
 | `GET /admin/events` | | `200 { "items": Event[] }` ordered `year` desc | |
-| `POST /admin/events` **[snapshot]** | `{ "year": 2026, "name": "...", "scheduledAt": null, "fundsPercent": 0, "routeId": null, "inheritRoute": true }` (`year`, `name`, `inheritRoute` required; `scheduledAt` defaults null; `fundsPercent` defaults 0; `routeId` defaults null; `year` 2000 to 2100 unique; `name` 1 to 200; `fundsPercent` 0 to 100) | `201 Event` with `statusId` 1, `isCurrent` false. `inheritRoute: true` requires `routeId` null (`400` otherwise) and copies the `route_id` of the event with the greatest `year` that has one (none: no route); `inheritRoute: false` uses `routeId` as given. | `400`, `404 not_found` (routeId), `409 year_taken` |
+| `POST /admin/events` **[snapshot]** | `{ "year": 2026, "name": "...", "scheduledAt": null, "fundsPercent": 0, "routeId": null, "inheritRoute": true }` (`year`, `name`, `inheritRoute` required; `scheduledAt` defaults null; `fundsPercent` defaults 0; `routeId` defaults null; `year` 2000 to 2100 unique; `name` 1 to 200; `fundsPercent` 0 to 100) | `201 Event` with `statusId` 1, `isCurrent` false. `inheritRoute: true` requires `routeId` null (`400` otherwise) and copies the `route_id` of the event with the greatest `year` that has one (none: no route); `inheritRoute: false` uses `routeId` as given. The route image is never inherited; `route_image_media_id` starts null and is set with `PATCH`. | `400`, `404 not_found` (routeId), `409 year_taken` |
 | `GET /admin/events/{id}` | | `200 Event` | |
-| `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt`, `fundsPercent`, `routeId` | `200 Event` | `404` (event or route), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2) |
+| `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt`, `fundsPercent`, `routeId`, `routeImageMediaId` (a ready raster media asset id, or null to unlink) | `200 Event` | `404` (event, route, or media), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2), `409 media_not_ready`, `400 validation_failed` (an svg or gif asset as the route image) |
 | `DELETE /admin/events/{id}` **[snapshot]** | | `204`; cascades messages, cookies, status history; clears `is_current` | `409 event_live` (status 3), `409 event_has_locations` (any `location` row) |
 | `POST /admin/events/{id}/current` **[snapshot]** | none | `200 Event` (`isCurrent` true; the previous current event's flag cleared in the same transaction). Idempotent: on the already-current event, `200 Event` with no snapshot rebuild and no live-object write, in every status. | `409 current_event_live` (another event is current and live) |
 | `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true }` (both required) | `200 Event` | `400` (unknown status), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null) |
@@ -1050,6 +1081,8 @@ Each group of endpoints names its policy (3.1): **Editor** admits both groups, *
 Status change transaction: lock the event row; check the rules above; update `status_id`; stamp `went_live_at = now()` on every entry into 3 and `ended_at = now()` on every entry into 4 (earlier stamps are overwritten; the admin can correct either with `PATCH`); on every entry into 4 also set `final_cookie_tally` to the current non-hidden counts (`jsonb_object_agg` per type) and on every exit from 4 set it to null; insert `event_status_history`; insert outbox `event.status_changed { eventId, fromStatusId, toStatusId, notify }`; rebuild the snapshot; commit. After commit the node writes the live object with the new `eventStatusId` and `snapshotUrl` and publishes it. Any status may follow any other status; the admin decides, and `notify` decides whether subscribers are emailed (only entries into 2 and 3 produce emails, section 7.7).
 
 #### Routes (Admin)
+
+Flight recordings (1.4). Not shown on the site; used by Red-Nose replay, exports, and tests.
 
 | Method and path | Body | Success | Errors |
 |---|---|---|---|
@@ -1085,10 +1118,22 @@ Attaching a route to an event is `PATCH /admin/events/{id}` with `routeId`.
 | `POST /admin/sponsors` **[snapshot]** | `name` (1 to 200) plus any of `contactPerson`, `email`, `phone`, `address`, `websiteUrl`, `fbUrl`, `igUrl` (URLs absolute http or https, 2048 max) | `201 Sponsor` | |
 | `PATCH /admin/sponsors/{id}` **[snapshot]** | same fields plus `logoMediaId` (a ready media asset id, or null to clear) | `200 Sponsor` | `404` (sponsor or media), `409 media_not_ready` |
 | `DELETE /admin/sponsors/{id}` **[snapshot]** | | `204`; deletes years and the row; the logo asset stays in the library | `404` |
-| `PUT /admin/sponsors/{id}/years/{eventYear}` **[snapshot]** | `{ "amountDonated": 500.00, "active": true, "canAdvertise": true, "anonymous": false }` (`amountDonated` 0 to 1,000,000,000 with at most 2 decimals, or null; the three booleans required; `eventYear` 2000 to 2100) | `200 Sponsor` (upsert on `(sponsor_id, event_year)`, idempotent) | `404` |
+| `PUT /admin/sponsors/{id}/years/{eventYear}` **[snapshot]** | `{ "amountDonated": 500.00, "active": true, "canAdvertise": true, "anonymous": false, "pinnedPosition": null, "lingerMsOverride": null }` (`amountDonated` 0 to 1,000,000,000 with at most 2 decimals, or null; the three booleans required; `pinnedPosition` null or an integer 1 to 1000, default null; `lingerMsOverride` null or an integer 0 to 600,000, default null; `eventYear` 2000 to 2100) | `200 Sponsor` (upsert on `(sponsor_id, event_year)`, idempotent) | `404`, `409 pinned_position_taken` (another sponsor holds that position for that year) |
 | `DELETE /admin/sponsors/{id}/years/{eventYear}` **[snapshot]** | | `204` (idempotent) | `404` (sponsor) |
+| `GET /admin/sponsors/order/{eventYear}` | | `200 { "items": SponsorOrderRow[] }` in snapshot order (1.3): `{ sponsorId, name, pinnedPosition, amountDonated, lingerMs, lingerMsOverride, inSnapshot }` for every sponsor with a row for that year; `inSnapshot` is the 1.3 filter | |
+| `PUT /admin/sponsors/order/{eventYear}` **[snapshot]** | `{ "pinnedSponsorIds": [4, 9, 2] }` (0 to 1000 distinct sponsor ids, each with a `sponsor_year` row for that year) | `200 { "items": SponsorOrderRow[] }`. One transaction: the listed sponsors get `pinned_position` 1..n in list order; every other row for that year gets null. An empty list unpins everything. | `400 validation_failed` (an id without a row for that year, or a duplicate; `details.fields.pinnedSponsorIds`) |
 
-A logo is any media asset (raster, gif, or svg) uploaded through the Media endpoints and chosen on the sponsor; there is no separate logo upload.
+A logo is any media asset (raster, gif, or svg) uploaded through the Media endpoints and chosen on the sponsor; there is no separate logo upload. Pinning and overrides are per year: the panel's order screen for a year is the whole story of that year's display order and timing.
+
+#### API keys (Admin, Cognito only)
+
+| Method and path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /admin/api-keys` | | `200 { "items": ApiKey[] }` newest first, revoked and expired included | |
+| `POST /admin/api-keys` | `{ "name": "claude-code", "allCapabilities": false, "capabilities": ["pages", "sections", "content", "media"], "expiresAt": "2027-01-31T00:00:00Z" }` (`name` 1 to 100, unique among unrevoked keys; `allCapabilities` required; `capabilities` required, empty when `allCapabilities` is true and a non-empty subset of the list in 3.6 otherwise; `expiresAt` null or at least one hour ahead) | `201 ApiKeyMinted`; `key` appears here and nowhere else | `400`, `409 name_taken` |
+| `POST /admin/api-keys/{id}/revoke` | none | `200 ApiKey` (`revokedAt` set; idempotent) | `404` |
+
+An API key request on these three endpoints is `403 forbidden` whatever its capabilities.
 
 #### Cookie types (Admin)
 
@@ -1231,8 +1276,8 @@ Contact messages and cookie notes have no automatic retention; they stay until a
 | Code | Status | Where |
 |---|---|---|
 | `validation_failed` | 400 | any body, query, or header |
-| `unauthenticated` | 401 | missing, invalid, expired, or revoked credential |
-| `forbidden` | 403 | wrong role or group; message path rules |
+| `unauthenticated` | 401 | missing, invalid, expired, or revoked credential (an expired or revoked API key included) |
+| `forbidden` | 403 | wrong role or group; an API key without the endpoint's capability; message path rules |
 | `mfa_required` | 403 | `/admin/*` when the user has no TOTP enabled (3.1) |
 | `not_found` | 404 | unknown id, unknown setting key, unknown subscription token |
 | `enrollment_token_invalid` | 404 | `POST /beacons/enroll` |
@@ -1245,6 +1290,8 @@ Contact messages and cookie notes have no automatic retention; they stay until a
 | `event_has_locations` | 409 | `DELETE /admin/events/{id}` |
 | `year_taken` | 409 | event create and patch |
 | `route_in_use` | 409 | `DELETE /admin/routes/{id}` |
+| `pinned_position_taken` | 409 | `PUT /admin/sponsors/{id}/years/{eventYear}` |
+| `name_taken` | 409 | `POST /admin/api-keys` |
 | `beacon_revoked` | 409 | activate and rotate on a revoked beacon |
 | `slug_reserved` | 400 | page create and patch |
 | `unknown_kind` | 400 | section create |
@@ -1301,7 +1348,8 @@ create table event (
   went_live_at  timestamptz,
   ended_at      timestamptz,
   funds_percent integer not null default 0 check (funds_percent between 0 and 100),
-  route_id      bigint references route (id),
+  route_id      bigint references route (id),    -- flight recording (1.4), never public
+  route_image_media_id uuid references media_asset (id),   -- the route poster the site shows (1.3)
   final_cookie_tally jsonb,                       -- set on entry into status 4, null otherwise (1.2)
   next_seq      bigint not null default 1,
   created_by    text not null,
@@ -1436,9 +1484,26 @@ create table sponsor_year (
   active         boolean not null default true,
   can_advertise  boolean not null default true,
   anonymous      boolean not null default false,
+  pinned_position    integer check (pinned_position between 1 and 1000),
+  linger_ms_override integer check (linger_ms_override between 0 and 600000),
   registered_at  timestamptz not null default now(),
   unique (sponsor_id, event_year)
 );
+create unique index sponsor_year_pinned_ux on sponsor_year (event_year, pinned_position) where pinned_position is not null;
+create table api_key (
+  id               bigint generated always as identity primary key,
+  name             text not null,
+  key_prefix       text not null,
+  key_hash         bytea not null unique,
+  all_capabilities boolean not null default false,
+  capabilities     text[] not null default '{}',
+  expires_at       timestamptz,
+  created_by       text not null,
+  created_at       timestamptz not null default now(),
+  last_used_at     timestamptz,
+  revoked_at       timestamptz
+);
+create unique index api_key_name_ux on api_key (name) where revoked_at is null;
 
 create table person (
   id           bigint generated always as identity primary key,
@@ -1635,6 +1700,7 @@ Plain `lat`/`lng` columns; no PostGIS. `seq` is per event from `event.next_seq`,
 | `sponsor_linger_ms_per_dollar` | int | 40 | 0 to 100000 | Admin panel | Snapshot `sponsors[].lingerMs` |
 | `sponsor_linger_min_ms` | int | 2000 | 0 to 600000 | Admin panel | Snapshot `sponsors[].lingerMs` |
 | `beacon_stale_after_s` | int | 45 | 15 to 3600 | Admin panel | Stale-beacon chore (7.6); returned as `staleAfterS` on `GET /admin/beacons` for panel colouring (1.11) |
+| `flight_history_max_points` | int | 2000 | 100 to 50000 | Admin panel | Snapshot `event.flightHistory.points` thinning (1.3): a 7,200-point flight at 2,000 keeps every 4th point, about 110 KB in the snapshot |
 
 Only `PUT /admin/settings/{key}` changes a value. A missing row means the default. Every settings write is a snapshot-affecting write: the version bump makes every node re-read settings within a tick, and the writing node rewrites the live object so a new `poll_interval_ms` reaches the site. No other configuration lives in the database.
 
@@ -1837,7 +1903,7 @@ Runtime-stored fields (Keystore-backed `EncryptedSharedPreferences`), written by
 | RDS | Databases `wmsfo_dev`, `wmsfo_prod`; roles `wmsfo_app_<env>` (requests) and `wmsfo_migrate_<env>` (migrations, migration tool) per `sql.md` 12. |
 | Cognito | Per 3.1, groups `admin` and `editor`. |
 | SES | `<mail-domain>` verified with DKIM; production access; sending quota at or above `WMSFO_ALERT_SEND_PER_SEC`. |
-| Instance role | S3 `PutObject`, `GetObject`, `DeleteObject`, `ListBucket`, `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging` on `<bucket>` and `<bucket>/live/*`, `snapshots/*`, `routes/*`, `media/*`, `icons/*` (the presigned upload URLs are signed with these credentials, so the role's `PutObject` and `PutObjectTagging` cover the browser's PUT); `ses:SendEmail`; Secrets Manager read of `<secret-name>`; CloudWatch logs; plus `cognito-idp:AdminGetUser` on the pool (TOTP check). |
+| Instance role | S3 `PutObject`, `GetObject`, `DeleteObject`, `ListBucket`, `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging` on `<bucket>` and `<bucket>/live/*`, `snapshots/*`, `routes/*` (flight recordings), `media/*`, `icons/*` (the presigned upload URLs are signed with these credentials, so the role's `PutObject` and `PutObjectTagging` cover the browser's PUT); `ses:SendEmail`; Secrets Manager read of `<secret-name>`; CloudWatch logs; plus `cognito-idp:AdminGetUser` on the pool (TOTP check). |
 | Gateway | Manifest entry per 2.7; internal listener reachable at `<docker-bridge-ip>:8080`; load balancer idle timeout at or above 60 s. |
 
 ---
@@ -1919,6 +1985,7 @@ The one-off tool lives in the API solution (`tools/migrate`), references the API
 | `flight_history` rows grouped by `year` (2020 to 2025) | One `event` per year: `name` from the `--event-name-format` argument (default `Santa Flyover {year}`), `status_id = 4`, `is_current = false`, `went_live_at` = earliest `time`, `ended_at` = latest `time`, `funds_percent` per the `funds` row below or 0. `location` rows in `seq` order with `seq` renumbered from 1 per event, `beacon_id` = the synthetic beacon, `published = true`, `recorded_at = received_at = time`, `lat`/`lng` from the numeric columns, the optional fields null; `event.next_seq` set to the count plus one. |
 | Synthetic beacon | One `beacon` row `name = 'legacy'`, `role = 'beacon'`, a random key generated per 3.2 and discarded, with its `sha256` as `key_hash` and its first 12 characters as `key_prefix`, `is_active = false`, `revoked_at = now()`. |
 | 2025 `flight_history` | Also written as `routes/{sha256}.json` (`name = '2025 flight'`, points in `seq` order with `recordedAt` from `time`), a `route` row with `uploaded_by = 'migration'`, linked as the 2025 event's `route_id`. |
+| Legacy route poster (the image behind the old site's `REACT_APP_ROUTE_IMAGE_URL`) | Not migrated by the tool; it lives outside the legacy database. An admin uploads the current poster through the media library and links it to the event with `PATCH { routeImageMediaId }`. |
 | `event_updates` (`id, message, time, created_at`) | `event_message` on the event whose year is the year of `time`, or of `created_at` when `time` is null; `body = message`, `event_time = time`, `created_at` copied. An update whose year has no event is logged and skipped. |
 | `sponsors` | `sponsor` with ids preserved (`overriding system value`), columns straight across (`fb_url`, `ig_url` unchanged); the legacy full logo object, when present, becomes a media asset (next row) and `logo_media_id` points at it; after the copy, `select setval(pg_get_serial_sequence('sponsor', 'id'), (select max(id) from sponsor));`. The same `setval` follows the copy of every table whose legacy ids are preserved. |
 | Legacy full logo objects (`sponsors.logo_s3_key`) | One `media_asset` per sponsor with a logo: the tool reads the legacy object, runs the API's confirm pipeline on the bytes (sniff, SVG validation, dimensions, variants), writes `media/{uuid}/{filename}` (filename from the legacy key's last segment, sanitized) and the variants to the new bucket with the immutable header, and inserts the row with `state = 'ready'`, `uploaded_by = 'migration'`, `alt` = the sponsor name. Legacy small logos are not copied; the variants replace them. A logo that fails validation is logged and skipped, leaving `logo_media_id` null. |
@@ -1938,7 +2005,7 @@ Cut-over order:
 4. `POST /admin/snapshot/rebuild`.
 5. Verify `GET /api/health`, `GET /admin/snapshot`, and `<cdn>/live/location.json`.
 6. Point the site and panel env vars at the new API, CDN, and pool; deploy them.
-7. Create the new year's event (it inherits the 2025 route), set it current.
+7. Create the new year's event (it inherits the 2025 recording), upload and link this year's route poster, set it current.
 8. Editors replace the starter content with the real copy and images through the panel and publish; nothing about the site's text or images lives in a repository.
 
 ---
@@ -1995,6 +2062,7 @@ The API repository holds `contracts/`:
 | `contracts/starter-content.json` | The `ContentDocument` the first boot seeds and publishes as version 1 (with `mediaId` references to nothing, so it uses library icons only). |
 | `contracts/fixtures/live-object.json`, `snapshot.json`, `route.json`, `location.json`, `heartbeat.json`, `content-document.json` | Canonical examples, validated against the schemas in the API's tests and consumed by the site's and Red-Nose's tests. `live-object.json` and `snapshot.json` are the canonical (1.6) serialization of the 1.2 and 1.3 examples with concrete values: full 64-character hex keys and `https://cdn.example` as the CDN base. |
 | `contracts/admin-thresholds.json` | `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }`, the constants in 1.11 (`staleAfterS` is not one of them; it comes from `GET /admin/beacons`). |
+| `contracts/icons/<id>.svg` | The icon library, byte-identical to `icons/` in the API repository (a CI check compares them), so the site can vendor it with the contracts and generate inline icon components (1.5). |
 | `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`. |
 
 Distribution: the site, admin panel, and Red-Nose repositories each vendor a copy of `contracts/` and a `CONTRACTS_SHA` file naming the API commit it came from; a CI step in each consumer repository fetches that commit's `contracts/` and fails when the copy differs. Updating a consumer is a copy plus a `CONTRACTS_SHA` bump in one commit.
@@ -2047,7 +2115,11 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - A sponsor year with `can_advertise = false` is left out of the snapshot entirely, so the sponsor appears nowhere on the site; `canAdvertise` is not a public field.
 - The snapshot's sponsor fields keep `fbUrl`, `igUrl`, and `logoMediaId`, plus `latestYear`; `lingerMs` floors at `sponsor_linger_min_ms` (default 2000); logos resolve through the media map and its WebP variants, so there is no separate small logo.
 - `POST /admin/routes/from-event/{eventId}` builds a route from an event's published locations; upload remains the other source.
-- The route object is `{ schemaVersion, name, points[{ lat, lng, recordedAt }] }` with no other keys, 2 to 50,000 points; a re-upload with identical content returns the existing route; routes can be deleted when unreferenced.
+- The route object is `{ schemaVersion, name, points[{ lat, lng, recordedAt }] }` with no other keys, 2 to 50,000 points; a re-upload with identical content returns the existing route; routes can be deleted when unreferenced. It is a flight recording for replay, export, and tests; the site never fetches it.
+- The route the public sees is a poster image: a raster media asset linked to the event as `route_image_media_id`, carried in the snapshot as `event.routeImageMediaId`, shown by `route_preview` as a picture or a pan-and-zoom viewer. The tracker shows only where Santa is; its "flight history" toggle draws the recording linked to the event as a projected route, embedded in the snapshot as `event.flightHistory` (thinned to `flight_history_max_points`) so the first snapshot fetched carries it and the admin sets it per event through `routeId`.
+- Sponsors carry no tiers. Display order is pinned sponsors by position, then amount donated descending; the carousel plays that order and never shuffles. `sponsor_year.pinned_position` and `linger_ms_override` are per year; `PUT /admin/sponsors/order/{eventYear}` sets the whole pinned list atomically.
+- Site settings carry only the seasonal layer defaults (`snowDefault`, `lightsDefault`). Colours, type, and the light/dark/system choice are the site's own; the visitor's scheme choice is stored in the browser and never published.
+- API keys (`wak_`) reach every admin group by capability, can carry every capability or a chosen subset, can expire, are minted only by a Cognito admin with TOTP, and can never touch the key endpoints.
 - The S3 PUT inside an admin transaction gets one attempt with a 3 s timeout so fixes never wait longer than that on the event row lock.
 - `amountDonated` is a JSON number with two decimals, parsed as decimal by the API and never computed with by clients.
 - Every image is a media asset or a library icon; clients render SVG only through `<img>`.

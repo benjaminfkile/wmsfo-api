@@ -30,7 +30,7 @@ The API never calls Heroku, never polls anything, never asks who its peers are. 
 
 ```
 event_status (lookup)   1 planned, 2 scheduled, 3 live, 4 ended, 5 cancelled
-event                   id, year, name, status_id, scheduled_at, went_live_at, ended_at, funds_percent, route_id, updated_at
+event                   id, year, name, status_id, scheduled_at, went_live_at, ended_at, funds_percent, route_id, route_image_media_id, updated_at
 route                   id, name, s3_key, url, point_count, uploaded_by, created_at
 event_message           id, event_id, body, event_time, created_at   (the "event updates" of today)
 ```
@@ -94,7 +94,9 @@ How the site uses it: load, fetch `live/location.json` from the CDN, fetch `snap
 
 **Node cache and reconcile loop.** Each node keeps the live object in memory. Its reconcile loop, on a short tick like the gateway's, reads the single-row `snapshot` table (url, version) and the live event's id and status, and refreshes its copy when the version moved. Location writes go straight into memory on arrival (and to SQL for the record), then to `live/location.json` and the hub. The cookie tally is a handful of counters kept in memory, incremented on write and re-read by the loop. The node that took an admin write refreshes immediately and republishes the live object so the status change reaches the CDN and the hub without waiting for a location update.
 
-**Route preview lives on the CDN.** The admin uploads a route JSON for an event in the panel; how that JSON is produced is out of scope here. The API validates the shape, writes it to the bucket under a content-hashed key (`routes/{sha256}.json`), and records it as a `route` row linked from the event. The snapshot carries `routeUrl`, the CloudFront URL of that object. The route stays a separate object from the snapshot because it is large and changes rarely while the snapshot is small and changes often; 100k browsers fetching a 40 KB route once is a few gigabytes of CloudFront egress, well under a dollar. The distribution answers CORS for reads and compresses JSON. A new event inherits the route of the most recent event that had one; the admin can replace it any time before or during the event.
+**The route the public sees is a poster.** The route page shows a high-resolution image of the planned route (the same kind of poster the old site showed) in a pan-and-zoom viewer, with a disclaimer that the plan changes on the night. The admin uploads it through the media library and links it to the event; the snapshot carries its media id and the viewer reads the original bytes through the media map. Nothing draws planned points on a map.
+
+**Flight history rides in the snapshot.** A route JSON (`routes/{sha256}.json`, a `route` row linked from the event) is a recording of a flight: built from an event's stored locations, or uploaded. Red-Nose's replay mode, admin exports, and the end-to-end tests read it from the CDN. The tracker reads it from the snapshot: the recording linked to the current event is embedded as `event.flightHistory`, thinned to an admin-set point cap, so the first snapshot a browser fetches carries it and the "flight history" toggle draws it as a projected route with no second request. The admin links a different recording to the event at any time and the next snapshot carries that one. The tracker never draws where Santa has been; it shows only where he is. A new event inherits the recording of the most recent event that had one.
 
 Recorded locations stay in the database for the record and are available to an admin as an export (`GET /events/{id}/locations`, admin only). Nothing on the public site reads them.
 
@@ -104,13 +106,14 @@ One beacon is **active** at a time, marked by the admin in the panel. Only its u
 
 | Actor | How | Can |
 |---|---|---|
-| Anyone | nothing | read the site, current event, sponsors, route, leave a contact message |
+| Anyone | nothing | read the site, current event, sponsors, route poster, leave a contact message |
 | Beacon | key (header or hub credential) | post locations and heartbeats |
+| Script or agent | API key minted by an admin, with every capability or a chosen subset and an optional expiry | whatever its capabilities allow across the admin surface; never mint, list, or revoke keys |
 | Registered person | the env's Cognito pool, no MFA, email as username | manage alerts, leave cookies |
 | Editor | same pool, group `editor`, MFA enforced | pages, sections, media, icons, site settings, publish and versions, preview, sponsors |
 | Admin | same pool, group `admin`, MFA enforced | everything an editor can, plus events, routes, beacons, cookie types, cookie moderation, settings, subscribers, people, contact messages, diagnostics |
 
-Rules that never bend: every public page works logged out; sign-up is a small link, never a wall or a nag; admin and beacon credentials are never the same thing.
+Rules that never bend: every public page works logged out; sign-up is a small link, never a wall or a nag; admin, beacon, and API-key credentials are never the same thing.
 
 ## 6. Optional accounts
 
@@ -171,10 +174,10 @@ Enrollment: scan the panel's QR, exchange the one-time token for a key and role,
 
 Vite, React, TypeScript, a static single-page app. Vercel recommends Next.js, but Next earns its keep with server rendering and server functions, and this site has neither by design: every read is a CDN file or a hub event, the only writes are three authenticated POSTs. A Vite build is static files, deploys on Vercel with no functions, and runs from S3 and CloudFront unchanged if that ever matters. Same Vercel projects and git flow as today: `main` to production, `dev` to preview.
 
-- **One data loop.** A single store holds the live object and the snapshot. On load: fetch `live/location.json`, fetch `snapshotUrl`, render. Then join `wmsfo-api:location` on the hub (official SignalR client, WebSockets only, negotiation skipped, re-join on every reconnect) and poll the CDN at `pollIntervalMs` as the floor, tightening when hub events go quiet. `eventStatusId` picks the screen; a changed `snapshotUrl` refetches the snapshot; a changed `routeUrl` refetches the route. Nothing else fetches anything. Pages, sections, media URLs, icons, and site settings all come out of the snapshot; the site holds a section registry and a block registry and renders whatever the document says, skipping any kind it does not know.
+- **One data loop.** A single store holds the live object and the snapshot. On load: fetch `live/location.json`, fetch `snapshotUrl`, render. Then join `wmsfo-api:location` on the hub (official SignalR client, WebSockets only, negotiation skipped, re-join on every reconnect) and poll the CDN at `pollIntervalMs` as the floor, tightening when hub events go quiet. `eventStatusId` picks the screen; a changed `snapshotUrl` refetches the snapshot. Nothing else fetches anything. Pages, sections, media URLs, icons, and site settings all come out of the snapshot; the site holds a section registry and a block registry and renders whatever the document says, skipping any kind it does not know.
 - **Screens** are one page per status, named after the status (planned, scheduled, live, ended, cancelled) plus a no-event page, every one of them admin-composed from the section palette (§6d). The site never hard-codes what a status screen contains; it renders the page whose role matches `eventStatusId`. Live sections (map, countdown, leaderboard, latest message, sponsor carousel) read the live object and the snapshot; everything else is content. Static pages (about, donate, cheer meter, sponsors, route, contact, and anything an admin adds) are pages with slugs.
-- **Map:** Google Maps JS with the existing key. The live screen (themes, terrain toggle, snow, route overlay, time labels, location prompt, liftoff timer) is rebuilt from scratch; the current six map themes are a starting point, not a constraint.
-- **Visual design starts fresh.** Nothing from the current site's look is assumed. Design is its own track and comes before the screens are built.
+- **Map:** Google Maps JS with the existing key. The live screen (map style picker, terrain toggle, snow, the flight history toggle, time labels, location prompt, liftoff timer) is rebuilt from scratch; the six map styles carry over and the picker stays.
+- **Visual design is decided.** Direction "North Pole Night": a midnight-navy dark theme and an ice-and-paper light theme, one ice-blue accent, gold for the funds ring and the star, holly red for status. Light, dark, or follow the system, the visitor's choice, defaulting to system; no other visitor-facing theme controls. IBM Plex Sans for prose and UI, IBM Plex Mono for any value that came from the API at runtime, Bricolage Grotesque for the two heading sizes. Seasonal layers (snow, a string of lights on the header, frost glass on the liftoff card and live overlays) are the only decoration; snow and lights have site-setting defaults and a per-visitor off switch. Tokens live in one file with a contrast unit test, components never write a hex, hover is a 120 ms border change, radii are 6 and 10 px, the public site is hand-rolled CSS with no UI library. Library icons render inline so they take the accent. The reference mock is the theme studio artifact.
 - **Accounts:** Cognito hosted UI with PKCE through a small OIDC client, not Amplify. Sign-in is a link in the menu. Signed-out users see everything; signed-in users get the alerts page and the leave-a-cookie control on the live screen.
 - **Small things that carry over:** wake lock on the live screen (the Screen Wake Lock API replaces nosleep), analytics only on the production origins, the reduced-motion check for snow and animations, the in-app-browser warning for location.
 - **Config** is Vercel env vars per project: CDN base URL, hub URL, API base URL, Cognito pool and client ids. No secrets in the bundle; the Maps key stays referrer-restricted.
@@ -202,10 +205,10 @@ The palette, each kind one React component plus one schema:
 | `countdown` | live | heading; reads `scheduledAt`; renders only while the status is scheduled |
 | `event_times` | live | which of scheduled time, liftoff time, end time, and time airborne to show, with labels; reads the event |
 | `latest_message` | live | heading; reads the latest message |
-| `map` | live | themes offered, default theme, controls and overlays on or off, default center and zoom; reads the live object; allowed only on the `live` page |
+| `map` | live | map styles offered, default style, controls and overlays on or off, default center and zoom; reads the live object and the event's embedded flight history; allowed only on the `live` page |
 | `leaderboard` | live | heading, variant `panel` or `full`; reads the tally and cookie types |
 | `sponsor_carousel`, `sponsor_grid` | live | heading, which logo size; read the sponsor list |
-| `route_preview` | live | heading, style `svg` (no Maps script) or `map`; reads the route |
+| `route_preview` | live | heading, style `image` (a linked picture) or `viewer` (pan and zoom over the original), disclaimer; reads the event's route poster |
 | `cookie_control` | live | heading, copy; the leave-a-cookie control |
 | `alerts_signup` | live | heading, copy; the subscribe form |
 | `contact_form` | live | heading, copy, success text; posts to the API |
@@ -214,11 +217,13 @@ Live sections carry configuration only; their data is the live object and the op
 
 **Blocks** are the rich text model inside `rich_text`: `heading`, `paragraph`, `list`, `quote`, `media`, `links`, `icon`, `divider`. Every piece of text a section or block carries is a constrained inline markdown (bold, italic, inline code, links, inline icons written as `{icon:candy-cane}`, and the placeholders `{event:name}`, `{event:year}`, `{event:scheduledAt}` filled from the current event). Raw HTML is never stored and never rendered. Unknown block kinds render nothing.
 
-**Icons anywhere.** An icon is a value type `{ source: "library" | "media", id }` used by every place that takes one: section decorations, hero, link items, icon rows, icon blocks, inline in text, nav entries, cookie types, and the site settings (favicon, logo). The library is a curated set of about sixty Christmas and winter line icons in one visual style (Santa, sleigh, reindeer, candy cane, tree, ornament, gift, snowflake, star, bell, stocking, cookie, mug, mitten, helicopter, map pin, and the like), shipped in the API repository, written to the bucket once per deploy, and published into the snapshot as a map of id to CDN URL; `media` points at an uploaded SVG. Admins add icons by uploading SVGs; the library grows in code. Every SVG, library or uploaded, passes the same validator (no scripts, handlers, foreign objects, or external references) and renders through `<img>` only.
+**Icons anywhere.** An icon is a value type `{ source: "library" | "media", id }` used by every place that takes one: section decorations, hero, link items, icon rows, icon blocks, inline in text, nav entries, cookie types, and the site settings (favicon, logo). The library is a curated set of about sixty Christmas and winter line icons in one visual style (Santa, sleigh, reindeer, candy cane, tree, ornament, gift, snowflake, star, bell, stocking, cookie, mug, mitten, helicopter, map pin, and the like), shipped in the API repository, written to the bucket once per deploy, and published into the snapshot as a map of id to CDN URL; `media` points at an uploaded SVG. Admins add icons by uploading SVGs; the library grows in code. Every SVG, library or uploaded, passes the same validator (no scripts, handlers, foreign objects, or external references). Uploaded SVGs render through `<img>` only; the library also ships inside the site's bundle as inline components on one drawing rule, so library icons take the theme's colour.
 
 **Media.** The portfolio's pipeline, unchanged in shape: the admin asks the API for an upload URL, PUTs the bytes straight to S3 with a pending tag, then confirms; the API verifies the object, records size and dimensions, strips the tag, and for raster images derives width variants (480, 960, 1600) as WebP so the site can use `srcset` and a design change never means re-uploading. Keys are `media/{uuid}/{filename}` and variants sit beside them; every object carries a one-year immutable cache header; nothing is ever overwritten and nothing is ever invalidated. Abandoned uploads expire by lifecycle rule on the pending tag. Unreferenced media is found by scanning references (working set, retained versions, sponsor logos, cookie artwork, site settings) after every publish, tagged orphaned with a 30-day grace and a 7-day undo window, and expired by a second lifecycle rule. Sponsor logos are media assets chosen from the library, and cookie types carry an icon; the snapshot carries a `media` map of id to URL (with variants) and every renderer resolves through it. Raster uploads accept PNG, JPEG, WebP, and GIF up to 20 MB; SVG up to 1 MB. A media asset in use anywhere cannot be deleted.
 
-**Site settings** are content too and publish with the pages: site name and tagline, logo and favicon icons, extra nav links, footer links and footer text, theme choices from a fixed token set (accent, surface, font pairing, snow default), the donate link, the contact address shown on the site, and analytics on or off. Enough for the tweaks you would otherwise ask for as deploys, without becoming a style editor.
+**Site settings** are content too and publish with the pages: site name and tagline, logo and favicon icons, extra nav links, footer links and footer text, the seasonal layer defaults (snow, lights), the donate link, the contact address shown on the site, and analytics on or off. Enough for the tweaks you would otherwise ask for as deploys, without becoming a style editor. Colours and type are not settings.
+
+**Sponsors** have no tiers. The site lists them largest gift first; on the tracker each logo stays up for a time proportional to the gift (a per-dollar rate and a floor, both admin settings). An admin can pin any sponsors to the top in any order and override any sponsor's time, per year.
 
 **Draft, publish, versions, preview.** Content is a working set the admin edits freely; writes are validated leniently (typed but incomplete is fine). Publish validates strictly, snapshots the whole content document as an immutable version, rebuilds the snapshot object, and writes the live object. The last 50 versions are kept; restoring one loads it into the working set, and publishing then makes it the new version, so a rollback is restore and publish. Event state, sponsors, beacons, cookies, and settings stay immediate writes; they are operations, not editorial. Preview is the real public site in an iframe with a 15-minute token, rendering the draft document through the same code that renders production, so preview cannot drift; the panel can point the preview at any page, including a status page whose status is not current.
 
@@ -232,9 +237,10 @@ Tables in one schema, all ids `bigint identity`, all timestamps `timestamptz`, s
 event, event_status, event_status_history, event_message, route
 beacon              (…, is_active: exactly one true, partial unique index), beacon_enrollment_token
 location            (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed, altitude, heading, accuracy)
-sponsor, sponsor_year
+sponsor, sponsor_year (…, pinned_position, linger_ms_override per year)
 person, subscriber, cookie, cookie_type
 contact_message
+api_key             (name, key_prefix, key_hash, all_capabilities, capabilities[], expires_at, revoked_at)
 page, section, section_item, content_version, site_setting_draft (single row), media_asset
 app_setting         (key, value jsonb, updated_by, updated_at)   poll_interval_ms (default 5000), cookie_limit_per_person (default 10), sponsor_linger_ms_per_dollar
 snapshot            (single row: version bigint, url, s3_key, built_at)   rewritten in the same transaction as any snapshot-affecting write
@@ -294,7 +300,11 @@ Cut-over: freeze the old API, run the migration, point the site and the panel at
 - Cookies: public UI is a per-type tally sorted by popularity, on the live and ended screens; accepted only while live; types locked while live; notes are admin-only; nothing about Santa eating them.
 - Same service and repo names; legacy repos renamed `<name>-legacy`.
 - Red-Nose: React Native UI over a native Kotlin service, a dedicated rooted phone we own that meets the requirements in §6b, installed as a persistent system app through a Magisk module and provisioned entirely from the shell, websocket primary with HTTP fallback, retries capped at 5 s and never abandoned, latest fix only, nothing stored on the phone.
-- Public site: full rewrite as a Vite + React + TypeScript static SPA on Vercel (§6c), fresh visual design, Google Maps stays.
+- Public site: full rewrite as a Vite + React + TypeScript static SPA on Vercel (§6c), Google Maps stays.
+- Visual design (2026-09-11): North Pole Night direction, light/dark/system as the only visitor theme control, Plex Sans and Mono with Bricolage Grotesque headings, hand-rolled CSS with tokens and a contrast test, no UI library on the public site, library icons inline. The accent, surface, and font-pairing site settings and the per-visitor theme chips are gone.
+- Route: the public route is a poster image in a pan-and-zoom viewer; the route JSON is a flight recording, read from the CDN by replay and tests and embedded in the snapshot as the event's flight history for the tracker's projected-route toggle; the tracker shows only Santa's current position, never a trail.
+- Sponsors: no tiers; largest gift first; tracker time proportional to the gift; per-year pin order and time override in the panel.
+- API keys: `wak_` keys with every capability or a chosen subset and an optional expiry, minted by a TOTP admin, reaching every admin group but the key endpoints.
 - Admin panel moves to Vite alongside the Cognito rewiring.
 
 ## 11. Still open
