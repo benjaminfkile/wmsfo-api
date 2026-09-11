@@ -70,6 +70,7 @@ order by name asc, id asc;", conn))
             .WithTags("AdminBeacons")
             .Produces<BeaconsListResponse>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -93,6 +94,7 @@ order by name asc, id asc;", conn))
             .WithTags("AdminBeacons")
             .Produces<BeaconDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -136,6 +138,7 @@ order by name asc, id asc;", conn))
             .Produces<BeaconWithKeyResponse>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -195,6 +198,7 @@ order by name asc, id asc;", conn))
             .Produces<BeaconDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -215,6 +219,7 @@ order by name asc, id asc;", conn))
             .WithTags("AdminBeacons")
             .Produces<BeaconDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -308,6 +313,7 @@ order by name asc, id asc;", conn))
             .WithTags("AdminBeacons")
             .Produces<BeaconDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -343,6 +349,7 @@ order by name asc, id asc;", conn))
             .Produces<BeaconWithKeyResponse>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -385,6 +392,7 @@ where id = $1;", conn, tx))
             .WithTags("AdminBeacons")
             .Produces<BeaconDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -425,6 +433,7 @@ order by received_at desc, id desc;", conn);
             .WithTags("AdminBeacons")
             .Produces<ItemsResponse<BeaconLogDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -447,6 +456,7 @@ order by received_at desc, id desc;", conn);
             .WithTags("AdminBeacons")
             .Produces<string>(StatusCodes.Status200OK, "text/plain")
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Beacons)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

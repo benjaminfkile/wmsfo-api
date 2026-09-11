@@ -59,6 +59,7 @@ public static class AdminSponsorEndpoints
             .WithTags("AdminSponsors")
             .Produces<ItemsResponse<SponsorDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -77,6 +78,7 @@ public static class AdminSponsorEndpoints
             .WithTags("AdminSponsors")
             .Produces<SponsorDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -121,6 +123,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .Produces<SponsorDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -226,6 +229,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .Produces<SponsorDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -249,6 +253,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .WithTags("AdminSponsors")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -326,6 +331,7 @@ on conflict (sponsor_id, event_year) do update set
             .Produces<SponsorDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -357,6 +363,7 @@ on conflict (sponsor_id, event_year) do update set
             .WithTags("AdminSponsors")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -383,6 +390,7 @@ on conflict (sponsor_id, event_year) do update set
             .WithTags("AdminSponsors")
             .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -466,6 +474,7 @@ on conflict (sponsor_id, event_year) do update set
             .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

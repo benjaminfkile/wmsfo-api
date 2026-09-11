@@ -41,6 +41,7 @@ public static class AdminCookieModerationEndpoints
             .WithTags("AdminCookies")
             .Produces<CookieAdminDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Cookies)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -60,6 +61,7 @@ public static class AdminCookieModerationEndpoints
             .WithTags("AdminCookies")
             .Produces<CookieAdminDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Cookies)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -79,6 +81,7 @@ public static class AdminCookieModerationEndpoints
             .WithTags("AdminCookies")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Cookies)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

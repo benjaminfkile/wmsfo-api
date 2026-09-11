@@ -37,6 +37,27 @@ public static class WmsfoPipeline
             authBuilder.AddJwtBearer(AuthSchemes.CognitoJwt, o => CognitoAuth.Configure(o, options));
         }
 
+        // 6.4 api key scheme, and a composite that hands wak_ bearers to it and
+        // anything else to the Cognito scheme. Policies list the composite so a
+        // single endpoint responds to either principal.
+        authBuilder.AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(
+            AuthSchemes.ApiKey, _ => { });
+        authBuilder.AddPolicyScheme(AuthSchemes.CognitoOrApiKey, "Cognito or API key", o =>
+        {
+            o.ForwardDefaultSelector = ctx =>
+            {
+                var auth = ctx.Request.Headers.Authorization.ToString();
+                if (auth.StartsWith("Bearer " + Wmsfo.Api.Security.Keys.ApiKeyPrefix, StringComparison.Ordinal))
+                {
+                    return AuthSchemes.ApiKey;
+                }
+                return AuthSchemes.CognitoJwt;
+            };
+        });
+
+        services.AddHttpContextAccessor();
+        services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, CapabilityOrGroupHandler>();
+
         services.AddAuthorizationBuilder()
             // 6.1 policies
             .AddPolicy(AuthPolicies.Beacon, p =>
@@ -55,17 +76,20 @@ public static class WmsfoPipeline
                 p.AddAuthenticationSchemes(AuthSchemes.CognitoJwt);
                 p.RequireAuthenticatedUser();
             })
+            // 6.4 Editor and Admin admit either a Cognito user in the named
+            // group or an API key with a matching capability, as decided by
+            // the endpoint's RequireCapability / DenyApiKeys metadata.
             .AddPolicy(AuthPolicies.Editor, p =>
             {
-                p.AddAuthenticationSchemes(AuthSchemes.CognitoJwt);
+                p.AddAuthenticationSchemes(AuthSchemes.CognitoOrApiKey);
                 p.RequireAuthenticatedUser();
-                p.RequireAssertion(ctx => HasGroup(ctx, options.EditorGroup) || HasGroup(ctx, options.AdminGroup));
+                p.AddRequirements(new CapabilityOrGroupRequirement(options.EditorGroup, options.AdminGroup));
             })
             .AddPolicy(AuthPolicies.Admin, p =>
             {
-                p.AddAuthenticationSchemes(AuthSchemes.CognitoJwt);
+                p.AddAuthenticationSchemes(AuthSchemes.CognitoOrApiKey);
                 p.RequireAuthenticatedUser();
-                p.RequireAssertion(ctx => HasGroup(ctx, options.AdminGroup));
+                p.AddRequirements(new CapabilityOrGroupRequirement(options.AdminGroup));
             });
 
         // The forbidden-vs-mfa mapping: default authorization result handling is
@@ -92,6 +116,14 @@ public static class WmsfoPipeline
         if (!services.Any(s => s.ServiceType == typeof(IBeaconKeyLookup)))
         {
             services.AddScoped<IBeaconKeyLookup, DbBeaconKeyLookup>();
+        }
+        if (!services.Any(s => s.ServiceType == typeof(IApiKeyLookup)))
+        {
+            services.AddScoped<IApiKeyLookup, DbApiKeyLookup>();
+        }
+        if (!services.Any(s => s.ServiceType == typeof(IApiKeyLastUsedStamp)))
+        {
+            services.AddSingleton<IApiKeyLastUsedStamp, DbApiKeyLastUsedStamp>();
         }
     }
 
@@ -146,26 +178,6 @@ public static class WmsfoPipeline
         app.UseRateLimiter();
     }
 
-    private static bool HasGroup(AuthorizationHandlerContext ctx, string group)
-    {
-        foreach (var claim in ctx.User.FindAll(PersonClaims.Groups))
-        {
-            if (string.Equals(claim.Value, group, StringComparison.Ordinal)) return true;
-        }
-        // Cognito can serialize groups as a comma-separated string in ID tokens;
-        // JwtBearer with MapInboundClaims=false hands us the raw claim so both
-        // forms show up here.
-        foreach (var claim in ctx.User.FindAll(PersonClaims.Groups))
-        {
-            var value = claim.Value;
-            var parts = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            foreach (var part in parts)
-            {
-                if (string.Equals(part, group, StringComparison.Ordinal)) return true;
-            }
-        }
-        return false;
-    }
 }
 
 // A safe default (Cognito unavailable in tests / local runs without the checker

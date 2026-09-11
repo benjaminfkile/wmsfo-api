@@ -50,6 +50,7 @@ order by id desc;", conn);
             .WithTags("AdminRoutes")
             .Produces<ItemsResponse<RouteDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -72,6 +73,7 @@ from route where id = $1;", conn);
             .WithTags("AdminRoutes")
             .Produces<RouteDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -94,6 +96,7 @@ from route where id = $1;", conn);
             .Produces<RouteDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.RouteUpload)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -161,6 +164,7 @@ order by seq;", conn))
             .Produces<RouteDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -212,6 +216,7 @@ order by seq;", conn))
             .WithTags("AdminRoutes")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

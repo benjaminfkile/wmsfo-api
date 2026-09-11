@@ -75,6 +75,7 @@ public static class AdminInboxEndpoints
             .WithTags("AdminInbox")
             .Produces<PageResponse<ContactMessageDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.ContactMessages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -97,6 +98,7 @@ public static class AdminInboxEndpoints
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.ContactMessages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -174,6 +176,7 @@ left join person p on p.id = s.person_id"
             .WithTags("AdminInbox")
             .Produces<PageResponse<SubscriberAdminDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Subscribers)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -208,6 +211,7 @@ from subscriber;", conn);
             .WithTags("AdminInbox")
             .Produces<SubscribersSummaryResponse>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Subscribers)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -230,6 +234,7 @@ from subscriber;", conn);
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Subscribers)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -281,6 +286,7 @@ from person p"
             .WithTags("AdminInbox")
             .Produces<PageResponse<PersonWithCookieCountDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.People)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -303,6 +309,7 @@ from person p"
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.People)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

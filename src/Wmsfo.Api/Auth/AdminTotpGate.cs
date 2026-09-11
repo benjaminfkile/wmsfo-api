@@ -31,6 +31,11 @@ public sealed class AdminTotpGate
 
     public async ValueTask<object?> Filter(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
     {
+        // api.md 6.4: the TOTP gate does not apply to API key principals.
+        if (ApiKeyAuthenticationHandler.IsApiKeyPrincipal(ctx.HttpContext.User))
+        {
+            return await next(ctx);
+        }
         var sub = ctx.HttpContext.User.FindFirst(PersonClaims.Sub)?.Value;
         if (string.IsNullOrEmpty(sub))
         {

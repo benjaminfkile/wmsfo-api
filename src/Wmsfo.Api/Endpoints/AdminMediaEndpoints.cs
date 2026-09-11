@@ -131,6 +131,7 @@ where 1 = 1");
             .WithTags("AdminMedia")
             .Produces<PageResponse<MediaAssetDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -211,6 +212,7 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
             .Produces<UploadTicketDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.MediaUploadUrlPerPerson);
     }
 
@@ -409,6 +411,7 @@ where id = $6 and state = 'pending';", conn))
             .Produces<MediaAssetDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -429,6 +432,7 @@ where id = $6 and state = 'pending';", conn))
             .WithTags("AdminMedia")
             .Produces<MediaAssetDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -454,6 +458,7 @@ where id = $6 and state = 'pending';", conn))
             .WithTags("AdminMedia")
             .Produces<MediaUsageDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -523,6 +528,7 @@ where id = $6 and state = 'pending';", conn))
             .Produces<MediaAssetDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -578,6 +584,7 @@ where id = $6 and state = 'pending';", conn))
             .WithTags("AdminMedia")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Media)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

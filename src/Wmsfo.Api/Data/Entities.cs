@@ -163,6 +163,21 @@ public sealed class Person
     public DateTimeOffset LastSeenAt { get; set; }
 }
 
+public sealed class ApiKey
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string KeyPrefix { get; set; } = "";
+    public byte[] KeyHash { get; set; } = Array.Empty<byte>();
+    public bool AllCapabilities { get; set; }
+    public string[] Capabilities { get; set; } = Array.Empty<string>();
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+}
+
 public sealed class Subscriber
 {
     public long Id { get; set; }

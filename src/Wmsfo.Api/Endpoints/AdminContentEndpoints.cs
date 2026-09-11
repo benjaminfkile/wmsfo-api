@@ -54,6 +54,7 @@ public static class AdminContentEndpoints
             .WithTags("AdminSections")
             .Produces<ItemsResponse<KindInfoDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -72,6 +73,7 @@ public static class AdminContentEndpoints
             .WithTags("AdminPages")
             .Produces<ItemsResponse<PageAdminDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPost("/admin/pages",
@@ -125,6 +127,7 @@ returning id;", conn, tx);
             .Produces<PageAdminDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapGet("/admin/pages/{id:long}",
@@ -150,6 +153,7 @@ returning id;", conn, tx);
             .WithTags("AdminPages")
             .Produces<PageDetailDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPatch("/admin/pages/{id:long}",
@@ -243,6 +247,7 @@ returning id;", conn, tx);
             .Produces<PageAdminDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapDelete("/admin/pages/{id:long}",
@@ -273,6 +278,7 @@ returning id;", conn, tx);
             .WithTags("AdminPages")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPut("/admin/pages/order",
@@ -317,6 +323,7 @@ returning id;", conn, tx);
             .Produces<ItemsResponse<PageAdminDto>>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -418,6 +425,7 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
             .Produces<SectionAdminDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.SectionOrItem)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Pages)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // PATCH /admin/sections/{id}
@@ -491,6 +499,7 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
             .Produces<SectionAdminDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.SectionOrItem)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // DELETE /admin/sections/{id}
@@ -517,6 +526,7 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
             .WithTags("AdminSections")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // POST /admin/sections/{id}/duplicate
@@ -574,6 +584,7 @@ select $2, position, is_hidden, data, $3 from section_item where section_id = $1
             .WithTags("AdminSections")
             .Produces<SectionAdminDto>(StatusCodes.Status201Created)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // POST /admin/sections/{id}/move
@@ -643,6 +654,7 @@ where id = $4;", conn, tx))
             .Produces<SectionAdminDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // PUT /admin/pages/{id}/sections/order
@@ -715,6 +727,7 @@ where id = $4;", conn, tx))
             .Produces<PageDetailDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -794,6 +807,7 @@ values ($1, $2, $3::jsonb, $4) returning id;", conn, tx))
             .Produces<SectionItemAdminDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.SectionOrItem)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // PATCH /admin/items/{id}
@@ -856,6 +870,7 @@ where i.id = $1 for update;", conn, tx))
             .Produces<SectionItemAdminDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.SectionOrItem)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // DELETE /admin/items/{id}
@@ -882,6 +897,7 @@ where i.id = $1 for update;", conn, tx))
             .WithTags("AdminSections")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // PUT /admin/sections/{id}/items/order
@@ -941,6 +957,7 @@ where i.id = $1 for update;", conn, tx))
             .Produces<SectionAdminDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sections)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -959,6 +976,7 @@ where i.id = $1 for update;", conn, tx))
             .WithTags("AdminSiteSettings")
             .Produces<SiteSettingsDraftDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.SiteSettings)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPut("/admin/site-settings",
@@ -986,6 +1004,7 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
             .Produces<SiteSettingsDraftDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.SectionOrItem)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.SiteSettings)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -1019,6 +1038,7 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
             .WithTags("AdminContent")
             .Produces<ContentBundleDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapGet("/admin/content/status",
@@ -1073,6 +1093,7 @@ order by cv.id desc limit 1;", conn))
             .WithTags("AdminContent")
             .Produces<ContentStatusDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -1103,6 +1124,7 @@ order by cv.id desc limit 1;", conn))
             .Produces<ContentVersionInfoDto>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // GET /admin/content/versions - the newest 50 rows (list, newest first).
@@ -1136,6 +1158,7 @@ from content_version order by id desc limit 50;", conn);
             .WithTags("AdminContent")
             .Produces<ItemsResponse<ContentVersionInfoDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // GET /admin/content/versions/{id} - the full detail with the document.
@@ -1171,6 +1194,7 @@ from content_version where id = $1;", conn);
             .WithTags("AdminContent")
             .Produces<ContentVersionDetailDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         // POST /admin/content/versions/{id}/restore (sql.md 8.20).
@@ -1224,6 +1248,7 @@ from content_version order by id desc limit 1;", conn))
             .WithTags("AdminContent")
             .Produces<ContentStatusDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -1258,6 +1283,7 @@ values ($1, $2, $3);", conn);
             .WithTags("AdminContent")
             .Produces<PreviewTokenDto>(StatusCodes.Status201Created)
             .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Content)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

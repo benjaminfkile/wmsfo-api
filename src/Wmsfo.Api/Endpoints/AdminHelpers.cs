@@ -14,10 +14,16 @@ namespace Wmsfo.Api.Endpoints;
 // caller the snapshot row's new version so the response can include it.
 public static class AdminHelpers
 {
-    // Every admin write records the caller's email claim (contracts 4.5). A
-    // token without an email claim is not one of ours; refuse it.
+    // Every admin write records the caller's email claim (contracts 4.5), or
+    // `key:<name>` when the caller is an API key (3.6). A Cognito token
+    // without an email claim is not one of ours; refuse it.
     public static string RequireAdminEmail(HttpContext ctx)
     {
+        var keyName = ApiKeyAuthenticationHandler.TryGetApiKeyName(ctx.User);
+        if (!string.IsNullOrEmpty(keyName))
+        {
+            return $"key:{keyName}";
+        }
         var email = ctx.User.FindFirst(PersonClaims.Email)?.Value;
         if (string.IsNullOrEmpty(email))
         {

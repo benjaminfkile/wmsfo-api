@@ -32,7 +32,8 @@ public static class EndpointStubs
         includeAdminPagesStubs: true,
         includeAdminSectionsStubs: true,
         includeAdminSiteSettingsStubs: true,
-        includeAdminContentStubs: true);
+        includeAdminContentStubs: true,
+        includeAdminApiKeysStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -56,7 +57,8 @@ public static class EndpointStubs
         bool includeAdminPagesStubs = true,
         bool includeAdminSectionsStubs = true,
         bool includeAdminSiteSettingsStubs = true,
-        bool includeAdminContentStubs = true)
+        bool includeAdminContentStubs = true,
+        bool includeAdminApiKeysStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -79,6 +81,7 @@ public static class EndpointStubs
         if (includeAdminCookiesStubs) MapAdminCookies(app);
         if (includeAdminSettingsStubs) MapAdminSettings(app);
         if (includeAdminInboxStubs) MapAdminInbox(app);
+        if (includeAdminApiKeysStubs) MapAdminApiKeys(app);
         // Diagnostics endpoints have real handlers now (Node.AdminDiagnosticsEndpoints).
         if (includeRealtimeStubs) MapRealtime(app);
     }
@@ -604,6 +607,22 @@ public static class EndpointStubs
         app.MapDelete("/admin/people/{id:long}", NotImplemented)
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent);
+    }
+
+    private static void MapAdminApiKeys(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/api-keys", NotImplemented)
+            .WithTags("AdminApiKeys")
+            .Produces<ItemsResponse<ApiKeyDto>>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/api-keys", NotImplemented)
+            .WithTags("AdminApiKeys")
+            .Accepts<CreateApiKeyRequest>("application/json")
+            .Produces<ApiKeyMintedDto>(StatusCodes.Status201Created);
+
+        app.MapPost("/admin/api-keys/{id:long}/revoke", NotImplemented)
+            .WithTags("AdminApiKeys")
+            .Produces<ApiKeyDto>(StatusCodes.Status200OK);
     }
 
     // The diagnostics endpoints have real handlers in Node.AdminDiagnosticsEndpoints;

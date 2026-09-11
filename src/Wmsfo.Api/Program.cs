@@ -296,6 +296,8 @@ AdminInboxEndpoints.MapAll(app);
 // A13: real /admin/pages*, /admin/sections*, /admin/items*, /admin/site-settings*
 // endpoints plus GET /admin/content/kinds, /admin/content/draft, /admin/content/status.
 AdminContentEndpoints.MapAll(app);
+// A26: /admin/api-keys list, mint, revoke - Cognito Admin only.
+AdminApiKeyEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
@@ -315,7 +317,8 @@ EndpointStubs.MapAll(app,
     includeAdminPagesStubs: false,
     includeAdminSectionsStubs: false,
     includeAdminSiteSettingsStubs: false,
-    includeAdminContentStubs: false);
+    includeAdminContentStubs: false,
+    includeAdminApiKeysStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

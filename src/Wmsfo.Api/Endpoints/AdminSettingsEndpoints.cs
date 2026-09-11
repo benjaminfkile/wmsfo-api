@@ -94,6 +94,7 @@ public static class AdminSettingsEndpoints
             .WithTags("AdminSettings")
             .Produces<ItemsResponse<SettingDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Settings)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
@@ -156,6 +157,7 @@ returning updated_by, updated_at;", conn, tx))
             .Produces<SettingDto>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Settings)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 }
