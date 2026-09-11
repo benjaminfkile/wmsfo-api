@@ -437,6 +437,7 @@ Two user pools, `wmsfo-dev` and `wmsfo-prod`, created once each, identical setti
 | Deletion protection | On (prod) |
 | Advanced security | Off (no plus tier features are used) |
 | Hosted UI domain | `<cognito-prefix>-dev` and `<cognito-prefix>-prod` under `auth.<region>.amazoncognito.com` |
+| Hosted UI version | Managed login (domain `ManagedLoginVersion = 2`) with a managed login style assigned to each app client, Cognito-provided values. Its pages carry labelled inputs and a "Change password" first-login step; the classic hosted UI is not used |
 | Groups | `admin` (precedence 0, no role), `editor` (precedence 1, no role) |
 
 ### 4.2 App clients
