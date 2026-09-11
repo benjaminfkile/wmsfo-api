@@ -1145,6 +1145,52 @@
         }
       }
     },
+    "/admin/sponsors/order/{eventYear}": {
+      "get": {
+        "tags": [
+          "AdminSponsors"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfSponsorOrderRow"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AdminSponsors"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SponsorOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfSponsorOrderRow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/cookie-types": {
       "get": {
         "tags": [
@@ -3401,6 +3447,22 @@
               "string"
             ]
           },
+          "routeImageMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "routeImage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MediaAssetDto"
+              }
+            ]
+          },
           "createdBy": {
             "type": "string"
           },
@@ -4028,6 +4090,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SponsorDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfSponsorOrderRow": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SponsorOrderRow"
             }
           }
         }
@@ -5295,6 +5368,12 @@
               "string"
             ],
             "format": "int64"
+          },
+          "routeImageMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6053,6 +6132,70 @@
           }
         }
       },
+      "SponsorOrderRequest": {
+        "type": "object",
+        "properties": {
+          "pinnedSponsorIds": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          }
+        }
+      },
+      "SponsorOrderRow": {
+        "type": "object",
+        "properties": {
+          "sponsorId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pinnedPosition": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "amountDonated": {
+            "format": "double"
+          },
+          "lingerMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lingerMsOverride": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "inSnapshot": {
+            "type": "boolean"
+          }
+        }
+      },
       "SponsorYearDto": {
         "type": "object",
         "properties": {
@@ -6075,6 +6218,32 @@
           },
           "anonymous": {
             "type": "boolean"
+          },
+          "pinnedPosition": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lingerMsOverride": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lingerMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "registeredAt": {
             "type": "string",
@@ -6318,6 +6487,24 @@
           },
           "anonymous": {
             "type": "boolean"
+          },
+          "pinnedPosition": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lingerMsOverride": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       }

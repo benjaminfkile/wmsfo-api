@@ -170,11 +170,12 @@
           "themePicker": true,
           "terrain": true,
           "snow": true,
-          "routeLines": true,
+          "flightHistory": true,
           "timeLabels": true,
           "location": true,
           "dataRow": true
         },
+        "flightHistoryDefault": false,
         "overlays": {
           "liveIndicator": true,
           "liftoffTimer": true,
@@ -232,13 +233,14 @@
     {
       "kind": "route_preview",
       "title": "Route preview",
-      "description": "This year's route drawn as an SVG or on a live map.",
+      "description": "This year's route poster as a linked picture or a pan-and-zoom viewer.",
       "live": true,
       "hasItems": false,
       "allowedRoles": null,
       "defaults": {
         "heading": "This year's route",
-        "style": "svg",
+        "style": "image",
+        "disclaimer": null,
         "emptyText": "The route will appear here once it is set."
       },
       "itemDefaults": null

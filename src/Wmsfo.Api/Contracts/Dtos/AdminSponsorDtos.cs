@@ -35,4 +35,6 @@ public sealed class UpsertSponsorYearRequest
     public bool Active { get; set; }
     public bool CanAdvertise { get; set; }
     public bool Anonymous { get; set; }
+    public int? PinnedPosition { get; set; }
+    public int? LingerMsOverride { get; set; }
 }

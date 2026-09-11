@@ -598,6 +598,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("route_id")
                         .HasComment("Route shown for this event; null when unlinked.");
 
+                    b.Property<Guid?>("RouteImageMediaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("route_image_media_id")
+                        .HasComment("The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.");
+
                     b.Property<DateTimeOffset?>("ScheduledAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("scheduled_at")
@@ -1618,6 +1623,16 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("event_year");
 
+                    b.Property<int?>("LingerMsOverride")
+                        .HasColumnType("integer")
+                        .HasColumnName("linger_ms_override")
+                        .HasComment("0..600000, overrides the computed lingerMs for this year. Snapshot exposes only lingerMs; whether it was overridden is not revealed.");
+
+                    b.Property<int?>("PinnedPosition")
+                        .HasColumnType("integer")
+                        .HasColumnName("pinned_position")
+                        .HasComment("1..1000, pins the sponsor's slot for this year. Snapshot orders pinned rows first, pinned_position asc.");
+
                     b.Property<DateTimeOffset>("RegisteredAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")
@@ -1634,11 +1649,20 @@ namespace Wmsfo.Api.Data.Migrations
                     b.HasAlternateKey("SponsorId", "EventYear")
                         .HasName("sponsor_year_sponsor_id_event_year_key");
 
+                    b.HasIndex("EventYear", "PinnedPosition")
+                        .IsUnique()
+                        .HasDatabaseName("sponsor_year_pinned_ux")
+                        .HasFilter("pinned_position is not null");
+
                     b.ToTable("sponsor_year", null, t =>
                         {
                             t.HasComment("A sponsor's participation in one year. Upserted on (sponsor_id, event_year).");
 
                             t.HasCheckConstraint("sponsor_year_amount_donated_check", "amount_donated >= 0");
+
+                            t.HasCheckConstraint("sponsor_year_linger_ms_override_check", "linger_ms_override is null or (linger_ms_override between 0 and 600000)");
+
+                            t.HasCheckConstraint("sponsor_year_pinned_position_check", "pinned_position is null or (pinned_position between 1 and 1000)");
                         });
                 });
 
@@ -1793,6 +1817,12 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasForeignKey("RouteId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("event_route_id_fkey");
+
+                    b.HasOne("Wmsfo.Api.Data.MediaAsset", null)
+                        .WithMany()
+                        .HasForeignKey("RouteImageMediaId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("event_route_image_media_id_fkey");
 
                     b.HasOne("Wmsfo.Api.Data.EventStatus", null)
                         .WithMany()

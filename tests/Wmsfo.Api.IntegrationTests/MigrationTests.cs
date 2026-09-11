@@ -48,6 +48,66 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
         }
     }
 
+    // A24 acceptance criterion 935: the A24Design migration adds the new
+    // columns and the sponsor_year_pinned_ux partial unique index.
+    [Fact]
+    public async Task A24_migration_adds_the_new_columns_and_pinned_ux()
+    {
+        await using (var db = new WmsfoDbContext(Options()))
+        {
+            await db.Database.MigrateAsync();
+        }
+        var relations = await ListRelationsAsync();
+        Assert.Contains("sponsor_year_pinned_ux", relations.Indexes);
+        Assert.Contains("event_route_image_media_id_fkey", relations.Constraints);
+        Assert.Contains("sponsor_year_pinned_position_check", relations.Constraints);
+        Assert.Contains("sponsor_year_linger_ms_override_check", relations.Constraints);
+
+        var columns = await ListColumnsAsync();
+        Assert.Contains(("event", "route_image_media_id"), columns);
+        Assert.Contains(("sponsor_year", "pinned_position"), columns);
+        Assert.Contains(("sponsor_year", "linger_ms_override"), columns);
+    }
+
+    // A24 acceptance criterion 935: sponsor_year_pinned_ux prevents two
+    // sponsors from claiming the same (event_year, pinned_position).
+    [Fact]
+    public async Task Sponsor_year_pinned_ux_raises_23505_on_duplicate_pin()
+    {
+        await using (var db = new WmsfoDbContext(Options()))
+        {
+            await db.Database.MigrateAsync();
+        }
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+
+        await Exec(conn, "insert into sponsor (name) values ('A'), ('B');");
+        await Exec(conn,
+            "insert into sponsor_year (sponsor_id, event_year, pinned_position) " +
+            "select id, 2099, 1 from sponsor where name = 'A';");
+        var ex = await Assert.ThrowsAsync<PostgresException>(async () => await Exec(conn,
+            "insert into sponsor_year (sponsor_id, event_year, pinned_position) " +
+            "select id, 2099, 1 from sponsor where name = 'B';"));
+        Assert.Equal("23505", ex.SqlState);
+        Assert.Equal("sponsor_year_pinned_ux", ex.ConstraintName);
+
+        // Clean up so this test can rerun.
+        await Exec(conn, "delete from sponsor_year where event_year = 2099;");
+        await Exec(conn, "delete from sponsor where name in ('A', 'B');");
+    }
+
+    private async Task<HashSet<(string Table, string Column)>> ListColumnsAsync()
+    {
+        var result = new HashSet<(string, string)>();
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select table_name, column_name from information_schema.columns where table_schema = 'public';", conn);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) result.Add((reader.GetString(0), reader.GetString(1)));
+        return result;
+    }
+
     [Fact]
     public async Task Partial_unique_indexes_raise_23505()
     {

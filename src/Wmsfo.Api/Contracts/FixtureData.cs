@@ -14,6 +14,7 @@ public static class FixtureData
     public const string CookieIconSha    = "bb2200000000000000000000000000000000000000000000000000000000ffff";
     public const string CandyCaneIconSha = "aa1100000000000000000000000000000000000000000000000000000000ffff";
     public const string MediaAssetIdRaster = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
+    public const string RoutePosterMediaId = "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
     public static string RouteUrl    => $"{CdnBase}/routes/{RouteSha}.json";
@@ -48,6 +49,20 @@ public static class FixtureData
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal)
         {
+            [RoutePosterMediaId] = new MediaEntry
+            {
+                Url = $"{CdnBase}/media/{RoutePosterMediaId}/route-2026.jpg",
+                Kind = "raster",
+                Width = 1600,
+                Height = 2400,
+                Alt = "The 2026 route poster",
+                Variants = new SortedDictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["1600"] = $"{CdnBase}/media/{RoutePosterMediaId}/w1600.webp",
+                    ["480"]  = $"{CdnBase}/media/{RoutePosterMediaId}/w480.webp",
+                    ["960"]  = $"{CdnBase}/media/{RoutePosterMediaId}/w960.webp",
+                },
+            },
             [MediaAssetIdRaster] = new MediaEntry
             {
                 Url = $"{CdnBase}/media/{MediaAssetIdRaster}/hangar.jpg",
@@ -83,7 +98,17 @@ public static class FixtureData
                 WentLiveAt  = DateTimeOffset.Parse("2026-12-22T01:02:11.000Z"),
                 EndedAt     = null,
                 FundsPercent = 63,
-                RouteUrl = RouteUrl,
+                RouteImageMediaId = RoutePosterMediaId,
+                FlightHistory = new SnapshotFlightHistory
+                {
+                    RouteId = 3,
+                    Name = "2025 flight",
+                    Points = new List<SnapshotFlightPoint>
+                    {
+                        new() { Lat = 46.8721, Lng = -114.0012, RecordedAt = DateTimeOffset.Parse("2025-12-22T01:31:07.000Z") },
+                        new() { Lat = 46.8730, Lng = -114.0030, RecordedAt = DateTimeOffset.Parse("2025-12-22T01:31:37.000Z") },
+                    },
+                },
                 LatestMessage = new SnapshotLatestMessage
                 {
                     Id = 12,

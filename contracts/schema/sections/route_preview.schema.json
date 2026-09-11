@@ -5,9 +5,10 @@
   "type": "object",
   "properties": {
     "heading": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/InlineNullable" },
-    "style": { "enum": ["svg", "map"] },
+    "style": { "enum": ["image", "viewer"] },
+    "disclaimer": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/InlineNullable" },
     "emptyText": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Inline" }
   },
-  "required": ["heading", "style", "emptyText"],
+  "required": ["heading", "style", "disclaimer", "emptyText"],
   "additionalProperties": false
 }

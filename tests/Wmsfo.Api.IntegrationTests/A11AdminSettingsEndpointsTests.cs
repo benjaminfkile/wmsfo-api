@@ -60,7 +60,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
     }
 
     [Fact]
-    public async Task List_returns_all_five_keys_with_seed_defaults()
+    public async Task List_returns_all_keys_with_seed_defaults()
     {
         using var req = _host!.AdminRequest(HttpMethod.Get, "/admin/settings");
         var response = await _host.Client.SendAsync(req);
@@ -74,6 +74,29 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(40, items["sponsor_linger_ms_per_dollar"]);
         Assert.Equal(2000, items["sponsor_linger_min_ms"]);
         Assert.Equal(45, items["beacon_stale_after_s"]);
+        Assert.Equal(2000, items["flight_history_max_points"]);
+    }
+
+    [Fact]
+    public async Task Put_flight_history_max_points_validates_range()
+    {
+        // flight_history_max_points range: 100..50000
+        var lo = await SendAdminAsync(HttpMethod.Put, "/admin/settings/flight_history_max_points",
+            "{\"value\":50}");
+        Assert.Equal(HttpStatusCode.BadRequest, lo.StatusCode);
+
+        var hi = await SendAdminAsync(HttpMethod.Put, "/admin/settings/flight_history_max_points",
+            "{\"value\":99999}");
+        Assert.Equal(HttpStatusCode.BadRequest, hi.StatusCode);
+
+        var ok = await SendAdminAsync(HttpMethod.Put, "/admin/settings/flight_history_max_points",
+            "{\"value\":1500}");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+
+        // Restore the seed value so tests that check defaults are not order-dependent.
+        var restore = await SendAdminAsync(HttpMethod.Put, "/admin/settings/flight_history_max_points",
+            "{\"value\":2000}");
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
     }
 
     [Fact]

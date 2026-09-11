@@ -47,11 +47,48 @@
         "fundsPercent": {
           "type": "integer"
         },
-        "routeUrl": {
+        "routeImageMediaId": {
           "type": [
             "string",
             "null"
           ]
+        },
+        "flightHistory": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "routeId": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "points": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "recordedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
         },
         "latestMessage": {
           "type": [

@@ -29,14 +29,15 @@
         "themePicker": { "type": "boolean" },
         "terrain": { "type": "boolean" },
         "snow": { "type": "boolean" },
-        "routeLines": { "type": "boolean" },
+        "flightHistory": { "type": "boolean" },
         "timeLabels": { "type": "boolean" },
         "location": { "type": "boolean" },
         "dataRow": { "type": "boolean" }
       },
-      "required": ["themePicker", "terrain", "snow", "routeLines", "timeLabels", "location", "dataRow"],
+      "required": ["themePicker", "terrain", "snow", "flightHistory", "timeLabels", "location", "dataRow"],
       "additionalProperties": false
     },
+    "flightHistoryDefault": { "type": "boolean" },
     "overlays": {
       "type": "object",
       "properties": {
@@ -52,6 +53,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["themes", "defaultTheme", "defaultCenter", "defaultZoom", "controls", "overlays"],
+  "required": ["themes", "defaultTheme", "defaultCenter", "defaultZoom", "controls", "flightHistoryDefault", "overlays"],
   "additionalProperties": false
 }

@@ -36,6 +36,7 @@ public sealed class Event
     public DateTimeOffset? EndedAt { get; set; }
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
+    public Guid? RouteImageMediaId { get; set; }
     public JsonDocument? FinalCookieTally { get; set; }
     public long NextSeq { get; set; }
     public string CreatedBy { get; set; } = "";
@@ -148,6 +149,8 @@ public sealed class SponsorYear
     public bool Active { get; set; }
     public bool CanAdvertise { get; set; }
     public bool Anonymous { get; set; }
+    public int? PinnedPosition { get; set; }
+    public int? LingerMsOverride { get; set; }
     public DateTimeOffset RegisteredAt { get; set; }
 }
 

@@ -352,6 +352,15 @@ public static class EndpointStubs
         app.MapDelete("/admin/sponsors/{id:long}/years/{eventYear:int}", NotImplemented)
             .WithTags("AdminSponsors")
             .Produces(StatusCodes.Status204NoContent);
+
+        app.MapGet("/admin/sponsors/order/{eventYear:int}", NotImplemented)
+            .WithTags("AdminSponsors")
+            .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK);
+
+        app.MapPut("/admin/sponsors/order/{eventYear:int}", NotImplemented)
+            .WithTags("AdminSponsors")
+            .Accepts<SponsorOrderRequest>("application/json")
+            .Produces<ItemsResponse<SponsorOrderRow>>(StatusCodes.Status200OK);
     }
 
     private static void MapAdminCookieTypes(IEndpointRouteBuilder app)

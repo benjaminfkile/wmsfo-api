@@ -36,6 +36,7 @@ public static class AdminSettingsEndpoints
         new("sponsor_linger_ms_per_dollar",  40,    0, 100000),
         new("sponsor_linger_min_ms",       2000,    0, 600000),
         new("beacon_stale_after_s",          45,   15,   3600),
+        new("flight_history_max_points",   2000,  100,  50000),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =

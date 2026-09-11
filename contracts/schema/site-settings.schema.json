@@ -13,12 +13,10 @@
     "theme": {
       "type": "object",
       "properties": {
-        "accent": { "enum": ["red", "green", "gold", "blue"] },
-        "surface": { "enum": ["night", "snow", "forest"] },
-        "fontPairing": { "enum": ["classic", "festive", "modern"] },
-        "snowDefault": { "type": "boolean" }
+        "snowDefault": { "type": "boolean" },
+        "lightsDefault": { "type": "boolean" }
       },
-      "required": ["accent", "surface", "fontPairing", "snowDefault"],
+      "required": ["snowDefault", "lightsDefault"],
       "additionalProperties": false
     },
     "navExtraLinks": {

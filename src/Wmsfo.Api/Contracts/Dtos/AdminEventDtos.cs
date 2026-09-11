@@ -21,6 +21,9 @@ public sealed class PatchEventRequest
     public DateTimeOffset? EndedAt { get; set; }
     public int? FundsPercent { get; set; }
     public long? RouteId { get; set; }
+    // A string value sets the link (uuid) or clears it (empty string).
+    // Null / absent leaves the current value unchanged.
+    public string? RouteImageMediaId { get; set; }
 }
 
 // POST /admin/events/{id}/status.
