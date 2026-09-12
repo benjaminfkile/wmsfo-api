@@ -463,6 +463,62 @@ returning id;", conn, tx))
                         var r = await guard.ExecuteScalarAsync(token);
                         if (r is not null && r is not DBNull)
                             throw new ApiException(StatusCodes.Status409Conflict, "another_event_live", "another event is live");
+
+                        // sql.md 8.4: check the is_active beacon on the locked row.
+                        // 409 no_healthy_beacon with details.beacon (id, name,
+                        // lastSeenAt, staleSince, or null when none is active) unless
+                        // revoked_at null, stale_since null, last_seen_at not null.
+                        long? beaconIdCol = null;
+                        string beaconName = "";
+                        DateTimeOffset? beaconRevokedAt = null;
+                        DateTimeOffset? beaconStaleSince = null;
+                        DateTimeOffset? beaconLastSeenAt = null;
+                        bool beaconFound = false;
+                        await using (var beaconRead = new NpgsqlCommand(
+                            "select id, name, revoked_at, stale_since, last_seen_at from beacon where is_active;", conn, tx))
+                        {
+                            await using var beaconReader = await beaconRead.ExecuteReaderAsync(token);
+                            if (await beaconReader.ReadAsync(token))
+                            {
+                                beaconFound = true;
+                                beaconIdCol = beaconReader.GetInt64(0);
+                                beaconName = beaconReader.GetString(1);
+                                beaconRevokedAt = beaconReader.IsDBNull(2) ? null : beaconReader.GetFieldValue<DateTimeOffset>(2);
+                                beaconStaleSince = beaconReader.IsDBNull(3) ? null : beaconReader.GetFieldValue<DateTimeOffset>(3);
+                                beaconLastSeenAt = beaconReader.IsDBNull(4) ? null : beaconReader.GetFieldValue<DateTimeOffset>(4);
+                            }
+                        }
+                        bool healthy = beaconFound
+                            && beaconRevokedAt is null
+                            && beaconStaleSince is null
+                            && beaconLastSeenAt is not null;
+                        if (!healthy)
+                        {
+                            JsonElement details;
+                            if (!beaconFound)
+                            {
+                                using var noneDoc = JsonDocument.Parse("{\"beacon\":null}");
+                                details = noneDoc.RootElement.Clone();
+                            }
+                            else
+                            {
+                                var beaconDetails = new
+                                {
+                                    beacon = new
+                                    {
+                                        id = beaconIdCol!.Value,
+                                        name = beaconName,
+                                        lastSeenAt = beaconLastSeenAt,
+                                        staleSince = beaconStaleSince,
+                                    },
+                                };
+                                var serialized = JsonSerializer.SerializeToUtf8Bytes(beaconDetails, Wmsfo.Api.Objects.CanonicalJson.Options);
+                                using var beaconDoc = JsonDocument.Parse(serialized);
+                                details = beaconDoc.RootElement.Clone();
+                            }
+                            throw new ApiException(StatusCodes.Status409Conflict,
+                                "no_healthy_beacon", "no healthy active beacon", details);
+                        }
                     }
 
                     // On entry into 4: final_cookie_tally = jsonb_object_agg of

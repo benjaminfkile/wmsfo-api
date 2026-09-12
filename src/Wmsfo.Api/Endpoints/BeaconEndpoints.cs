@@ -49,12 +49,11 @@ public static class BeaconEndpoints
                 long tokenRowId = 0;
                 byte[]? cipher = null;
                 string beaconName = "";
-                string role = "";
 
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
                     await using (var lookup = new NpgsqlCommand(@"
-select t.id, t.beacon_id, t.key_ciphertext, b.name, b.role, b.revoked_at
+select t.id, t.beacon_id, t.key_ciphertext, b.name, b.revoked_at
 from beacon_enrollment_token t
 join beacon b on b.id = t.beacon_id
 where t.token_hash = $1 and t.consumed_at is null and t.expires_at > now()
@@ -71,8 +70,7 @@ for update of t;", conn, tx))
                         beaconId = reader.GetInt64(1);
                         cipher = reader.IsDBNull(2) ? null : (byte[])reader[2];
                         beaconName = reader.GetString(3);
-                        role = reader.GetString(4);
-                        var revokedAt = reader.IsDBNull(5) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(5);
+                        var revokedAt = reader.IsDBNull(4) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(4);
                         if (revokedAt is not null)
                         {
                             throw new ApiException(StatusCodes.Status404NotFound,
@@ -103,7 +101,6 @@ for update of t;", conn, tx))
                 {
                     BeaconId = beaconId,
                     Name = beaconName,
-                    Role = role,
                     Key = plaintextKey,
                     ApiBaseUrl = options.PublicApiBaseUrl,
                     HubUrl = options.HubUrl,
@@ -130,11 +127,10 @@ for update of t;", conn, tx))
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 string name;
-                string role;
                 bool isActive;
                 await using (var cmd = new NpgsqlCommand(@"
 update beacon set last_seen_at = now(), updated_at = now() where id = $1
-returning name, role, is_active;", conn))
+returning name, is_active;", conn))
                 {
                     cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                     await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -143,8 +139,7 @@ returning name, role, is_active;", conn))
                         throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
                     }
                     name = reader.GetString(0);
-                    role = reader.GetString(1);
-                    isActive = reader.GetBoolean(2);
+                    isActive = reader.GetBoolean(1);
                 }
 
                 long? liveEventId = null;
@@ -159,7 +154,6 @@ returning name, role, is_active;", conn))
                 {
                     BeaconId = beaconId,
                     Name = name,
-                    Role = role,
                     IsActive = isActive,
                     ApiBaseUrl = options.PublicApiBaseUrl,
                     HubUrl = options.HubUrl,
@@ -203,9 +197,8 @@ returning name, role, is_active;", conn))
                 var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
                     ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
 
-                // Read the raw body once so we can enforce the 8 KB cap ourselves
-                // AND store the whole document (including tolerated nested keys)
-                // as JSONB.
+                // Read the raw body once so we can enforce the 32 KB cap ourselves
+                // AND store the document verbatim as JSONB.
                 var bodyBytes = await ReadBodyWithCapAsync(request, BodyLimits.Heartbeat, ct);
                 HeartbeatBody parsed;
                 try
@@ -219,7 +212,7 @@ returning name, role, is_active;", conn))
                         ApiErrorCodes.ValidationFailed, "malformed heartbeat body");
                 }
 
-                ValidateHeartbeat(parsed);
+                ValidateHeartbeat(parsed, bodyBytes);
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
@@ -322,68 +315,81 @@ returning id, received_at;", conn);
             .Accepts<string>("text/plain")
             .Produces<BeaconLogResponse>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.BeaconLog)
-            .RequireAuthorization(AuthPolicies.BeaconAdmin)
+            .RequireAuthorization(AuthPolicies.Beacon)
             .RequireRateLimiting(RateLimitPolicies.BeaconLogsPerBeacon)
             .AddServerTime();
     }
 
-    // Contracts 4.2 heartbeat rules: sentAt required rfc3339; the six group
-    // objects each nullable or object; leaf ranges + enums; whole body 8 KB
-    // (enforced at read time).
-    public static void ValidateHeartbeat(HeartbeatBody body)
+    // Beacon socket states (contracts 0.5).
+    private static readonly string[] BeaconSocketStates =
+    {
+        "connected", "connecting", "reconnecting", "disconnected",
+    };
+
+    // The `debug` object may nest at most 8 levels (contracts 4.2).
+    public const int HeartbeatDebugMaxDepth = 8;
+
+    // Contracts 4.2 heartbeat rules. `sentAt` required rfc3339; `health` if
+    // present is an object with only `batteryPercent` (0..100), `lastFixAgeS`
+    // (>= 0), `socketState` (from beacon socket states); any other key inside
+    // `health` is `400 validation_failed`. `debug` if present is any object,
+    // nested at most 8 levels; the whole body at most 32 KB (enforced at read
+    // time). Deserialization already refused unknown top-level keys and unknown
+    // health leaves; this method only checks the numeric and enum ranges plus
+    // the debug depth.
+    public static void ValidateHeartbeat(HeartbeatBody body, ReadOnlySpan<byte> rawBody)
     {
         var v = new RequestValidation();
         if (body.SentAt == default) v.Field("sentAt", "required");
 
-        void EnumField(string name, string? value, string[] allowed)
+        if (body.Health is { } h)
         {
-            if (value is null) return;
-            foreach (var a in allowed) if (a == value) return;
-            v.Field(name, "value not allowed");
-        }
-        void Finite(string name, double? value)
-        {
-            if (value is double d && (double.IsNaN(d) || double.IsInfinity(d)))
-                v.Field(name, "must be finite");
-        }
-        void Str64(string name, string? value)
-        {
-            if (value is not null && value.Length > 64) v.Field(name, "must be 64 characters or fewer");
+            if (h.BatteryPercent is int bp && (bp < 0 || bp > 100))
+                v.Field("health.batteryPercent", "must be between 0 and 100");
+            if (h.LastFixAgeS is double la && (double.IsNaN(la) || double.IsInfinity(la) || la < 0))
+                v.Field("health.lastFixAgeS", "must be 0 or more");
+            if (h.SocketState is string ss)
+            {
+                bool ok = false;
+                foreach (var a in BeaconSocketStates) if (a == ss) { ok = true; break; }
+                if (!ok) v.Field("health.socketState", "value not allowed");
+            }
         }
 
-        if (body.Power is { } p)
+        if (body.Debug is JsonElement debugElement && debugElement.ValueKind != JsonValueKind.Null)
         {
-            EnumField("power.thermalStatus", p.ThermalStatus,
-                new[] { "none", "light", "moderate", "severe", "critical", "emergency", "shutdown", "unknown" });
-            Finite("power.batteryTempC", p.BatteryTempC);
-        }
-        if (body.Radio is { } r)
-        {
-            Str64("radio.networkType", r.NetworkType);
-        }
-        if (body.Transport is { } t)
-        {
-            EnumField("transport.socketState", t.SocketState,
-                new[] { "connected", "connecting", "reconnecting", "disconnected" });
-        }
-        if (body.Process is { } proc)
-        {
-            EnumField("process.memoryPressure", proc.MemoryPressure,
-                new[] { "normal", "moderate", "low", "critical", "unknown" });
-        }
-        if (body.Gps is { } gps)
-        {
-            Str64("gps.provider", gps.Provider);
-            Finite("gps.lastFixAccuracyM", gps.LastFixAccuracyM);
-        }
-        if (body.Identity is { } id)
-        {
-            Str64("identity.deviceModel", id.DeviceModel);
-            Str64("identity.androidVersion", id.AndroidVersion);
-            Str64("identity.appVersion", id.AppVersion);
+            if (debugElement.ValueKind != JsonValueKind.Object)
+                v.Field("debug", "must be an object or null");
+            else if (JsonDepth(debugElement) > HeartbeatDebugMaxDepth)
+                v.Field("debug", $"nesting exceeds the {HeartbeatDebugMaxDepth}-level limit");
         }
 
         v.ThrowIfInvalid();
+    }
+
+    // Depth of an element: a scalar is depth 1, an empty object or array is
+    // depth 1, a container that holds other containers has one more than the
+    // deepest child. Walks iteratively to keep the stack bounded.
+    private static int JsonDepth(JsonElement element)
+    {
+        int max = 0;
+        var stack = new Stack<(JsonElement Node, int Depth)>();
+        stack.Push((element, 1));
+        while (stack.Count > 0)
+        {
+            var (node, depth) = stack.Pop();
+            if (depth > max) max = depth;
+            switch (node.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var prop in node.EnumerateObject()) stack.Push((prop.Value, depth + 1));
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in node.EnumerateArray()) stack.Push((item, depth + 1));
+                    break;
+            }
+        }
+        return max;
     }
 
     public static bool IsToken(string value, string prefix)

@@ -296,9 +296,9 @@ insert into outbox (topic, payload) values (
         // is 45 s so this must be flagged.
         long beaconId;
         await using (var cmd = new NpgsqlCommand(@"
-insert into beacon (name, notes, role, key_hash, key_prefix, created_by,
+insert into beacon (name, notes, key_hash, key_prefix, created_by,
                     last_seen_at, last_heartbeat_at, last_location_at)
-values ('B1', '', 'beacon', decode('11', 'hex'), 'wbk_test1234', 'seed',
+values ('B1', '', decode('11', 'hex'), 'wbk_test1234', 'seed',
         now() - interval '60 seconds', now() - interval '60 seconds', now() - interval '60 seconds')
 returning id;", conn))
         {
@@ -548,8 +548,8 @@ values (2027, $1, $2, false, 'seed', now()) returning id;", conn);
     private static async Task<long> InsertBeaconAsync(NpgsqlConnection conn)
     {
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, notes, role, key_hash, key_prefix, created_by)
-values ('B', '', 'beacon', decode('deadbeef', 'hex'), 'wbk_prefix000', 'seed') returning id;", conn);
+insert into beacon (name, notes, key_hash, key_prefix, created_by)
+values ('B', '', decode('deadbeef', 'hex'), 'wbk_prefix000', 'seed') returning id;", conn);
         return Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 

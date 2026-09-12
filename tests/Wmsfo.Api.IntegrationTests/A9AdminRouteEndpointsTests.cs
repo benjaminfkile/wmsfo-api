@@ -239,8 +239,8 @@ values ($1, $2, 1, 'seed', now()) returning id;", conn);
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, role, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, 'beacon', $2, $3, false, 'seed', now()) returning id;", conn);
+insert into beacon (name, key_hash, key_prefix, is_active, created_by, updated_at)
+values ($1, $2, $3, false, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = key.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key.Prefix });

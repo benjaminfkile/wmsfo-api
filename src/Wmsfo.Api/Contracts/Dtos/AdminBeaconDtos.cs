@@ -10,7 +10,6 @@ public sealed class CreateBeaconRequest
 {
     public string Name { get; set; } = "";
     public string Notes { get; set; } = "";
-    public string Role { get; set; } = "";
 }
 
 public sealed class PatchBeaconRequest

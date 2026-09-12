@@ -225,9 +225,9 @@ delete from cookie where id = @cookie_id;";
 
     // 8.11 Beacon writes.
     public const string BeaconCreate = @"
-insert into beacon (name, notes, role, key_hash, key_prefix, created_by)
-values (@name, @notes, @role, @key_hash, @key_prefix, @admin_email)
-returning id, name, notes, role, key_hash, key_prefix, key_version, is_active,
+insert into beacon (name, notes, key_hash, key_prefix, created_by)
+values (@name, @notes, @key_hash, @key_prefix, @admin_email)
+returning id, name, notes, key_hash, key_prefix, key_version, is_active,
           revoked_at, last_seen_at, last_location_at, last_heartbeat_at, stale_since,
           telemetry, created_by, created_at, updated_at;";
 
@@ -277,7 +277,7 @@ set is_active = false,
 where id = @beacon_id;";
 
     public const string BeaconEnrollLookup = @"
-select t.id, t.beacon_id, t.key_ciphertext, b.name, b.role, b.revoked_at
+select t.id, t.beacon_id, t.key_ciphertext, b.name, b.revoked_at
 from beacon_enrollment_token t
 join beacon b on b.id = t.beacon_id
 where t.token_hash = @token_hash

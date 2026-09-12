@@ -18,13 +18,11 @@ namespace Wmsfo.Api.IntegrationTests;
 public sealed class PipelineTests
 {
     private const string BeaconKey = "wbk_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";  // 47 chars
-    private const string AdminBeaconKey = "wbk_" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     private static async Task<PipelineHost> StartAsync()
     {
         var host = await PipelineHost.StartAsync();
         host.Beacons.Add(BeaconKey, id: 1);
-        host.Beacons.Add(AdminBeaconKey, id: 2, role: BeaconClaims.RoleAdmin);
         return host;
     }
 
@@ -92,18 +90,7 @@ public sealed class PipelineTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    // --- code: forbidden (both scheme families) ---
-    [Fact]
-    public async Task BeaconAdmin_role_beacon_is_403_forbidden()
-    {
-        await using var host = await StartAsync();
-        using var req = new HttpRequestMessage(HttpMethod.Get, "/test/beacon-admin");
-        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, BeaconKey);  // role=beacon
-        using var response = await host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.Forbidden, (await ReadErrorAsync(response)).Code);
-    }
-
+    // --- code: forbidden (Cognito scheme family) ---
     [Fact]
     public async Task Person_without_editor_is_forbidden_on_editor_route()
     {

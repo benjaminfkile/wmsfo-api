@@ -86,7 +86,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
     [Fact]
     public async Task Enroll_returns_key_and_ingest_channel()
     {
-        var beacon = await SeedBeaconAsync("Helicopter", role: "beacon");
+        var beacon = await SeedBeaconAsync("Helicopter");
         var (token, key) = await MintEnrollmentTokenAsync(beacon);
 
         var response = await _host!.Client.PostAsync("/beacons/enroll",
@@ -96,7 +96,8 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         var body = await ReadJsonAsync(response);
         Assert.Equal(beacon, body.RootElement.GetProperty("beaconId").GetInt64());
         Assert.Equal("Helicopter", body.RootElement.GetProperty("name").GetString());
-        Assert.Equal("beacon", body.RootElement.GetProperty("role").GetString());
+        // Beacons carry no role (A27): the response has no `role` key.
+        Assert.False(body.RootElement.TryGetProperty("role", out _));
         Assert.Equal(key, body.RootElement.GetProperty("key").GetString());
         Assert.Equal("wmsfo-api-test:ingest", body.RootElement.GetProperty("ingestChannel").GetString());
         Assert.NotNull(body.RootElement.GetProperty("serverTime").GetString());
@@ -154,7 +155,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
     [Fact]
     public async Task Me_stamps_last_seen_and_returns_live_event()
     {
-        var beacon = await SeedBeaconAsync("me-beacon", role: "beacon");
+        var beacon = await SeedBeaconAsync("me-beacon");
         var key = await SetBeaconKeyAsync(beacon);
         await SeedEventAsync(statusId: 3);
 
@@ -165,6 +166,8 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         var body = await ReadJsonAsync(response);
         Assert.Equal(beacon, body.RootElement.GetProperty("beaconId").GetInt64());
         Assert.True(body.RootElement.GetProperty("liveEventId").GetInt64() > 0);
+        // Beacons carry no role (A27): the response has no `role` key.
+        Assert.False(body.RootElement.TryGetProperty("role", out _));
 
         // /beacons/me sets last_seen_at (contracts 4.2). A freshly-seeded beacon
         // has last_seen_at null; after the call it is non-null.
@@ -374,6 +377,11 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
     }
 
     // ---------- POST /beacons/heartbeat ----------
+    // Contracts 4.2 as of A27: exactly `sentAt` (required rfc3339), `health`
+    // (optional typed object or null: batteryPercent 0..100, lastFixAgeS >= 0,
+    // socketState from the beacon socket states), and `debug` (optional object
+    // or null, any content, nesting at most 8 levels); whole body at most 32 KB.
+    // The body is stored verbatim in `beacon.telemetry`.
 
     [Fact]
     public async Task Heartbeat_stores_telemetry_and_returns_liveEventId()
@@ -385,7 +393,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
         {
             Content = new StringContent(
-                "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"power\":{\"batteryPercent\":90}}",
+                "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"batteryPercent\":87},\"debug\":{\"anything\":[1,{\"deep\":true}]}}",
                 Encoding.UTF8, "application/json"),
         };
         req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
@@ -395,15 +403,98 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         var body = await ReadJsonAsync(response);
         Assert.Equal(evtId, body.RootElement.GetProperty("liveEventId").GetInt64());
         Assert.True(body.RootElement.GetProperty("isActive").GetBoolean());
+
+        // The whole body is stored verbatim under telemetry.
+        var telemetry = await ReadBeaconTelemetryAsync(beacon);
+        Assert.NotNull(telemetry);
+        using var doc = JsonDocument.Parse(telemetry!);
+        Assert.Equal(87, doc.RootElement.GetProperty("health").GetProperty("batteryPercent").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("debug").GetProperty("anything")[0].GetInt32());
+        Assert.True(doc.RootElement.GetProperty("debug").GetProperty("anything")[1].GetProperty("deep").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"batteryPercent\":-1}}")]
+    [InlineData("{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"batteryPercent\":101}}")]
+    [InlineData("{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"lastFixAgeS\":-1}}")]
+    [InlineData("{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"socketState\":\"nope\"}}")]
+    [InlineData("{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":{\"unknownLeaf\":true}}")]
+    public async Task Heartbeat_invalid_health_leaf_is_400_validation_failed(string body)
+    {
+        var beacon = await SeedBeaconAsync("hb-val");
+        var key = await SetBeaconKeyAsync(beacon);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
+        var response = await _host!.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
     }
 
     [Fact]
-    public async Task Heartbeat_over_8kb_is_413_payload_too_large()
+    public async Task Heartbeat_null_health_and_missing_debug_are_accepted()
+    {
+        await SeedEventAsync(statusId: 3);
+        var beacon = await SeedBeaconAsync("hb-null", isActive: true);
+        var key = await SetBeaconKeyAsync(beacon);
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
+        {
+            Content = new StringContent(
+                "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"health\":null}",
+                Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
+        var response = await _host!.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Heartbeat_debug_9_levels_is_400_validation_failed()
+    {
+        var beacon = await SeedBeaconAsync("hb-deep-9");
+        var key = await SetBeaconKeyAsync(beacon);
+        // 9 nested objects: root has key `a` -> object -> object -> ... 9 deep total.
+        var debug = string.Concat(Enumerable.Repeat("{\"a\":", 8)) + "1" + new string('}', 8);
+        var body = "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"debug\":" + debug + "}";
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
+        var response = await _host!.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Heartbeat_debug_8_levels_is_accepted()
+    {
+        await SeedEventAsync(statusId: 3);
+        var beacon = await SeedBeaconAsync("hb-deep-8", isActive: true);
+        var key = await SetBeaconKeyAsync(beacon);
+        // 8 nested objects.
+        var debug = string.Concat(Enumerable.Repeat("{\"a\":", 7)) + "1" + new string('}', 7);
+        var body = "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"debug\":" + debug + "}";
+        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
+        var response = await _host!.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Heartbeat_over_32kb_is_413_payload_too_large()
     {
         var beacon = await SeedBeaconAsync("hb-big");
         var key = await SetBeaconKeyAsync(beacon);
-        var big = new string('a', 8500);
-        var body = $"{{\"sentAt\":\"2026-12-22T01:31:07Z\",\"power\":{{\"batteryPercent\":90,\"filler\":\"{big}\"}}}}";
+        // 33 KB + filler.
+        var big = new string('a', 33 * 1024);
+        var body = $"{{\"sentAt\":\"2026-12-22T01:31:07Z\",\"debug\":{{\"filler\":\"{big}\"}}}}";
         using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
@@ -413,29 +504,12 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
 
-    [Fact]
-    public async Task Heartbeat_bad_enum_is_400_validation_failed()
-    {
-        var beacon = await SeedBeaconAsync("hb-enum");
-        var key = await SetBeaconKeyAsync(beacon);
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
-        {
-            Content = new StringContent(
-                "{\"sentAt\":\"2026-12-22T01:31:07Z\",\"transport\":{\"socketState\":\"funky\"}}",
-                Encoding.UTF8, "application/json"),
-        };
-        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
-        var response = await _host!.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
-    }
-
-    // ---------- POST /beacons/logs ----------
+    // ---------- POST /beacons/logs (open to every authenticated beacon, A27) ----------
 
     [Fact]
-    public async Task Beacon_logs_admin_role_stores_log()
+    public async Task Beacon_logs_open_to_every_beacon()
     {
-        var beacon = await SeedBeaconAsync("adm", role: "admin");
+        var beacon = await SeedBeaconAsync("logs-any");
         var key = await SetBeaconKeyAsync(beacon);
         using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/logs")
         {
@@ -451,23 +525,9 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
     }
 
     [Fact]
-    public async Task Beacon_logs_role_beacon_is_403_forbidden()
-    {
-        var beacon = await SeedBeaconAsync("nonadm", role: "beacon");
-        var key = await SetBeaconKeyAsync(beacon);
-        using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/logs")
-        {
-            Content = new StringContent("body", Encoding.UTF8, "text/plain"),
-        };
-        req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
-        var response = await _host!.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-    }
-
-    [Fact]
     public async Task Beacon_logs_json_content_type_is_415_unsupported_media_type()
     {
-        var beacon = await SeedBeaconAsync("adm-json", role: "admin");
+        var beacon = await SeedBeaconAsync("logs-json");
         var key = await SetBeaconKeyAsync(beacon);
         using var req = new HttpRequestMessage(HttpMethod.Post, "/beacons/logs")
         {
@@ -501,7 +561,7 @@ values ($1, $2, $3, 'seed', now()) returning id;", conn);
         return id;
     }
 
-    private async Task<long> SeedBeaconAsync(string name, string role = "beacon", bool isActive = false)
+    private async Task<long> SeedBeaconAsync(string name, bool isActive = false)
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
@@ -513,10 +573,9 @@ values ($1, $2, $3, 'seed', now()) returning id;", conn);
         }
         var key = Wmsfo.Api.Security.Keys.MintKey();
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, role, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, $2, $3, $4, $5, 'seed', now()) returning id;", conn);
+insert into beacon (name, key_hash, key_prefix, is_active, created_by, updated_at)
+values ($1, $2, $3, $4, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = role });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = key.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key.Prefix });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = isActive });
@@ -524,6 +583,16 @@ values ($1, $2, $3, $4, $5, 'seed', now()) returning id;", conn);
         // Remember the key.
         _testKeys[id] = key.Token;
         return id;
+    }
+
+    private async Task<string?> ReadBeaconTelemetryAsync(long beaconId)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select telemetry::text from beacon where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+        var r = await cmd.ExecuteScalarAsync();
+        return r is null || r is DBNull ? null : (string)r;
     }
 
     private static readonly ConcurrentDictionary<long, string> _testKeys = new();

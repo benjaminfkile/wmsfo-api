@@ -89,9 +89,6 @@ public sealed class PipelineHost : IAsyncDisposable
         App.MapGet("/test/beacon", (HttpContext ctx) => new { beacon = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User) })
             .RequireAuthorization(AuthPolicies.Beacon);
 
-        App.MapGet("/test/beacon-admin", () => Results.Ok(new { ok = true }))
-            .RequireAuthorization(AuthPolicies.BeaconAdmin);
-
         App.MapGet("/test/person", () => Results.Ok(new { ok = true }))
             .RequireAuthorization(AuthPolicies.Person);
 
@@ -197,10 +194,10 @@ public sealed class FakeBeaconKeyLookup : IBeaconKeyLookup
 {
     private readonly Dictionary<string, BeaconAuthRow> _byHash = new(StringComparer.Ordinal);
 
-    public FakeBeaconKeyLookup Add(string key, long id, string role = BeaconClaims.RoleBeacon, bool isActive = true, DateTimeOffset? revokedAt = null, int keyVersion = 1)
+    public FakeBeaconKeyLookup Add(string key, long id, bool isActive = true, DateTimeOffset? revokedAt = null, int keyVersion = 1)
     {
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key));
-        _byHash[Convert.ToBase64String(hash)] = new BeaconAuthRow(id, role, isActive, revokedAt, keyVersion);
+        _byHash[Convert.ToBase64String(hash)] = new BeaconAuthRow(id, isActive, revokedAt, keyVersion);
         return this;
     }
 

@@ -111,8 +111,6 @@ order by name asc, id asc;", conn))
                     v.Field("name", "must be 1 to 100 characters");
                 if (body.Notes is null || body.Notes.Length > 2000)
                     v.Field("notes", "must be 0 to 2000 characters");
-                if (body.Role != "beacon" && body.Role != "admin")
-                    v.Field("role", "must be beacon or admin");
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -122,7 +120,6 @@ order by name asc, id asc;", conn))
                     beaconId: null,
                     name: body.Name.Trim(),
                     notes: body.Notes,
-                    role: body.Role,
                     createdBy: email,
                     ct);
 
@@ -142,8 +139,8 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PATCH /admin/beacons/{id} - name and/or notes. Role and key are not
-    // modifiable here.
+    // PATCH /admin/beacons/{id} - name and/or notes. The key is not modifiable
+    // here (rotate does that).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/beacons/{id:long}",
@@ -335,7 +332,6 @@ order by name asc, id asc;", conn))
                     beaconId: id,
                     name: null,
                     notes: null,
-                    role: null,
                     createdBy: email,
                     ct);
                 return Results.Ok(new BeaconWithKeyResponse
@@ -471,7 +467,6 @@ order by received_at desc, id desc;", conn);
         long? beaconId,
         string? name,
         string? notes,
-        string? role,
         string createdBy,
         CancellationToken ct)
     {
@@ -490,12 +485,11 @@ order by received_at desc, id desc;", conn);
             if (createNewBeacon)
             {
                 await using var insert = new NpgsqlCommand(@"
-insert into beacon (name, notes, role, key_hash, key_prefix, created_by, updated_at)
-values ($1, $2, $3, $4, $5, $6, now())
+insert into beacon (name, notes, key_hash, key_prefix, created_by, updated_at)
+values ($1, $2, $3, $4, $5, now())
 returning id;", conn, tx);
                 insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name ?? "" });
                 insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = notes ?? "" });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = role ?? "beacon" });
                 insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
                 insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = minted.Prefix });
                 insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = createdBy });
@@ -578,7 +572,7 @@ returning expires_at;", conn, tx))
     // --- helpers ---
 
     private const string BeaconSelect = @"
-select id, name, notes, role, key_prefix, key_version, is_active, revoked_at,
+select id, name, notes, key_prefix, key_version, is_active, revoked_at,
        last_seen_at, last_location_at, last_heartbeat_at, stale_since,
        telemetry, created_by, created_at, updated_at
 from beacon";
@@ -603,42 +597,40 @@ from beacon";
 
     private static (BeaconDto Dto, int KeyVersion) ReadBeaconRow(NpgsqlDataReader reader)
     {
-        HeartbeatBody? telemetry = null;
-        if (!reader.IsDBNull(12))
+        JsonElement? telemetry = null;
+        if (!reader.IsDBNull(11))
         {
-            var raw = reader.GetString(12);
+            var raw = reader.GetString(11);
             if (!string.IsNullOrEmpty(raw))
             {
-                try
-                {
-                    telemetry = JsonSerializer.Deserialize<HeartbeatBody>(raw, Wmsfo.Api.Objects.CanonicalJson.Options);
-                }
-                catch (JsonException)
-                {
-                    telemetry = null;
-                }
+                using var doc = JsonDocument.Parse(raw);
+                telemetry = doc.RootElement.Clone();
             }
         }
+        var revokedAt = reader.IsDBNull(6) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(6);
+        var lastSeenAt = reader.IsDBNull(7) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(7);
+        var staleSince = reader.IsDBNull(10) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(10);
         var dto = new BeaconDto
         {
             Id = reader.GetInt64(0),
             Name = reader.GetString(1),
             Notes = reader.GetString(2),
-            Role = reader.GetString(3),
-            KeyPrefix = reader.GetString(4),
-            IsActive = reader.GetBoolean(6),
-            RevokedAt = reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
-            LastSeenAt = reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
-            LastLocationAt = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
-            LastHeartbeatAt = reader.IsDBNull(10) ? null : reader.GetFieldValue<DateTimeOffset>(10),
-            StaleSince = reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11),
+            KeyPrefix = reader.GetString(3),
+            IsActive = reader.GetBoolean(5),
+            RevokedAt = revokedAt,
+            LastSeenAt = lastSeenAt,
+            LastLocationAt = reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+            LastHeartbeatAt = reader.IsDBNull(9) ? null : reader.GetFieldValue<DateTimeOffset>(9),
+            StaleSince = staleSince,
             Telemetry = telemetry,
-            CreatedBy = reader.GetString(13),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(14),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(15),
+            CreatedBy = reader.GetString(12),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(13),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             HubConnected = null,
+            // contracts 4.5: revokedAt null and staleSince null and lastSeenAt not null.
+            Healthy = revokedAt is null && staleSince is null && lastSeenAt is not null,
         };
-        var keyVersion = reader.GetInt32(5);
+        var keyVersion = reader.GetInt32(4);
         return (dto, keyVersion);
     }
 

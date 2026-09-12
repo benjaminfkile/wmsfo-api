@@ -15,7 +15,7 @@ namespace Wmsfo.Api.Auth;
 // api.md 6.1: the X-Beacon-Key scheme. Header absent => NoResult (the endpoint's
 // authorization policy answers 401 unauthenticated). Present but malformed or
 // unknown => Fail with unauthenticated (401). On success the principal carries
-// beacon_id, beacon_role, beacon_active, key_version claims.
+// beacon_id, beacon_active, key_version claims. Beacons carry no role.
 public sealed class BeaconAuthenticationOptions : AuthenticationSchemeOptions { }
 
 public sealed partial class BeaconAuthenticationHandler : AuthenticationHandler<BeaconAuthenticationOptions>
@@ -59,7 +59,6 @@ public sealed partial class BeaconAuthenticationHandler : AuthenticationHandler<
 
         var identity = new ClaimsIdentity(AuthSchemes.BeaconKey);
         identity.AddClaim(new Claim(BeaconClaims.BeaconId, row.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-        identity.AddClaim(new Claim(BeaconClaims.BeaconRole, row.Role));
         identity.AddClaim(new Claim(BeaconClaims.BeaconActive, row.IsActive ? "true" : "false"));
         identity.AddClaim(new Claim(BeaconClaims.KeyVersion, row.KeyVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
@@ -110,7 +109,7 @@ public interface IBeaconKeyLookup
     Task<BeaconAuthRow?> FindByHashAsync(byte[] hash, CancellationToken ct);
 }
 
-public sealed record BeaconAuthRow(long Id, string Role, bool IsActive, DateTimeOffset? RevokedAt, int KeyVersion);
+public sealed record BeaconAuthRow(long Id, bool IsActive, DateTimeOffset? RevokedAt, int KeyVersion);
 
 public sealed class DbBeaconKeyLookup : IBeaconKeyLookup
 {
@@ -126,7 +125,7 @@ public sealed class DbBeaconKeyLookup : IBeaconKeyLookup
         await using var db = await _factory.CreateDbContextAsync(ct);
         var row = await db.Beacon.AsNoTracking()
             .Where(b => b.KeyHash == hash)
-            .Select(b => new BeaconAuthRow(b.Id, b.Role, b.IsActive, b.RevokedAt, b.KeyVersion))
+            .Select(b => new BeaconAuthRow(b.Id, b.IsActive, b.RevokedAt, b.KeyVersion))
             .SingleOrDefaultAsync(ct);
         return row;
     }
