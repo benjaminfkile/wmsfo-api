@@ -298,10 +298,9 @@ AdminIconEndpoints.MapAll(app);
 AdminSponsorEndpoints.MapAll(app);
 AdminCookieTypeEndpoints.MapAll(app);
 AdminSettingsEndpoints.MapAll(app);
-// A12: /me family, public writes (contact, verify, unsubscribe), moderation, inbox.
+// A12: /me family, public writes (contact, verify, unsubscribe), inbox.
 MeEndpoints.MapAll(app);
 PublicWriteEndpoints.MapAll(app);
-AdminCookieModerationEndpoints.MapAll(app);
 AdminInboxEndpoints.MapAll(app);
 // A13: real /admin/pages*, /admin/sections*, /admin/items*, /admin/site-settings*
 // endpoints plus GET /admin/content/kinds, /admin/content/draft, /admin/content/status.
@@ -322,7 +321,6 @@ EndpointStubs.MapAll(app,
     includeMeStubs: false,
     includePublicWriteStubs: false,
     includePreviewStub: false,
-    includeAdminCookiesStubs: false,
     includeAdminInboxStubs: false,
     includeAdminPagesStubs: false,
     includeAdminSectionsStubs: false,

@@ -24,9 +24,11 @@ public static class AdminCookieTypeEndpoints
         MapList(app);
         MapCreate(app);
         MapPatch(app);
+        MapDelete(app);
     }
 
     // GET /admin/cookie-types → 200 { items: CookieType[] } sorted by sort, id.
+    // sql.md 8.10: cookieCount is joined from a single grouped query over cookie.
     private static void MapList(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/cookie-types",
@@ -36,9 +38,11 @@ public static class AdminCookieTypeEndpoints
                 await conn.OpenAsync(ct);
                 var items = new List<CookieTypeDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select id, name, icon, sort, active, created_at, updated_at
-from cookie_type
-order by sort, id;", conn);
+select t.id, t.name, t.icon, t.sort, t.active, coalesce(c.n, 0), t.created_at, t.updated_at
+from cookie_type t
+left join (select cookie_type_id, count(*)::int as n from cookie group by cookie_type_id) c
+  on c.cookie_type_id = t.id
+order by t.sort, t.id;", conn);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) items.Add(ReadRow(reader));
                 return Results.Ok(new ItemsResponse<CookieTypeDto> { Items = items });
@@ -168,6 +172,53 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
+    // DELETE /admin/cookie-types/{id} [snapshot] (sql.md 8.10):
+    //   409 event_live while any event has status 3;
+    //   409 cookie_type_in_use (details.cookieCount) while any cookie references
+    //   the type; else 204. 404 when the id is unknown after the write.
+    private static void MapDelete(IEndpointRouteBuilder app)
+    {
+        app.MapDelete("/admin/cookie-types/{id:long}",
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            {
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+                await snap.RunAsync<object?>(async (conn, tx, token) =>
+                {
+                    await GuardNoLiveEventAsync(conn, tx, token);
+
+                    int cookieCount;
+                    await using (var count = new NpgsqlCommand(
+                        "select count(*)::int from cookie where cookie_type_id = $1;", conn, tx))
+                    {
+                        count.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        cookieCount = (int)(await count.ExecuteScalarAsync(token) ?? 0);
+                    }
+                    if (cookieCount > 0)
+                    {
+                        throw new ApiException(StatusCodes.Status409Conflict,
+                            "cookie_type_in_use", "cookies reference this type",
+                            new CookieTypeInUseDetails(cookieCount));
+                    }
+
+                    await using var del = new NpgsqlCommand(
+                        "delete from cookie_type where id = $1;", conn, tx);
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var rows = await del.ExecuteNonQueryAsync(token);
+                    if (rows == 0) throw NotFound("cookie type not found");
+                    return null;
+                }, ct);
+                return Results.NoContent();
+            })
+            .WithTags("AdminCookieTypes")
+            .Produces(StatusCodes.Status204NoContent)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.CookieTypes)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    private sealed record CookieTypeInUseDetails(
+        [property: System.Text.Json.Serialization.JsonPropertyName("cookieCount")] int CookieCount);
+
     // --- helpers ---
 
     private static ApiException NotFound(string message) =>
@@ -240,8 +291,10 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
         NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)
     {
         await using var cmd = new NpgsqlCommand(@"
-select id, name, icon, sort, active, created_at, updated_at
-from cookie_type where id = $1;", conn, tx);
+select t.id, t.name, t.icon, t.sort, t.active,
+       coalesce((select count(*)::int from cookie where cookie_type_id = t.id), 0),
+       t.created_at, t.updated_at
+from cookie_type t where t.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -270,8 +323,9 @@ from cookie_type where id = $1;", conn, tx);
             Icon = icon,
             Sort = reader.GetInt32(3),
             Active = reader.GetBoolean(4),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
+            CookieCount = reader.GetInt32(5),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(6),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(7),
         };
     }
 }

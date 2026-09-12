@@ -10,7 +10,7 @@ using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// Contracts 4.5 moderation, inbox, subscribers, people.
+// Contracts 4.5 inbox, subscribers, people. Moderation was removed in A28.
 public sealed class A12AdminModerationAndInboxTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -29,94 +29,18 @@ public sealed class A12AdminModerationAndInboxTests : IClassFixture<PostgresFixt
         if (_host is not null) await _host.DisposeAsync();
     }
 
-    // Moderation: cookie hide/unhide/delete.
+    // A28: the removed moderation routes answer 404.
 
-    [Fact]
-    public async Task Hide_cookie_sets_hiddenAt_and_hiddenBy()
+    [Theory]
+    [InlineData("POST", "/admin/cookies/1/hide")]
+    [InlineData("POST", "/admin/cookies/1/unhide")]
+    [InlineData("DELETE", "/admin/cookies/1")]
+    [InlineData("GET", "/admin/events/1/cookies")]
+    public async Task Removed_moderation_routes_answer_404(string method, string path)
     {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 3);
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-
-        using var req = _host!.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var dto = await ReadJsonAsync(response);
-        Assert.Equal(JsonValueKind.String, dto.RootElement.GetProperty("hiddenAt").ValueKind);
-        Assert.Equal(DevStaticTokens.AdminEmail, dto.RootElement.GetProperty("hiddenBy").GetString());
-    }
-
-    [Fact]
-    public async Task Unhide_cookie_clears_hiddenAt()
-    {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 3);
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-        await MarkCookieHiddenAsync(cookieId);
-
-        using var req = _host!.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/unhide");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var dto = await ReadJsonAsync(response);
-        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("hiddenAt").ValueKind);
-        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("hiddenBy").ValueKind);
-    }
-
-    [Fact]
-    public async Task Delete_cookie_is_hard_delete()
-    {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 3);
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-
-        using var req = _host!.AdminRequest(HttpMethod.Delete, $"/admin/cookies/{cookieId}");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Equal(0, await CountCookiesAsync(cookieId));
-    }
-
-    [Fact]
-    public async Task Hide_cookie_unknown_id_is_404()
-    {
-        using var req = _host!.AdminRequest(HttpMethod.Post, "/admin/cookies/9999999/hide");
+        using var req = _host!.AdminRequest(new HttpMethod(method), path);
         var response = await _host.Client.SendAsync(req);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    // Moderation while live event: LiveObjectWriter is called for the current event.
-    [Fact]
-    public async Task Hide_cookie_while_live_writes_live_object()
-    {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 3);
-        _ = eventId;
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-        var beforePuts = _host!.Store.PutCount("live/location.json");
-
-        using var req = _host.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        // WriteFromState runs on a background task; give it a beat.
-        for (var i = 0; i < 50; i++)
-        {
-            if (_host.Store.PutCount("live/location.json") > beforePuts) break;
-            await Task.Delay(50);
-        }
-        Assert.True(_host.Store.PutCount("live/location.json") > beforePuts);
-    }
-
-    // Moderation on a non-live event does not write the live object.
-    [Fact]
-    public async Task Hide_cookie_while_not_live_does_not_write_live_object()
-    {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 4);
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-        var beforePuts = _host!.Store.PutCount("live/location.json");
-
-        using var req = _host.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        // No writes are triggered by the moderation on a non-live event.
-        await Task.Delay(200);
-        Assert.Equal(beforePuts, _host.Store.PutCount("live/location.json"));
     }
 
     // Inbox: contact messages.
@@ -257,11 +181,7 @@ public sealed class A12AdminModerationAndInboxTests : IClassFixture<PostgresFixt
     [Fact]
     public async Task Admin_endpoints_reject_person_token_with_403()
     {
-        var (eventId, personId, typeId) = await SeedEventWithPersonAndTypeAsync(status: 3);
-        _ = eventId;
-        var cookieId = await InsertCookieAsync(eventId, personId, typeId);
-
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/admin/contact-messages");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", DevStaticTokens.PersonToken);
         var response = await _host!.Client.SendAsync(req);
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
@@ -321,25 +241,6 @@ insert into cookie (event_id, person_id, cookie_type_id) values ($1, $2, $3) ret
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = typeId });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
-    }
-
-    private async Task MarkCookieHiddenAsync(long id)
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(
-            "update cookie set hidden_at = now(), hidden_by = 'seed' where id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private async Task<int> CountCookiesAsync(long cookieId)
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand("select count(*) from cookie where id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = cookieId });
-        return (int)Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 
     private async Task<long> SeedContactAsync(string name)

@@ -73,7 +73,6 @@ public static class ApiKeyCapabilities
     public const string Content = "content";
     public const string Media = "media";
     public const string Icons = "icons";
-    public const string Cookies = "cookies";
     public const string Settings = "settings";
     public const string ContactMessages = "contact_messages";
     public const string Subscribers = "subscribers";
@@ -83,7 +82,7 @@ public static class ApiKeyCapabilities
     public static readonly IReadOnlyList<string> All = new[]
     {
         Events, Routes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
-        Content, Media, Icons, Cookies, Settings, ContactMessages, Subscribers, People,
+        Content, Media, Icons, Settings, ContactMessages, Subscribers, People,
         Diagnostics,
     };
 

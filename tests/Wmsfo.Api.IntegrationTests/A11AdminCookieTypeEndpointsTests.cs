@@ -198,6 +198,62 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
         Assert.Equal("event_live", await ReadCodeAsync(response));
     }
 
+    // ---------- Delete (A28, sql.md 8.10) ----------
+
+    [Fact]
+    public async Task Delete_unused_type_is_204_and_removes_the_row()
+    {
+        var id = await CreateAsync("Delete Me", 10, true, "cookie");
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/cookie-types/{id}", body: "");
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(0, await CountTypeAsync(id));
+    }
+
+    [Fact]
+    public async Task Delete_while_event_live_is_409_event_live()
+    {
+        var id = await CreateAsync("Hold On", 10, true, "cookie");
+        await CreateLiveEventAsync(2029);
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/cookie-types/{id}", body: "");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("event_live", await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Delete_in_use_is_409_cookie_type_in_use_with_details_cookieCount()
+    {
+        var typeId = await CreateAsync("Beloved", 10, true, "cookie");
+        var eventId = await CreatePlannedEventAsync(2030);
+        var personId = await InsertPersonAsync();
+        await InsertCookiesAsync(eventId, personId, typeId, count: 2);
+
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/cookie-types/{typeId}", body: "");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal("cookie_type_in_use", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(2, body.RootElement.GetProperty("details").GetProperty("cookieCount").GetInt32());
+    }
+
+    // A28 (3): every cookie type response carries cookieCount.
+
+    [Fact]
+    public async Task List_returns_cookieCount_from_grouped_query()
+    {
+        var loved = await CreateAsync("Loved", 5, true, "cookie");
+        var lonely = await CreateAsync("Lonely", 6, true, "cookie");
+        var eventId = await CreatePlannedEventAsync(2031);
+        var personId = await InsertPersonAsync();
+        await InsertCookiesAsync(eventId, personId, loved, count: 4);
+
+        using var req = _host!.AdminRequest(HttpMethod.Get, "/admin/cookie-types");
+        var response = await _host.Client.SendAsync(req);
+        var doc = await ReadJsonAsync(response);
+        var byId = doc.RootElement.GetProperty("items").EnumerateArray()
+            .ToDictionary(e => e.GetProperty("id").GetInt64(), e => e.GetProperty("cookieCount").GetInt32());
+        Assert.Equal(4, byId[loved]);
+        Assert.Equal(0, byId[lonely]);
+    }
+
     // ---------- Authorization ----------
 
     [Fact]
@@ -267,6 +323,53 @@ values ($1, $2, 3, true, now(), 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = $"Live {year}" });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    private async Task<int> CountTypeAsync(long id)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select count(*) from cookie_type where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        return (int)Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    private async Task<long> CreatePlannedEventAsync(int year)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+insert into event (year, name, status_id, is_current, created_by, updated_at)
+values ($1, $2, 1, false, 'seed', now()) returning id;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = $"Planned {year}" });
+        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    private async Task<long> InsertPersonAsync()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "insert into person (cognito_sub, email) values ($1, $2) returning id;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.NewGuid() });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = "p-" + Guid.NewGuid().ToString("N") + "@example.com" });
+        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    private async Task InsertCookiesAsync(long eventId, long personId, long typeId, int count)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        for (var i = 0; i < count; i++)
+        {
+            await using var cmd = new NpgsqlCommand(
+                "insert into cookie (event_id, person_id, cookie_type_id) values ($1, $2, $3);", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = typeId });
+            await cmd.ExecuteNonQueryAsync();
+        }
     }
 
     private async Task<long> ReadSnapshotVersionAsync()

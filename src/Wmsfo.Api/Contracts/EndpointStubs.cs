@@ -27,7 +27,6 @@ public static class EndpointStubs
         includeMeStubs: true,
         includePublicWriteStubs: true,
         includePreviewStub: true,
-        includeAdminCookiesStubs: true,
         includeAdminInboxStubs: true,
         includeAdminPagesStubs: true,
         includeAdminSectionsStubs: true,
@@ -52,7 +51,6 @@ public static class EndpointStubs
         bool includeMeStubs = true,
         bool includePublicWriteStubs = true,
         bool includePreviewStub = true,
-        bool includeAdminCookiesStubs = true,
         bool includeAdminInboxStubs = true,
         bool includeAdminPagesStubs = true,
         bool includeAdminSectionsStubs = true,
@@ -78,7 +76,6 @@ public static class EndpointStubs
         if (includeAdminContentStubs) MapAdminContent(app);
         if (includeAdminMediaStubs) MapAdminMedia(app);
         if (includeAdminIconsStubs) MapAdminIcons(app);
-        if (includeAdminCookiesStubs) MapAdminCookies(app);
         if (includeAdminSettingsStubs) MapAdminSettings(app);
         if (includeAdminInboxStubs) MapAdminInbox(app);
         if (includeAdminApiKeysStubs) MapAdminApiKeys(app);
@@ -247,10 +244,6 @@ public static class EndpointStubs
         app.MapGet("/admin/events/{id:long}/locations", NotImplemented)
             .WithTags("AdminEvents")
             .Produces<PageResponse<LocationRowDto>>(StatusCodes.Status200OK);
-
-        app.MapGet("/admin/events/{id:long}/cookies", NotImplemented)
-            .WithTags("AdminEvents")
-            .Produces<PageResponse<CookieAdminDto>>(StatusCodes.Status200OK);
     }
 
     private static void MapAdminRoutes(IEndpointRouteBuilder app)
@@ -381,6 +374,10 @@ public static class EndpointStubs
             .WithTags("AdminCookieTypes")
             .Accepts<PatchCookieTypeRequest>("application/json")
             .Produces<CookieTypeDto>(StatusCodes.Status200OK);
+
+        app.MapDelete("/admin/cookie-types/{id:long}", NotImplemented)
+            .WithTags("AdminCookieTypes")
+            .Produces(StatusCodes.Status204NoContent);
     }
 
     private static void MapAdminPages(IEndpointRouteBuilder app)
@@ -549,21 +546,6 @@ public static class EndpointStubs
         app.MapGet("/admin/icons", NotImplemented)
             .WithTags("AdminIcons")
             .Produces<ItemsResponse<IconInfoDto>>(StatusCodes.Status200OK);
-    }
-
-    private static void MapAdminCookies(IEndpointRouteBuilder app)
-    {
-        app.MapPost("/admin/cookies/{id:long}/hide", NotImplemented)
-            .WithTags("AdminCookies")
-            .Produces<CookieAdminDto>(StatusCodes.Status200OK);
-
-        app.MapPost("/admin/cookies/{id:long}/unhide", NotImplemented)
-            .WithTags("AdminCookies")
-            .Produces<CookieAdminDto>(StatusCodes.Status200OK);
-
-        app.MapDelete("/admin/cookies/{id:long}", NotImplemented)
-            .WithTags("AdminCookies")
-            .Produces(StatusCodes.Status204NoContent);
     }
 
     private static void MapAdminSettings(IEndpointRouteBuilder app)
