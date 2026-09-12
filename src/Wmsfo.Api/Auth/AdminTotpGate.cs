@@ -10,11 +10,16 @@ namespace Wmsfo.Api.Auth;
 
 // api.md 6.3: endpoint filter on the Editor and Admin policies. Calls Cognito
 // AdminGetUser for the token's sub, cached 5 minutes per user; answers
-// 403 mfa_required unless SOFTWARE_TOKEN_MFA is enabled. A Cognito failure is
+// 403 mfa_required unless SOFTWARE_TOKEN_MFA is enabled; an enrolled answer is
+// cached 5 minutes, a not-enrolled answer 15 seconds. A Cognito failure is
 // treated as not enabled and logged at Warning; the cache keeps the noise down.
 public sealed class AdminTotpGate
 {
     public static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+    // A "not enrolled" answer is held only briefly: the admin enrols on the
+    // panel's setup page and signs straight back in, and must not meet a
+    // stale refusal.
+    public static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromSeconds(15);
     public const string SoftwareTokenMfa = "SOFTWARE_TOKEN_MFA";
 
     private readonly IAdminTotpChecker _checker;
@@ -66,7 +71,7 @@ public sealed class AdminTotpGate
             _logger.LogWarning(ex, "wmsfo_admin_totp_gate_check_failed sub={Sub}", sub);
             enabled = false;
         }
-        _cache[sub] = new CacheEntry(enabled, now + CacheTtl);
+        _cache[sub] = new CacheEntry(enabled, now + (enabled ? CacheTtl : NegativeCacheTtl));
         return enabled;
     }
 
