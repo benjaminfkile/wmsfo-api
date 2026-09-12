@@ -152,7 +152,21 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
             var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(body);
             var identities = new List<string>();
-            if (doc.RootElement.TryGetProperty("identities", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            // The gateway answers { channel, count, members: [ { connectionId, identity, joinedAt } ] };
+            // a member's identity is what the authorize callback returned ("<beaconId>:<keyVersion>").
+            if (doc.RootElement.TryGetProperty("members", out var members) && members.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var m in members.EnumerateArray())
+                {
+                    if (m.ValueKind == JsonValueKind.Object
+                        && m.TryGetProperty("identity", out var identity)
+                        && identity.ValueKind == JsonValueKind.String)
+                    {
+                        identities.Add(identity.GetString() ?? "");
+                    }
+                }
+            }
+            else if (doc.RootElement.TryGetProperty("identities", out var arr) && arr.ValueKind == JsonValueKind.Array)
             {
                 foreach (var e in arr.EnumerateArray())
                 {
