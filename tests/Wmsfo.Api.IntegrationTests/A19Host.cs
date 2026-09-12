@@ -155,7 +155,6 @@ public sealed class A19Host : IAsyncDisposable
         AdminSettingsEndpoints.MapAll(app);
         MeEndpoints.MapAll(app);
         PublicWriteEndpoints.MapAll(app);
-        AdminCookieModerationEndpoints.MapAll(app);
         AdminInboxEndpoints.MapAll(app);
         AdminContentEndpoints.MapAll(app);
         AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);

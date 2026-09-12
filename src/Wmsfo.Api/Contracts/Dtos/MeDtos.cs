@@ -31,7 +31,6 @@ public sealed class MyCookieItem
     public long CookieTypeId { get; set; }
     public string? Note { get; set; }
     public DateTimeOffset LeftAt { get; set; }
-    public DateTimeOffset? HiddenAt { get; set; }
 }
 
 // POST /cookies (contracts 4.4): the whole pick in one request, one entry per

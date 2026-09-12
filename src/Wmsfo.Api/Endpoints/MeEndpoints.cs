@@ -283,7 +283,7 @@ where id = $1 and person_id = $2 returning id;", conn);
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
-    // GET /me/cookies. `used` counts hidden; `limit` is the live setting.
+    // GET /me/cookies. `limit` is the live setting.
     private static void MapListMyCookies(IEndpointRouteBuilder app)
     {
         app.MapGet("/me/cookies",
@@ -321,7 +321,7 @@ where id = $1 and person_id = $2 returning id;", conn);
 
                 var items = new List<MyCookieItem>();
                 await using (var cmd = new NpgsqlCommand(@"
-select id, cookie_type_id, note, left_at, hidden_at
+select id, cookie_type_id, note, left_at
 from cookie
 where event_id = $1 and person_id = $2
 order by id asc;", conn))
@@ -337,7 +337,6 @@ order by id asc;", conn))
                             CookieTypeId = reader.GetInt64(1),
                             Note = reader.IsDBNull(2) ? null : reader.GetString(2),
                             LeftAt = reader.GetFieldValue<DateTimeOffset>(3),
-                            HiddenAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
                         });
                     }
                 }
@@ -445,7 +444,7 @@ order by id asc;", conn))
                                 limit = parsed;
                         }
                     }
-                    // Count this person's cookies on the event (hidden or not).
+                    // Count this person's cookies on the event.
                     int currentCount;
                     await using (var count = new NpgsqlCommand(
                         "select count(*) from cookie where event_id = $1 and person_id = $2;", conn, tx))

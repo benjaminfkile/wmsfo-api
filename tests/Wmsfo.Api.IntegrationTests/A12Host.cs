@@ -128,7 +128,6 @@ public sealed class A12Host : IAsyncDisposable
         // Wire the endpoints under test.
         MeEndpoints.MapAll(app);
         PublicWriteEndpoints.MapAll(app);
-        AdminCookieModerationEndpoints.MapAll(app);
         AdminInboxEndpoints.MapAll(app);
 
         await app.StartAsync();

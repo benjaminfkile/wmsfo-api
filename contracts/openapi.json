@@ -675,25 +675,6 @@
         }
       }
     },
-    "/admin/events/{id}/cookies": {
-      "get": {
-        "tags": [
-          "AdminEvents"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PageResponseOfCookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/admin/routes": {
       "get": {
         "tags": [
@@ -1262,6 +1243,16 @@
                 }
               }
             }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AdminCookieTypes"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -2004,56 +1995,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/admin/cookies/{id}/hide": {
-      "post": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/admin/cookies/{id}/unhide": {
-      "post": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CookieAdminDto"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/admin/cookies/{id}": {
-      "delete": {
-        "tags": [
-          "AdminCookies"
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
           }
         }
       }
@@ -3058,69 +2999,6 @@
           }
         }
       },
-      "CookieAdminDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "eventId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "personId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "personEmail": {
-            "type": "string"
-          },
-          "cookieTypeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "note": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "leftAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "hiddenAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
-          "hiddenBy": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
       "CookieLeft": {
         "type": "object",
         "properties": {
@@ -3201,6 +3079,14 @@
           },
           "active": {
             "type": "boolean"
+          },
+          "cookieCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "createdAt": {
             "type": "string",
@@ -4739,13 +4625,6 @@
           "leftAt": {
             "type": "string",
             "format": "date-time"
-          },
-          "hiddenAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
           }
         }
       },
@@ -5078,23 +4957,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ContactMessageDto"
-            }
-          },
-          "nextCursor": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "PageResponseOfCookieAdminDto": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CookieAdminDto"
             }
           },
           "nextCursor": {
@@ -6487,9 +6349,6 @@
     },
     {
       "name": "AdminIcons"
-    },
-    {
-      "name": "AdminCookies"
     },
     {
       "name": "AdminSettings"

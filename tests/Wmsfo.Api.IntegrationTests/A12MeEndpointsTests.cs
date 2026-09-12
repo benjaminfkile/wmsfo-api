@@ -295,16 +295,15 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
     }
 
     [Fact]
-    public async Task Get_my_cookies_returns_items_including_hidden_and_computes_remaining()
+    public async Task Get_my_cookies_returns_items_and_computes_remaining()
     {
         var personId = await EnsurePersonIdAsync(DevStaticTokens.PersonSub);
         var eventId = await EnsureLiveEventAsync();
         var typeId = await EnsureCookieTypeAsync("Snickerdoodle", active: true);
 
-        // Two visible, one hidden.
         await InsertCookieAsync(eventId, personId, typeId, hidden: false);
         await InsertCookieAsync(eventId, personId, typeId, hidden: false);
-        await InsertCookieAsync(eventId, personId, typeId, hidden: true);
+        await InsertCookieAsync(eventId, personId, typeId, hidden: false);
 
         using var req = _host!.PersonRequest(HttpMethod.Get, "/me/cookies");
         var response = await _host.Client.SendAsync(req);
@@ -313,7 +312,13 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         Assert.Equal(3, body.RootElement.GetProperty("eventStatusId").GetInt32());
         Assert.Equal(3, body.RootElement.GetProperty("used").GetInt32());
         Assert.Equal(7, body.RootElement.GetProperty("remaining").GetInt32());
-        Assert.Equal(3, body.RootElement.GetProperty("items").GetArrayLength());
+        var items = body.RootElement.GetProperty("items");
+        Assert.Equal(3, items.GetArrayLength());
+        // A28: /me/cookies items no longer carry hiddenAt.
+        foreach (var item in items.EnumerateArray())
+        {
+            Assert.False(item.TryGetProperty("hiddenAt", out _));
+        }
     }
 
     // POST /cookies

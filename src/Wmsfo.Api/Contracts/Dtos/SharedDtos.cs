@@ -190,21 +190,9 @@ public sealed class CookieTypeDto
     public IconValue? Icon { get; set; }
     public int Sort { get; set; }
     public bool Active { get; set; }
+    public int CookieCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
-}
-
-public sealed class CookieAdminDto
-{
-    public long Id { get; set; }
-    public long EventId { get; set; }
-    public long PersonId { get; set; }
-    public string PersonEmail { get; set; } = "";
-    public long CookieTypeId { get; set; }
-    public string? Note { get; set; }
-    public DateTimeOffset LeftAt { get; set; }
-    public DateTimeOffset? HiddenAt { get; set; }
-    public string? HiddenBy { get; set; }
 }
 
 public sealed class SubscriptionDto

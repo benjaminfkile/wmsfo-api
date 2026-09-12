@@ -390,45 +390,6 @@ limit 1;", conn);
         Assert.True(cookieTally.GetProperty(typeId.ToString()).GetInt32() >= 1);
     }
 
-    // ---------------- admin hides a cookie during the event ----------------
-
-    [Fact]
-    public async Task Sequence_admin_hides_a_cookie_during_event_rewrites_live_object_tally()
-    {
-        await BootstrapAsync();
-        await SeedLiveEventAsync(year: 2032);
-        var typeId = await SeedActiveCookieTypeAsync("Gingersnap");
-
-        // A person leaves a cookie so hiding it changes the visible tally.
-        using var post = _host!.PersonRequest(HttpMethod.Post, "/cookies");
-        post.Content = new StringContent(
-            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", Encoding.UTF8, "application/json");
-        var created = await _host.Client.SendAsync(post);
-        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
-        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
-        var cookieId = createdBody.RootElement.GetProperty("cookies")[0].GetProperty("id").GetInt64();
-
-        // Prime state so the writer's next build sees the cookie in the tally.
-        await _host.Writer.WriteFromStateAsync("test:prime", default);
-        var primed = await WaitForLiveTallyContainsAsync(typeId);
-        _ = primed;
-
-        // Hide the cookie - moderation while live triggers a live-object write.
-        using var hide = _host.AdminRequest(HttpMethod.Post, $"/admin/cookies/{cookieId}/hide");
-        var hideResponse = await _host.Client.SendAsync(hide);
-        Assert.Equal(HttpStatusCode.OK, hideResponse.StatusCode);
-
-        Assert.Equal(1L, await CountAsync(
-            $"select count(*) from cookie where id = {cookieId} and hidden_at is not null;"));
-
-        // Poll until the live-object no longer carries the hidden cookie's type
-        // in its tally.
-        var liveBytes = await WaitForLiveTallyAbsentAsync(typeId);
-        using var live = JsonDocument.Parse(liveBytes);
-        var tally = live.RootElement.GetProperty("cookieTally");
-        Assert.False(tally.TryGetProperty(typeId.ToString(), out _));
-    }
-
     // ---------------- beacon enrollment end to end ----------------
 
     [Fact]
@@ -803,26 +764,6 @@ values ($1, '{""source"":""library"",""id"":""cookie""}'::jsonb, 0, true, now())
             await Task.Delay(50);
         }
         throw new TimeoutException($"live object cookie tally never contained {cookieTypeId} within {WriterDeadline.TotalSeconds}s");
-    }
-
-    private async Task<byte[]> WaitForLiveTallyAbsentAsync(long cookieTypeId)
-    {
-        var deadline = DateTimeOffset.UtcNow + WriterDeadline;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            var bytes = await TryReadLiveBytesAsync();
-            if (bytes is not null)
-            {
-                using var doc = JsonDocument.Parse(bytes);
-                if (doc.RootElement.TryGetProperty("cookieTally", out var tally)
-                    && !tally.TryGetProperty(cookieTypeId.ToString(), out _))
-                {
-                    return bytes;
-                }
-            }
-            await Task.Delay(50);
-        }
-        throw new TimeoutException($"live object cookie tally still contained {cookieTypeId} after {WriterDeadline.TotalSeconds}s");
     }
 
     private async Task<byte[]> WaitForLiveEventStatusAsync(int expectedStatusId)

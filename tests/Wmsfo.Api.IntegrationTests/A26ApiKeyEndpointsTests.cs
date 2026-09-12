@@ -119,6 +119,16 @@ public sealed class A26ApiKeyEndpointsTests : IClassFixture<PostgresFixture>, IA
         Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(resp));
     }
 
+    // A28: the `cookies` capability was removed; a mint with it is 400 validation_failed.
+    [Fact]
+    public async Task Mint_removed_cookies_capability_is_400()
+    {
+        var resp = await SendAdminAsync(HttpMethod.Post, "/admin/api-keys",
+            "{\"name\":\"nocookies\",\"allCapabilities\":false,\"capabilities\":[\"cookies\"]}");
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(resp));
+    }
+
     [Fact]
     public async Task Mint_duplicate_capability_is_400()
     {

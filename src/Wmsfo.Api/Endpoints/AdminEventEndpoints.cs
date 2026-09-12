@@ -34,7 +34,6 @@ public static class AdminEventEndpoints
         MapPatchMessage(app);
         MapDeleteMessage(app);
         MapLocations(app);
-        MapCookies(app);
     }
 
     // GET /admin/events → 200 { items: Event[] } ordered by year desc.
@@ -1007,80 +1006,6 @@ limit $" + limitIdx + ";";
             ts.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
         private static string Fmt(double d) => d.ToString("R", CultureInfo.InvariantCulture);
         private static string FmtOpt(double? d) => d is null ? "" : d.Value.ToString("R", CultureInfo.InvariantCulture);
-    }
-
-    // GET /admin/events/{id}/cookies?cursor=&limit=&includeHidden=true
-    // Newest first (id desc keyset). includeHidden defaults to true.
-    private static void MapCookies(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/admin/events/{id:long}/cookies",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
-            {
-                var query = ctx.Request.Query;
-                var cursorText = query["cursor"].ToString();
-                var limitText = query["limit"].ToString();
-                var includeHiddenText = query["includeHidden"].ToString();
-
-                long? cursor = AdminHelpers.DecodeLongCursor(string.IsNullOrEmpty(cursorText) ? null : cursorText);
-                int? limitRaw = null;
-                if (!string.IsNullOrEmpty(limitText))
-                {
-                    if (!int.TryParse(limitText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
-                        throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed, "limit malformed");
-                    limitRaw = parsed;
-                }
-                bool includeHidden = string.IsNullOrEmpty(includeHiddenText) || string.Equals(includeHiddenText, "true", StringComparison.OrdinalIgnoreCase);
-                var limit = AdminHelpers.ClampLimit(limitRaw, 100, 500);
-
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-
-                var conditions = new List<string> { "c.event_id = $1" };
-                var next = 2;
-                if (cursor is not null) conditions.Add($"c.id < ${next++}");
-                if (!includeHidden) conditions.Add("c.hidden_at is null");
-                var limitIdx = next;
-                var sql = @"
-select c.id, c.event_id, c.person_id, coalesce(p.email, ''), c.cookie_type_id, c.note, c.left_at, c.hidden_at, c.hidden_by
-from cookie c
-left join person p on p.id = c.person_id
-where " + string.Join(" and ", conditions) + @"
-order by c.id desc
-limit $" + limitIdx + ";";
-                var items = new List<CookieAdminDto>();
-                await using var cmd = new NpgsqlCommand(sql, conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                if (cursor is not null) cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = cursor.Value });
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = limit + 1 });
-                await using var reader = await cmd.ExecuteReaderAsync(ct);
-                while (await reader.ReadAsync(ct))
-                {
-                    items.Add(new CookieAdminDto
-                    {
-                        Id = reader.GetInt64(0),
-                        EventId = reader.GetInt64(1),
-                        PersonId = reader.GetInt64(2),
-                        PersonEmail = reader.GetString(3),
-                        CookieTypeId = reader.GetInt64(4),
-                        Note = reader.IsDBNull(5) ? null : reader.GetString(5),
-                        LeftAt = reader.GetFieldValue<DateTimeOffset>(6),
-                        HiddenAt = reader.IsDBNull(7) ? null : reader.GetFieldValue<DateTimeOffset>(7),
-                        HiddenBy = reader.IsDBNull(8) ? null : reader.GetString(8),
-                    });
-                }
-                string? nextCursor = null;
-                if (items.Count > limit)
-                {
-                    nextCursor = AdminHelpers.EncodeLongCursor(items[limit - 1].Id);
-                    items.RemoveRange(limit, items.Count - limit);
-                }
-                return Results.Ok(new PageResponse<CookieAdminDto> { Items = items, NextCursor = nextCursor });
-            })
-            .WithTags("AdminEvents")
-            .Produces<PageResponse<CookieAdminDto>>(StatusCodes.Status200OK)
-            .RequireAuthorization(AuthPolicies.Admin)
-            .RequireCapability(ApiKeyCapabilities.Events)
-            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
     // --- helpers ---

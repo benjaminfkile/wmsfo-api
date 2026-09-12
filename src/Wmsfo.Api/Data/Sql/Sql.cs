@@ -205,23 +205,14 @@ insert into cookie (event_id, person_id, cookie_type_id, note)
 values (@event_id, @person_id, @cookie_type_id, @note)
 returning id, left_at;";
 
-    // 8.10 Cookie moderation.
-    public const string CookieHide = @"
-update cookie
-set hidden_at = now(),
-    hidden_by = @admin_email
-where id = @cookie_id and hidden_at is null
-returning id, event_id, person_id, cookie_type_id, note, left_at, hidden_at, hidden_by;";
+    // 8.10 Cookie type delete: refused with 409 event_live while any event is
+    // live, refused with 409 cookie_type_in_use while any cookie references
+    // the type; otherwise the row is dropped inside the [snapshot] frame.
+    public const string CookieTypeCountReferences = @"
+select count(*) from cookie where cookie_type_id = @cookie_type_id;";
 
-    public const string CookieUnhide = @"
-update cookie
-set hidden_at = null,
-    hidden_by = null
-where id = @cookie_id
-returning id, event_id, person_id, cookie_type_id, note, left_at, hidden_at, hidden_by;";
-
-    public const string CookieDelete = @"
-delete from cookie where id = @cookie_id;";
+    public const string CookieTypeDelete = @"
+delete from cookie_type where id = @cookie_type_id;";
 
     // 8.11 Beacon writes.
     public const string BeaconCreate = @"
