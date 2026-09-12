@@ -366,7 +366,7 @@ limit 1;", conn);
         // POST /cookies increments this node's in-memory tally delta.
         using var post = _host.PersonRequest(HttpMethod.Post, "/cookies");
         post.Content = new StringContent(
-            $"{{\"cookieTypeId\":{typeId},\"note\":\"first drop\"}}",
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}],\"note\":\"first drop\"}}",
             Encoding.UTF8, "application/json");
         var response = await _host.Client.SendAsync(post);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -400,11 +400,11 @@ limit 1;", conn);
         // A person leaves a cookie so hiding it changes the visible tally.
         using var post = _host!.PersonRequest(HttpMethod.Post, "/cookies");
         post.Content = new StringContent(
-            $"{{\"cookieTypeId\":{typeId}}}", Encoding.UTF8, "application/json");
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", Encoding.UTF8, "application/json");
         var created = await _host.Client.SendAsync(post);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
-        var cookieId = createdBody.RootElement.GetProperty("id").GetInt64();
+        var cookieId = createdBody.RootElement.GetProperty("cookies")[0].GetProperty("id").GetInt64();
 
         // Prime state so the writer's next build sees the cookie in the tally.
         await _host.Writer.WriteFromStateAsync("test:prime", default);

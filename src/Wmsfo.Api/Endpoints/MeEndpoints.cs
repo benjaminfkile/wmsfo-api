@@ -358,7 +358,9 @@ order by id asc;", conn))
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
-    // POST /cookies. Transaction from sql.md 8.9 followed by node-tally increment.
+    // POST /cookies. The whole pick in one transaction (sql.md 8.9): every type
+    // checked, the limit checked against the total, one multi-row insert, then
+    // the node-tally increments.
     private static void MapCreateCookie(IEndpointRouteBuilder app)
     {
         app.MapPost("/cookies",
@@ -367,7 +369,19 @@ order by id asc;", conn))
             {
                 var personId = RequirePersonId(ctx);
                 var v = new RequestValidation();
-                if (body.CookieTypeId <= 0) v.Field("cookieTypeId", "required");
+                var items = body.Items ?? new List<CookiePick>();
+                if (items.Count == 0) v.Field("items", "required");
+                if (items.Count > 50) v.Field("items", "at most 50 entries");
+                var seen = new HashSet<long>();
+                var total = 0;
+                for (var i = 0; i < items.Count; i += 1)
+                {
+                    var it = items[i];
+                    if (it.CookieTypeId <= 0) v.Field($"items[{i}].cookieTypeId", "required");
+                    else if (!seen.Add(it.CookieTypeId)) v.Field($"items[{i}].cookieTypeId", "listed twice");
+                    if (it.Count <= 0 || it.Count > 1000) v.Field($"items[{i}].count", "must be between 1 and 1000");
+                    else total += it.Count;
+                }
                 var note = body.Note;
                 if (note is not null)
                 {
@@ -378,11 +392,10 @@ order by id asc;", conn))
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
 
-                long newId;
-                DateTimeOffset leftAt;
                 long eventId;
                 int used;
                 int limit;
+                var left = new List<CookieLeft>(total);
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
                     // Serialize this person's inserts.
@@ -404,15 +417,20 @@ order by id asc;", conn))
                             throw new ApiException(StatusCodes.Status409Conflict, "no_live_event", "no live event");
                         eventId = Convert.ToInt64(r, CultureInfo.InvariantCulture);
                     }
-                    // Cookie type must exist and be active.
+                    // Every cookie type must exist and be active.
+                    var typeIds = items.Select(i => i.CookieTypeId).ToArray();
+                    var active = new HashSet<long>();
                     await using (var type = new NpgsqlCommand(
-                        "select id from cookie_type where id = $1 and active;", conn, tx))
+                        "select id from cookie_type where id = any($1) and active;", conn, tx))
                     {
-                        type.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.CookieTypeId });
-                        var r = await type.ExecuteScalarAsync(ct);
-                        if (r is null || r is DBNull)
-                            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "cookie type not found");
+                        type.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = typeIds });
+                        await using var reader = await type.ExecuteReaderAsync(ct);
+                        while (await reader.ReadAsync(ct)) active.Add(reader.GetInt64(0));
                     }
+                    var missing = typeIds.Where(id => !active.Contains(id)).ToArray();
+                    if (missing.Length > 0)
+                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "cookie type not found",
+                            new { cookieTypeIds = missing });
                     // Read the live limit inside the transaction.
                     limit = 10;
                     await using (var setting = new NpgsqlCommand(
@@ -437,39 +455,54 @@ order by id asc;", conn))
                         var r = await count.ExecuteScalarAsync(ct);
                         currentCount = (int)Convert.ToInt64(r ?? 0L, CultureInfo.InvariantCulture);
                     }
-                    if (currentCount >= limit)
+                    var remainingBefore = Math.Max(0, limit - currentCount);
+                    if (total > remainingBefore)
                         throw new ApiException(StatusCodes.Status409Conflict,
-                            "cookie_limit_reached", "cookie limit reached");
+                            "cookie_limit_reached", "cookie limit reached", new { remaining = remainingBefore });
 
+                    // One multi-row insert: the pick expanded to one row per cookie.
+                    var rowTypes = new long[total];
+                    var k = 0;
+                    foreach (var it in items)
+                    {
+                        for (var c = 0; c < it.Count; c += 1) rowTypes[k++] = it.CookieTypeId;
+                    }
                     await using (var insert = new NpgsqlCommand(@"
 insert into cookie (event_id, person_id, cookie_type_id, note)
-values ($1, $2, $3, $4)
-returning id, left_at;", conn, tx))
+select $1, $2, t, $4 from unnest($3::bigint[]) as t
+returning id, cookie_type_id, left_at;", conn, tx))
                     {
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.CookieTypeId });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = rowTypes });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)note ?? DBNull.Value });
                         await using var reader = await insert.ExecuteReaderAsync(ct);
-                        await reader.ReadAsync(ct);
-                        newId = reader.GetInt64(0);
-                        leftAt = reader.GetFieldValue<DateTimeOffset>(1);
+                        while (await reader.ReadAsync(ct))
+                        {
+                            left.Add(new CookieLeft
+                            {
+                                Id = reader.GetInt64(0),
+                                CookieTypeId = reader.GetInt64(1),
+                                LeftAt = reader.GetFieldValue<DateTimeOffset>(2),
+                            });
+                        }
                     }
-                    used = currentCount + 1;
+                    used = currentCount + total;
                     await tx.CommitAsync(ct);
                 }
 
-                // After commit: increment this node's tally counter for the type.
-                state.IncrementTallyDelta(body.CookieTypeId);
+                // After commit: increment this node's tally counter per cookie.
+                foreach (var it in items)
+                {
+                    for (var c = 0; c < it.Count; c += 1) state.IncrementTallyDelta(it.CookieTypeId);
+                }
 
                 return Results.Json(new CreateCookieResponse
                 {
-                    Id = newId,
                     EventId = eventId,
-                    CookieTypeId = body.CookieTypeId,
-                    Note = note,
-                    LeftAt = leftAt,
+                    Left = total,
                     Remaining = Math.Max(0, limit - used),
+                    Cookies = left,
                 }, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("Me")

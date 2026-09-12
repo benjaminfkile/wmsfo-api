@@ -323,7 +323,7 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
     {
         var typeId = await EnsureCookieTypeAsync("Vanilla", active: true);
         var response = await SendJsonAsync(HttpMethod.Post, "/cookies",
-            $"{{\"cookieTypeId\":{typeId}}}", DevStaticTokens.PersonToken);
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("no_live_event", await ReadCodeAsync(response));
     }
@@ -333,7 +333,7 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
     {
         await EnsureLiveEventAsync();
         var response = await SendJsonAsync(HttpMethod.Post, "/cookies",
-            "{\"cookieTypeId\":9999999}", DevStaticTokens.PersonToken);
+            "{\"items\":[{\"cookieTypeId\":9999999,\"count\":1}]}", DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
@@ -343,7 +343,7 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         await EnsureLiveEventAsync();
         var typeId = await EnsureCookieTypeAsync("Retired", active: false);
         var response = await SendJsonAsync(HttpMethod.Post, "/cookies",
-            $"{{\"cookieTypeId\":{typeId}}}", DevStaticTokens.PersonToken);
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
@@ -353,7 +353,7 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         await EnsureLiveEventAsync();
         var typeId = await EnsureCookieTypeAsync("Vanilla", active: true);
         var note = new string('x', 141);
-        var body = $"{{\"cookieTypeId\":{typeId},\"note\":\"{note}\"}}";
+        var body = $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}],\"note\":\"{note}\"}}";
         var response = await SendJsonAsync(HttpMethod.Post, "/cookies", body, DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
@@ -365,16 +365,45 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         var eventId = await EnsureLiveEventAsync();
         var typeId = await EnsureCookieTypeAsync("Sugar", active: true);
         var response = await SendJsonAsync(HttpMethod.Post, "/cookies",
-            $"{{\"cookieTypeId\":{typeId},\"note\":\"yum\"}}", DevStaticTokens.PersonToken);
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":3}}],\"note\":\"yum\"}}", DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
         Assert.Equal(eventId, dto.RootElement.GetProperty("eventId").GetInt64());
-        Assert.Equal(typeId, dto.RootElement.GetProperty("cookieTypeId").GetInt64());
-        Assert.Equal("yum", dto.RootElement.GetProperty("note").GetString());
-        Assert.True(dto.RootElement.GetProperty("remaining").GetInt32() < 10);
+        Assert.Equal(3, dto.RootElement.GetProperty("left").GetInt32());
+        Assert.Equal(7, dto.RootElement.GetProperty("remaining").GetInt32());
+        var cookies = dto.RootElement.GetProperty("cookies");
+        Assert.Equal(3, cookies.GetArrayLength());
+        Assert.Equal(typeId, cookies[0].GetProperty("cookieTypeId").GetInt64());
 
         var stored = await CountCookiesAsync(eventId);
-        Assert.Equal(1, stored);
+        Assert.Equal(3, stored);
+    }
+
+    [Fact]
+    public async Task Post_cookies_over_the_remaining_allowance_is_409_and_stores_nothing()
+    {
+        var eventId = await EnsureLiveEventAsync();
+        var typeId = await EnsureCookieTypeAsync("Sugar", active: true);
+        var response = await SendJsonAsync(HttpMethod.Post, "/cookies",
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":11}}]}}", DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("cookie_limit_reached", await ReadCodeAsync(response));
+        Assert.Equal(0, await CountCookiesAsync(eventId));
+    }
+
+    [Fact]
+    public async Task Post_cookies_duplicate_type_or_zero_count_is_400_validation_failed()
+    {
+        await EnsureLiveEventAsync();
+        var typeId = await EnsureCookieTypeAsync("Sugar", active: true);
+        var dup = await SendJsonAsync(HttpMethod.Post, "/cookies",
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}},{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.BadRequest, dup.StatusCode);
+        var zero = await SendJsonAsync(HttpMethod.Post, "/cookies",
+            $"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":0}}]}}", DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.BadRequest, zero.StatusCode);
+        var empty = await SendJsonAsync(HttpMethod.Post, "/cookies", "{\"items\":[]}", DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
     }
 
     // Contract acceptance: the person row lock in sql.md 8.9 serializes concurrent
@@ -397,7 +426,7 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         var tasks = Enumerable.Range(0, attempts).Select(async _ =>
         {
             using var req = _host!.PersonRequest(HttpMethod.Post, "/cookies");
-            req.Content = new StringContent($"{{\"cookieTypeId\":{typeId}}}", Encoding.UTF8, "application/json");
+            req.Content = new StringContent($"{{\"items\":[{{\"cookieTypeId\":{typeId},\"count\":1}}]}}", Encoding.UTF8, "application/json");
             using var resp = await _host.Client.SendAsync(req);
             results.Add(resp.StatusCode);
             if (resp.StatusCode != HttpStatusCode.Created)

@@ -1014,20 +1014,22 @@ delete from event where id = $event;                                          --
 
 ### 8.9 Cookie insert (`POST /cookies`)
 
+One pick, one transaction, one insert, whatever the count:
+
 ```sql
 begin;
 select id from person where id = $person for update;                          -- serializes this person's inserts
 select id from event where status_id = 3;                                     -- none: rollback, 409 no_live_event
-select id from cookie_type where id = $type and active;                       -- none: rollback, 404 not_found
+select id from cookie_type where id = any($types) and active;                 -- any listed type missing: rollback, 404 not_found
 select value from app_setting where key = 'cookie_limit_per_person';          -- missing row: compiled default 10
-select count(*) from cookie where event_id = $event and person_id = $person;  -- hidden cookies count; >= limit: rollback, 409 cookie_limit_reached
+select count(*) from cookie where event_id = $event and person_id = $person;  -- hidden cookies count; count + total > limit: rollback, 409 cookie_limit_reached
 insert into cookie (event_id, person_id, cookie_type_id, note)
-values ($event, $person, $type, $note)
-returning id, left_at;
+select $event, $person, t, $note from unnest($rows::bigint[]) as t            -- $rows: the pick expanded to one type id per cookie
+returning id, cookie_type_id, left_at;
 commit;
 ```
 
-The person row lock makes the count-then-insert safe against the same person's concurrent requests. The event row is read without a lock; a status change committing between the read and the commit can admit one cookie on an event that ended a few milliseconds earlier, which is accepted. After commit the node increments its in-memory tally for `$type`.
+The person row lock makes the count-then-insert safe against the same person's concurrent requests. The event row is read without a lock; a status change committing between the read and the commit can admit a pick on an event that ended a few milliseconds earlier, which is accepted. After commit the node increments its in-memory tally once per cookie.
 
 ### 8.10 Cookie moderation
 

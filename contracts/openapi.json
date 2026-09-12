@@ -3124,6 +3124,52 @@
           }
         }
       },
+      "CookieLeft": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "cookieTypeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "leftAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CookiePick": {
+        "type": "object",
+        "properties": {
+          "cookieTypeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "CookieTypeDto": {
         "type": "object",
         "properties": {
@@ -3219,13 +3265,11 @@
       "CreateCookieRequest": {
         "type": "object",
         "properties": {
-          "cookieTypeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CookiePick"
+            }
           },
           "note": {
             "type": [
@@ -3238,14 +3282,6 @@
       "CreateCookieResponse": {
         "type": "object",
         "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
           "eventId": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -3254,23 +3290,13 @@
             ],
             "format": "int64"
           },
-          "cookieTypeId": {
+          "left": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",
               "string"
             ],
-            "format": "int64"
-          },
-          "note": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "leftAt": {
-            "type": "string",
-            "format": "date-time"
+            "format": "int32"
           },
           "remaining": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -3279,6 +3305,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "cookies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CookieLeft"
+            }
           }
         }
       },

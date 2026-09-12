@@ -34,19 +34,31 @@ public sealed class MyCookieItem
     public DateTimeOffset? HiddenAt { get; set; }
 }
 
-// POST /cookies (contracts 4.4).
+// POST /cookies (contracts 4.4): the whole pick in one request, one entry per
+// cookie type with a count, and one note for every cookie of the run.
 public sealed class CreateCookieRequest
 {
-    public long CookieTypeId { get; set; }
+    public List<CookiePick> Items { get; set; } = new();
     public string? Note { get; set; }
+}
+
+public sealed class CookiePick
+{
+    public long CookieTypeId { get; set; }
+    public int Count { get; set; }
 }
 
 public sealed class CreateCookieResponse
 {
-    public long Id { get; set; }
     public long EventId { get; set; }
-    public long CookieTypeId { get; set; }
-    public string? Note { get; set; }
-    public DateTimeOffset LeftAt { get; set; }
+    public int Left { get; set; }
     public int Remaining { get; set; }
+    public List<CookieLeft> Cookies { get; set; } = new();
+}
+
+public sealed class CookieLeft
+{
+    public long Id { get; set; }
+    public long CookieTypeId { get; set; }
+    public DateTimeOffset LeftAt { get; set; }
 }

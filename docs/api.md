@@ -243,7 +243,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /me` | Person | person row and `isAdmin` | |
 | `GET /me/subscriptions`, `POST`, `POST .../resend-verification`, `DELETE .../{id}` | Person | per contracts 4.4; verify token mint and outbox `subscription.verify` in the same transaction | |
 | `GET /me/cookies` | Person | current event, limit from settings, counts | |
-| `POST /cookies` | Person | cookie transaction; increment the node tally | sql.md 8 cookie |
+| `POST /cookies` | Person | the whole pick in one cookie transaction (every type checked, the limit checked against the total, one multi-row insert); increment the node tally per cookie | sql.md 8.9 |
 | `/admin/events*` | Admin (`events`) | events, status, messages, status history, locations export, cookies list; `routeImageMediaId` must name a `ready` raster asset (`409 media_not_ready`, `400` for svg or gif) | contracts 7.3 for the [snapshot] writes; status transaction per contracts 4.5 |
 | `/admin/routes*` | Admin (`routes`) | flight recordings: canonicalize, hash, existing-row check, PUT, insert; `from-event` reads the event's published locations in `seq` order and feeds the same path | section 11.1 |
 | `/admin/beacons*` | Admin | create, patch, activate, deactivate, rotate, revoke, logs; list and get resolve `hubConnected` from one presence call | section 14 |
