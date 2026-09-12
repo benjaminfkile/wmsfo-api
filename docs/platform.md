@@ -37,7 +37,7 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | Database, roles | `wmsfo_dev`; `wmsfo_app_dev`, `wmsfo_migrate_dev` | `wmsfo_prod`; `wmsfo_app_prod`, `wmsfo_migrate_prod` |
 | Container secret | `<secret-name>` (dev) | `<secret-name>` (prod) |
 | Bucket, distribution | dev `<bucket>`, dev `<cdn-domain>` | prod `<bucket>`, prod `<cdn-domain>` |
-| Cognito pool, hosted UI domain, clients | `wmsfo-dev`, dev `<cognito-domain>`, dev client ids | `wmsfo-prod`, prod `<cognito-domain>`, prod client ids |
+| Cognito pools, managed login domains, clients | people pool `wmsfo-dev` and admin pool `wmsfo-admin-dev`, their dev domains, dev client ids | people pool `wmsfo-prod` and admin pool `wmsfo-admin-prod`, their prod domains, prod client ids |
 | Public site | `<preview-site-domain>` (Vercel preview from `dev`) | `<site-domain>` (Vercel production from `main`) |
 | Admin panel | `<admin-dev-domain>` (Vercel, from `dev`) and `http://localhost:5174` | `<admin-domain>` (Vercel production from `main`) |
 | `WMSFO_SITE_BASE_URL` | `https://<preview-site-domain>` | `https://<site-domain>` |
@@ -352,9 +352,13 @@ Dev value (contracts 8.1, with the platform's values filled in):
   "WMSFO_CORS_ORIGINS": "https://<preview-site-domain>,https://<admin-dev-domain>,http://localhost:5173,http://localhost:5174",
   "WMSFO_TRUSTED_PROXY_HOPS": "2",
   "WMSFO_COGNITO_ISSUER": "https://cognito-idp.<region>.amazonaws.com/<pool-id>",
-  "WMSFO_COGNITO_CLIENT_IDS": "<site-client-id>,<admin-client-id>",
+  "WMSFO_COGNITO_CLIENT_IDS": "<site-client-id>",
   "WMSFO_COGNITO_USER_POOL_ID": "<pool-id>",
+  "WMSFO_COGNITO_ADMIN_ISSUER": "https://cognito-idp.<region>.amazonaws.com/<admin-pool-id>",
+  "WMSFO_COGNITO_ADMIN_CLIENT_IDS": "<admin-client-id>",
+  "WMSFO_COGNITO_ADMIN_USER_POOL_ID": "<admin-pool-id>",
   "WMSFO_ADMIN_GROUP": "admin",
+  "WMSFO_EDITOR_GROUP": "editor",
   "WMSFO_SES_FROM_ADDRESS": "Santa Tracker <alerts@<mail-domain>>",
   "WMSFO_SES_CONFIGURATION_SET": "wmsfo-dev",
   "WMSFO_CONTACT_NOTIFY_EMAIL": "<inbox-address>",
@@ -375,7 +379,8 @@ Prod differs in exactly these values:
 | `WMSFO_S3_BUCKET`, `WMSFO_CDN_BASE_URL`, `WMSFO_PUBLIC_API_BASE_URL` | the prod bucket, CDN, and API host |
 | `WMSFO_SITE_BASE_URL` | `https://<site-domain>` |
 | `WMSFO_CORS_ORIGINS` | `https://<site-domain>,https://<admin-domain>` |
-| `WMSFO_COGNITO_ISSUER`, `WMSFO_COGNITO_CLIENT_IDS`, `WMSFO_COGNITO_USER_POOL_ID` | the prod pool and its two clients |
+| `WMSFO_COGNITO_ISSUER`, `WMSFO_COGNITO_CLIENT_IDS`, `WMSFO_COGNITO_USER_POOL_ID` | the prod people pool and its `wmsfo-site` client |
+| `WMSFO_COGNITO_ADMIN_ISSUER`, `WMSFO_COGNITO_ADMIN_CLIENT_IDS`, `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | the prod admin pool and its `wmsfo-admin` client |
 | `WMSFO_SES_CONFIGURATION_SET` | `wmsfo-prod` |
 | `WMSFO_ENROLLMENT_ENCRYPTION_KEY` | a different random key |
 

@@ -584,7 +584,7 @@ Tests:
 - Two database connections per sql.md 12 and 13: the app role for every request, the migrate role for the boot migrator only; pool parameters set in code.
 - The object store is behind `IObjectStore` with an S3 implementation and a local-directory implementation for development and tests; the API otherwise never branches on environment.
 - The publish body splices the exact bytes the writer PUT, so hub and CDN payloads are identical without a second serialization.
-- Leadership expires 10 s after the last good answer on its own, so a stalled poll can never leave a node believing it is leader.
+- Leadership expires 90 s after the last good answer on its own (two missed gateway reconcile loops), so a stalled poll can never leave a node believing it is leader.
 - The tally delta counter bridges the second between a cookie insert and the next tick on the inserting node; the tick's SQL count is the truth every second.
 - API keys share the `Authorization` header with ID tokens and are told apart by the `wak_` prefix; capabilities are endpoint metadata checked by one authorization requirement, so adding an endpoint group is one `.RequireCapability` call.
 - Raster uploads decode with a 40-megapixel ceiling; the width variants are WebP quality 82 at 480, 960, and 1600 px, each only when narrower than the source.

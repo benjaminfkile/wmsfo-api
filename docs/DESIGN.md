@@ -20,7 +20,7 @@ The technical designs that make this exact live in each repository's `docs/` fol
 | Realtime | gateway hub | public channel for the site, private channel for beacons, publish from the container |
 | Data | new Postgres schema | legacy rows migrated once; content (pages, sections, media) lives here too and publishes into the snapshot |
 | Alerts | SES email only (year one) | opt in, double opt in, unsubscribe link in every message; SMS numbers kept in §6 for later |
-| Auth | two new Cognito pools, `wmsfo-dev` and `wmsfo-prod` | people and admins in the same pool, admins are a group with MFA enforced |
+| Auth | two Cognito pools per environment: a people pool (`wmsfo-dev`, `wmsfo-prod`) and an admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) | people self sign up in the people pool; admins and editors are operator-created in the admin pool as groups with MFA enforced; a role counts only on an admin-pool token |
 
 Names stay: manifest service `wmsfo-api` / `wmsfo-api-dev`, same domain rewrite, same repo names. The current repos get renamed `<name>-legacy` first.
 
@@ -110,8 +110,8 @@ One beacon is **active** at a time, marked by the admin in the panel. Only its u
 | Beacon | key (header or hub credential) | post locations and heartbeats |
 | Script or agent | API key minted by an admin, with every capability or a chosen subset and an optional expiry | whatever its capabilities allow across the admin surface; never mint, list, or revoke keys |
 | Registered person | the env's Cognito pool, no MFA, email as username | manage alerts, leave cookies |
-| Editor | same pool, group `editor`, MFA enforced | pages, sections, media, icons, site settings, publish and versions, preview, sponsors |
-| Admin | same pool, group `admin`, MFA enforced | everything an editor can, plus events, routes, beacons, cookie types, cookie moderation, settings, subscribers, people, contact messages, diagnostics |
+| Editor | the env's admin pool, group `editor`, MFA enforced | pages, sections, media, icons, site settings, publish and versions, preview, sponsors |
+| Admin | the env's admin pool, group `admin`, MFA enforced | everything an editor can, plus events, routes, beacons, cookie types, cookie moderation, settings, subscribers, people, contact messages, diagnostics |
 
 Rules that never bend: every public page works logged out; sign-up is a small link, never a wall or a nag; admin, beacon, and API-key credentials are never the same thing.
 
