@@ -305,9 +305,11 @@ loop every tick:
       if WroteForLocationSinceVersionChange:
           await liveObjectWriter.WriteFromState("tick-rewrite")   // once; clears the flag
       else: nothing
+  elif this node is the leader and the event is live and state.CookieTally != the tally in the object this node last wrote:
+      await liveObjectWriter.WriteFromState("tally")              // cookies reach the CDN within a tick, beacon or no beacon
 ```
 
-A failed tick (database error) logs at Warning, keeps the previous state, and the next tick retries. The tick never publishes unless it rewrote the object. The tally, the current event, the active beacon, and the latest published location are re-read every tick regardless of version, so a cookie left on another node is in this node's tally within one tick; settings are re-read on a version change and at least every 5 s.
+A failed tick (database error) logs at Warning, keeps the previous state, and the next tick retries. The tick never publishes unless it rewrote the object. The tally, the current event, the active beacon, and the latest published location are re-read every tick regardless of version, so a cookie left on another node is in this node's tally within one tick; settings are re-read on a version change and at least every 5 s. The tally rewrite is the leader's alone (one writer per tally change across the fleet) and only while the event is live; a location write from a beacon carries the tally anyway, so the rewrite matters when the beacon is quiet.
 
 ---
 

@@ -1757,7 +1757,7 @@ select cookie_type_id, count(*) from cookie where event_id = $current and hidden
 select key, value from app_setting;   -- on version change, and at least every 5 s
 ```
 
-Memory is refreshed from every row read. When `version` moved and `lastWrittenVersion` is not that version: if `wroteForLocationSinceVersionChange` is true, the node writes the live object once more from the refreshed memory, publishes it, and clears the flag; otherwise it refreshes memory only and neither writes nor publishes (1.8). Every node converges within one tick, and the CDN copy is corrected within one tick when an ingest PUT built before a status change landed after the admin node's PUT.
+Memory is refreshed from every row read. When `version` moved and `lastWrittenVersion` is not that version: if `wroteForLocationSinceVersionChange` is true, the node writes the live object once more from the refreshed memory, publishes it, and clears the flag; otherwise it refreshes memory only and neither writes nor publishes (1.8). When `version` did not move, the leader (7.5) compares the refreshed `cookieTally` with the tally in the object it last wrote and, while the event is live, writes and publishes the live object once when they differ, so a cookie reaches the CDN within a tick whether or not a beacon is sending locations. Every node converges within one tick, and the CDN copy is corrected within one tick when an ingest PUT built before a status change landed after the admin node's PUT.
 
 ### 7.5 Leadership
 

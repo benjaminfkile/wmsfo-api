@@ -12,6 +12,10 @@ namespace Wmsfo.Api.Node;
 //       - if wroteForLocationSinceVersionChange: liveObjectWriter.WriteFromState("tick-rewrite")
 //         (once; clears the flag)
 //       - else: refresh only, no write, no publish
+//   - otherwise, on the leader only, when the refreshed tally differs from the
+//     tally in the object this node last wrote while the event is live:
+//     liveObjectWriter.WriteFromState("tally"), so cookies reach the CDN within
+//     a tick even when no beacon is sending locations.
 public sealed class ReconcileTick : BackgroundService
 {
     private readonly NodeStateService _state;
@@ -56,6 +60,23 @@ public sealed class ReconcileTick : BackgroundService
         }
     }
 
+    // api.md 9: the leader rewrites the live object when the tally it last
+    // wrote no longer matches the refreshed one, while the event is live.
+    private bool TallyMoved(NodeSnapshot refreshed)
+    {
+        if (refreshed.CurrentEvent is not { StatusId: 3 }) return false;
+        if (!_state.Leader.IsCurrentlyLeader(DateTimeOffset.UtcNow)) return false;
+        var last = _writer.LastWrittenObject?.CookieTally;
+        var now = refreshed.CookieTally;
+        if (last is null) return now.Count > 0;
+        if (last.Count != now.Count) return true;
+        foreach (var kv in now)
+        {
+            if (!last.TryGetValue(kv.Key, out var v) || v != kv.Value) return true;
+        }
+        return false;
+    }
+
     // Extracted so tests can drive one tick without waiting on the timer.
     public async Task TickOnceAsync(CancellationToken ct)
     {
@@ -63,7 +84,14 @@ public sealed class ReconcileTick : BackgroundService
         {
             var before = _state.Current.SnapshotVersion;
             var refreshed = await _state.RefreshAsync("tick", ct).ConfigureAwait(false);
-            if (refreshed.SnapshotVersion == before) return;
+            if (refreshed.SnapshotVersion == before)
+            {
+                if (TallyMoved(refreshed))
+                {
+                    await _writer.WriteFromStateAsync("tally", ct).ConfigureAwait(false);
+                }
+                return;
+            }
             if (refreshed.SnapshotVersion == _state.LastWrittenVersion) return;
 
             if (_state.WroteForLocationSinceVersionChange)
