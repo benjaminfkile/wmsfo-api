@@ -100,7 +100,16 @@ public static class WmsfoPipeline
         services.AddSingleton<AdminTotpGate>();
         if (!services.Any(s => s.ServiceType == typeof(IAdminTotpChecker)))
         {
-            services.AddSingleton<IAdminTotpChecker, AlwaysFailAdminTotpChecker>();
+            // The dev static token mode has no pool to ask (api.md 20): every
+            // admin counts as enrolled. Anywhere else a missing checker fails closed.
+            if (options.DevStaticTokens)
+            {
+                services.AddSingleton<IAdminTotpChecker, AlwaysEnabledAdminTotpChecker>();
+            }
+            else
+            {
+                services.AddSingleton<IAdminTotpChecker, AlwaysFailAdminTotpChecker>();
+            }
         }
         if (!services.Any(s => s.ServiceType == typeof(IPersonUpsert)))
         {
@@ -182,6 +191,13 @@ public static class WmsfoPipeline
 
 // A safe default (Cognito unavailable in tests / local runs without the checker
 // registered): AdminGetUser failure is treated as MFA-not-enabled per api.md 6.3.
+// api.md 20: the dev static token mode has no pool to ask, so every admin
+// counts as enrolled there.
+public sealed class AlwaysEnabledAdminTotpChecker : IAdminTotpChecker
+{
+    public Task<bool> HasSoftwareTokenMfaAsync(string sub, CancellationToken ct) => Task.FromResult(true);
+}
+
 public sealed class AlwaysFailAdminTotpChecker : IAdminTotpChecker
 {
     public Task<bool> HasSoftwareTokenMfaAsync(string sub, CancellationToken ct) => Task.FromResult(false);

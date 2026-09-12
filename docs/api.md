@@ -206,7 +206,7 @@ After validation an endpoint filter upserts the person (contracts 3.1 SQL) and a
 
 ### 6.3 Admin TOTP gate
 
-`AdminTotpGate` is an endpoint filter on both the `Editor` and the `Admin` policy that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the instance role and `WMSFO_COGNITO_USER_POOL_ID` in the secret. A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most. The gate skips requests authenticated by an API key (6.4).
+`AdminTotpGate` is an endpoint filter attached by `RequireCapability` and `DenyApiKeys` (so every `/admin/*` endpoint carries it, under both the `Editor` and the `Admin` policy) that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the instance role and `WMSFO_COGNITO_USER_POOL_ID` in the secret. A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most. The gate skips requests authenticated by an API key (6.4). The checker is `CognitoAdminTotpChecker` over an `AmazonCognitoIdentityProviderClient` for `AWS_REGION`; with `WMSFO_DEV_STATIC_TOKENS` (section 20) there is no pool to ask and every admin counts as enrolled.
 
 ### 6.4 API key scheme
 

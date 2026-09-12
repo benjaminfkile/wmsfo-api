@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Auth;
@@ -24,20 +25,31 @@ public static class EndpointCapabilityExtensions
 {
     // Attach the endpoint's capability name (contracts 3.6). One call per
     // endpoint group. The CapabilityOrGroupRequirement handler reads this
-    // to decide the API-key branch of the policy.
+    // to decide the API-key branch of the policy. The call also attaches the
+    // AdminTotpGate (api.md 6.3): every /admin/* endpoint carries the gate,
+    // which skips API-key principals on its own.
     public static TBuilder RequireCapability<TBuilder>(this TBuilder builder, string capability)
         where TBuilder : IEndpointConventionBuilder
     {
         var metadata = new RequireCapabilityMetadata(capability);
-        return builder.WithMetadata(metadata);
+        return builder.WithMetadata(metadata).WithAdminTotpGate();
     }
 
     // Mark the endpoint as Cognito-only: an API-key principal is refused with
-    // 403 forbidden regardless of capability.
+    // 403 forbidden regardless of capability. The TOTP gate applies here too.
     public static TBuilder DenyApiKeys<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
-        return builder.WithMetadata(new DenyApiKeysMetadata());
+        return builder.WithMetadata(new DenyApiKeysMetadata()).WithAdminTotpGate();
+    }
+
+    // The gate is the registered singleton (its five-minute cache is shared by
+    // every endpoint), resolved per request rather than captured at map time.
+    public static TBuilder WithAdminTotpGate<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.AddEndpointFilter(async (ctx, next) =>
+            await ctx.HttpContext.RequestServices.GetRequiredService<AdminTotpGate>().Filter(ctx, next));
     }
 }
 

@@ -4,6 +4,7 @@ using Amazon.SimpleEmailV2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Wmsfo.Api.Auth;
 using Wmsfo.Api.Chores;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
@@ -91,6 +92,15 @@ else
         new AmazonS3Client(RegionEndpoint.GetBySystemName(options.AwsRegion)));
     builder.Services.AddSingleton<IObjectStore>(sp =>
         new S3ObjectStore(sp.GetRequiredService<IAmazonS3>(), options.S3Bucket));
+}
+
+// api.md 6.3: the admin TOTP gate's checker asks Cognito; the dev static token
+// mode takes the pipeline's always-enrolled checker instead (no pool to ask).
+if (!options.DevStaticTokens)
+{
+    builder.Services.AddSingleton<Amazon.CognitoIdentityProvider.IAmazonCognitoIdentityProvider>(_ =>
+        new Amazon.CognitoIdentityProvider.AmazonCognitoIdentityProviderClient(RegionEndpoint.GetBySystemName(options.AwsRegion)));
+    builder.Services.AddSingleton<IAdminTotpChecker, CognitoAdminTotpChecker>();
 }
 
 // api.md 3 step 3: icon library, node state, gateway internal client, snapshot
