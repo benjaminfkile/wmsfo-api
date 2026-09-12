@@ -185,14 +185,11 @@ public sealed class WmsfoDbContext : DbContext
             e.ToTable("beacon", t =>
             {
                 t.HasComment("A trusted sender. Rows are never deleted; revoke is permanent.");
-                t.HasCheckConstraint("beacon_role_check", "role in ('beacon', 'admin')");
             });
             e.HasKey(x => x.Id).HasName("beacon_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.Name).HasColumnType("text").IsRequired();
             e.Property(x => x.Notes).HasColumnType("text").IsRequired().HasDefaultValue("");
-            e.Property(x => x.Role).HasColumnType("text").IsRequired()
-                .HasComment("beacon or admin. Immutable after creation.");
             e.Property(x => x.KeyHash).HasColumnType("bytea").IsRequired()
                 .HasComment("sha256 of the plaintext key, 32 bytes. The plaintext is never stored.");
             e.Property(x => x.KeyPrefix).HasColumnType("text").IsRequired()
@@ -244,7 +241,7 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<BeaconLog>(e =>
         {
             e.ToTable("beacon_log", t =>
-                t.HasComment("Red-Nose debug log uploads (admin-role beacons). Up to 2 MB each. 30-day retention."));
+                t.HasComment("Beacon debug log uploads. Up to 2 MB each. 30-day retention."));
             e.HasKey(x => x.Id).HasName("beacon_log_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.BeaconId).HasColumnType("bigint").IsRequired();

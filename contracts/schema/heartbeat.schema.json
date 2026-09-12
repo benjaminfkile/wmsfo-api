@@ -6,7 +6,7 @@
       "type": "string",
       "format": "date-time"
     },
-    "power": {
+    "health": {
       "type": [
         "object",
         "null"
@@ -18,260 +18,22 @@
             "null"
           ]
         },
-        "charging": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "batteryTempC": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
-        "thermalStatus": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "radio": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "properties": {
-        "networkType": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "signalDbm": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "signalLevel": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "airplaneMode": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "connected": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      }
-    },
-    "gps": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "properties": {
-        "provider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "satellitesUsed": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "satellitesInView": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lastFixAccuracyM": {
-          "type": [
-            "number",
-            "null"
-          ]
-        },
         "lastFixAgeS": {
           "type": [
-            "integer",
+            "number",
             "null"
           ]
         },
-        "fixesLastMinute": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "permission": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "foreground": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            },
-            "background": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            },
-            "precise": {
-              "type": [
-                "boolean",
-                "null"
-              ]
-            }
-          }
-        }
-      }
-    },
-    "transport": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "properties": {
         "socketState": {
           "type": [
             "string",
             "null"
           ]
-        },
-        "reconnectCount": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "httpFallbackSeconds": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lastReceiptLatencyMs": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "sendsFailedSinceBoot": {
-          "type": [
-            "integer",
-            "null"
-          ]
         }
-      }
+      },
+      "additionalProperties": false
     },
-    "process": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "properties": {
-        "deviceUptimeS": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "serviceUptimeS": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "serviceRestartCount": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "memoryPressure": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "batteryOptimizationExempt": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "notificationPermission": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "systemApp": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "rootAvailable": {
-          "type": [
-            "boolean",
-            "null"
-          ]
-        }
-      }
-    },
-    "identity": {
-      "type": [
-        "object",
-        "null"
-      ],
-      "properties": {
-        "deviceModel": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "androidVersion": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "appVersion": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "clockSkewMs": {
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      }
-    }
+    "debug": true
   },
   "additionalProperties": false
 }

@@ -137,7 +137,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     [Fact]
     public async Task Authorize_ingest_valid_key_allows_with_identity()
     {
-        var beacon = await SeedBeaconAsync("ingest", role: "beacon");
+        var beacon = await SeedBeaconAsync("ingest");
         var key = _keys[beacon];
 
         var response = await _host!.Client.PostAsync("/realtime/authorize",
@@ -153,7 +153,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     [Fact]
     public async Task Authorize_ingest_revoked_key_denies()
     {
-        var beacon = await SeedBeaconAsync("rev", role: "beacon");
+        var beacon = await SeedBeaconAsync("rev");
         var key = _keys[beacon];
         await RevokeBeaconAsync(beacon);
 
@@ -205,7 +205,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     public async Task Message_rotated_key_version_rejected()
     {
         await SeedEventAsync(statusId: 3);
-        var beacon = await SeedBeaconAsync("rotate", role: "beacon", isActive: true);
+        var beacon = await SeedBeaconAsync("rotate", isActive: true);
         // Rotate the beacon so key_version becomes 2.
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
@@ -229,7 +229,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     public async Task Message_revoked_beacon_is_403_forbidden()
     {
         await SeedEventAsync(statusId: 3);
-        var beacon = await SeedBeaconAsync("revmsg", role: "beacon", isActive: true);
+        var beacon = await SeedBeaconAsync("revmsg", isActive: true);
         await RevokeBeaconAsync(beacon);
 
         var body = "{\"channel\":\"wmsfo-api-test:ingest\",\"event\":\"location\","
@@ -244,7 +244,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     public async Task Message_location_event_returns_seq_and_published()
     {
         await SeedEventAsync(statusId: 3);
-        var beacon = await SeedBeaconAsync("msg-active", role: "beacon", isActive: true);
+        var beacon = await SeedBeaconAsync("msg-active", isActive: true);
 
         var body = "{\"channel\":\"wmsfo-api-test:ingest\",\"event\":\"location\","
                  + "\"data\":{\"lat\":46.87,\"lng\":-114,\"recordedAt\":\"2026-12-22T01:31:07Z\"},"
@@ -261,7 +261,7 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     public async Task Message_unknown_event_is_400_validation_failed()
     {
         await SeedEventAsync(statusId: 3);
-        var beacon = await SeedBeaconAsync("msg-badevent", role: "beacon", isActive: true);
+        var beacon = await SeedBeaconAsync("msg-badevent", isActive: true);
         var body = "{\"channel\":\"wmsfo-api-test:ingest\",\"event\":\"heartbeat\","
                  + "\"data\":{},"
                  + $"\"connectionId\":\"c1\",\"identity\":\"{beacon}:1\"}}";
@@ -295,7 +295,7 @@ values ($1, $2, $3, 'seed', now()) returning id;", conn);
         return id;
     }
 
-    private async Task<long> SeedBeaconAsync(string name, string role, bool isActive = false)
+    private async Task<long> SeedBeaconAsync(string name, bool isActive = false)
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
@@ -306,10 +306,9 @@ values ($1, $2, $3, 'seed', now()) returning id;", conn);
         }
         var minted = Wmsfo.Api.Security.Keys.MintKey();
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, role, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, $2, $3, $4, $5, 'seed', now()) returning id;", conn);
+insert into beacon (name, key_hash, key_prefix, is_active, created_by, updated_at)
+values ($1, $2, $3, $4, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = role });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = minted.Prefix });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = isActive });

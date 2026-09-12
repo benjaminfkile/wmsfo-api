@@ -70,7 +70,6 @@ public sealed class Beacon
     public long Id { get; set; }
     public string Name { get; set; } = "";
     public string Notes { get; set; } = "";
-    public string Role { get; set; } = "";
     public byte[] KeyHash { get; set; } = Array.Empty<byte>();
     public string KeyPrefix { get; set; } = "";
     public int KeyVersion { get; set; }

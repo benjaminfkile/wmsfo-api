@@ -70,7 +70,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     public async Task Create_returns_beacon_key_and_enrollment_once()
     {
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"Helicopter\",\"notes\":\"the sleigh\",\"role\":\"beacon\"}",
+            new StringContent("{\"name\":\"Helicopter\",\"notes\":\"the sleigh\"}",
                 Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await ReadJsonAsync(response);
@@ -80,8 +80,10 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
         Assert.True(beacon.GetProperty("id").GetInt64() > 0);
         Assert.Equal("Helicopter", beacon.GetProperty("name").GetString());
         Assert.Equal("the sleigh", beacon.GetProperty("notes").GetString());
-        Assert.Equal("beacon", beacon.GetProperty("role").GetString());
+        Assert.False(beacon.TryGetProperty("role", out _));
         Assert.False(beacon.GetProperty("isActive").GetBoolean());
+        // A freshly-created beacon has never been seen, so healthy is false.
+        Assert.False(beacon.GetProperty("healthy").GetBoolean());
         // keyPrefix is 12 characters of the plaintext key.
         var keyPrefix = beacon.GetProperty("keyPrefix").GetString()!;
         Assert.Equal(12, keyPrefix.Length);
@@ -113,24 +115,56 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     public async Task Create_second_call_returns_a_different_key()
     {
         var first = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"one\",\"notes\":\"\",\"role\":\"beacon\"}",
+            new StringContent("{\"name\":\"one\",\"notes\":\"\"}",
                 Encoding.UTF8, "application/json"));
         var second = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"two\",\"notes\":\"\",\"role\":\"beacon\"}",
+            new StringContent("{\"name\":\"two\",\"notes\":\"\"}",
                 Encoding.UTF8, "application/json"));
         var k1 = (await ReadJsonAsync(first)).RootElement.GetProperty("key").GetString();
         var k2 = (await ReadJsonAsync(second)).RootElement.GetProperty("key").GetString();
         Assert.NotEqual(k1, k2);
     }
 
+    // ---------- healthy is true only when the beacon has been seen and is not
+    // stale or revoked (contracts 4.5 Beacon.healthy, the go-live rule). ----------
+
     [Fact]
-    public async Task Create_invalid_role_is_400_validation_failed()
+    public async Task Healthy_false_for_never_seen_stale_and_revoked_rows()
     {
-        var response = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"x\",\"notes\":\"\",\"role\":\"nope\"}",
-                Encoding.UTF8, "application/json"));
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+        var (neverSeenId, _) = await CreateBeaconAsync("never-seen");
+        var (staleId, _) = await CreateBeaconAsync("stale");
+        var (revokedId, _) = await CreateBeaconAsync("revoked-health");
+
+        // The stale beacon: seen once, then flagged stale.
+        await StampBeaconLastSeenAsync(staleId, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(2));
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(
+                "update beacon set stale_since = now() where id = $1;", conn);
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = staleId });
+            await upd.ExecuteNonQueryAsync();
+        }
+
+        // The revoked beacon: seen once, then revoked.
+        await StampBeaconLastSeenAsync(revokedId, DateTimeOffset.UtcNow);
+        await SendAdminAsync(HttpMethod.Post, $"/admin/beacons/{revokedId}/revoke", content: null);
+
+        // The healthy beacon: seen once, no stale, no revoke.
+        var (healthyId, _) = await CreateBeaconAsync("healthy");
+        await StampBeaconLastSeenAsync(healthyId, DateTimeOffset.UtcNow);
+
+        var list = await SendAdminAsync(HttpMethod.Get, "/admin/beacons", content: null);
+        var body = await ReadJsonAsync(list);
+        var byId = new Dictionary<long, bool>();
+        foreach (var item in body.RootElement.GetProperty("items").EnumerateArray())
+        {
+            byId[item.GetProperty("id").GetInt64()] = item.GetProperty("healthy").GetBoolean();
+        }
+        Assert.False(byId[neverSeenId]);
+        Assert.False(byId[staleId]);
+        Assert.False(byId[revokedId]);
+        Assert.True(byId[healthyId]);
     }
 
     // ---------- Rotate: invalidates the old key at the message path AND the REST door. ----------
@@ -143,7 +177,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
 
         // Create a beacon and remember its key.
         var created = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"rotor\",\"notes\":\"\",\"role\":\"beacon\"}",
+            new StringContent("{\"name\":\"rotor\",\"notes\":\"\"}",
                 Encoding.UTF8, "application/json"));
         var beacon = await ReadJsonAsync(created);
         var beaconId = beacon.RootElement.GetProperty("beacon").GetProperty("id").GetInt64();
@@ -233,7 +267,7 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     public async Task Revoke_deletes_pending_enrollment_tokens()
     {
         var created = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent("{\"name\":\"pend\",\"notes\":\"\",\"role\":\"beacon\"}",
+            new StringContent("{\"name\":\"pend\",\"notes\":\"\"}",
                 Encoding.UTF8, "application/json"));
         var body = await ReadJsonAsync(created);
         var id = body.RootElement.GetProperty("beacon").GetProperty("id").GetInt64();
@@ -393,7 +427,9 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     [Fact]
     public async Task Logs_list_and_fetch_body()
     {
-        var (id, key) = await CreateBeaconAsync("logger", role: "admin");
+        // Beacons carry no role: /beacons/logs is open to every authenticated
+        // beacon (A27).
+        var (id, key) = await CreateBeaconAsync("logger");
         var post = new HttpRequestMessage(HttpMethod.Post, "/beacons/logs")
         {
             Content = new StringContent("hello there", Encoding.UTF8, "text/plain"),
@@ -416,15 +452,26 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
 
     // ---------- helpers ----------
 
-    private async Task<(long Id, string Key)> CreateBeaconAsync(string name, string role = "beacon")
+    private async Task<(long Id, string Key)> CreateBeaconAsync(string name)
     {
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/beacons",
-            new StringContent($"{{\"name\":\"{name}\",\"notes\":\"\",\"role\":\"{role}\"}}",
+            new StringContent($"{{\"name\":\"{name}\",\"notes\":\"\"}}",
                 Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var body = await ReadJsonAsync(response);
         return (body.RootElement.GetProperty("beacon").GetProperty("id").GetInt64(),
                 body.RootElement.GetProperty("key").GetString()!);
+    }
+
+    private async Task StampBeaconLastSeenAsync(long id, DateTimeOffset when)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "update beacon set last_seen_at = $1 where id = $2;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = when.ToUniversalTime() });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task<HttpResponseMessage> SendAdminAsync(HttpMethod method, string path, HttpContent? content)

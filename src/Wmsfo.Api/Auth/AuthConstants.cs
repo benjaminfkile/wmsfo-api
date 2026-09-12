@@ -22,7 +22,6 @@ public static class AuthPolicies
 {
     // 6.1 beacon key scheme
     public const string Beacon = "Beacon";              // any beacon
-    public const string BeaconAdmin = "BeaconAdmin";    // beacon_role = admin
 
     // 6.2 Cognito ID token scheme
     public const string Person = "Person";              // any valid ID token
@@ -33,11 +32,8 @@ public static class AuthPolicies
 public static class BeaconClaims
 {
     public const string BeaconId = "beacon_id";
-    public const string BeaconRole = "beacon_role";
     public const string BeaconActive = "beacon_active";
     public const string KeyVersion = "key_version";
-    public const string RoleBeacon = "beacon";
-    public const string RoleAdmin = "admin";
 }
 
 public static class PersonClaims

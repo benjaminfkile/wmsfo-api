@@ -72,11 +72,6 @@ public static class WmsfoPipeline
                 p.AddAuthenticationSchemes(AuthSchemes.BeaconKey);
                 p.RequireClaim(BeaconClaims.BeaconId);
             })
-            .AddPolicy(AuthPolicies.BeaconAdmin, p =>
-            {
-                p.AddAuthenticationSchemes(AuthSchemes.BeaconKey);
-                p.RequireClaim(BeaconClaims.BeaconRole, BeaconClaims.RoleAdmin);
-            })
             // 6.2 policies
             .AddPolicy(AuthPolicies.Person, p =>
             {

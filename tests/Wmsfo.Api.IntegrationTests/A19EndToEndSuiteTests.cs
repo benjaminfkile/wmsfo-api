@@ -179,6 +179,8 @@ public sealed class A19EndToEndSuiteTests : IClassFixture<PostgresFixture>, IAsy
     {
         await BootstrapAsync();
         var eventId = await SeedScheduledEventAsync(year: 2029);
+        // A27 go-live gate: status 3 needs a healthy active beacon.
+        await SeedActiveBeaconAsync("live-gate");
         var snapshotBefore = await ReadSnapshotVersionAsync();
 
         using var req = _host!.AdminRequest(HttpMethod.Post, $"/admin/events/{eventId}/status");
@@ -439,7 +441,7 @@ limit 1;", conn);
         // (used once) and the enrollment envelope with a QR PNG data URL.
         using var create = _host!.AdminRequest(HttpMethod.Post, "/admin/beacons");
         create.Content = new StringContent(
-            "{\"name\":\"Helicopter\",\"notes\":\"tail 1234\",\"role\":\"beacon\"}",
+            "{\"name\":\"Helicopter\",\"notes\":\"tail 1234\"}",
             Encoding.UTF8, "application/json");
         var createResponse = await _host.Client.SendAsync(create);
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
@@ -469,10 +471,12 @@ limit 1;", conn);
         Assert.Equal(HttpStatusCode.NotFound, second.StatusCode);
 
         // 3. The service starts, joins <service>:ingest and heartbeats.
+        // A27: contracts 4.2 heartbeat body has exactly sentAt + optional
+        // health + optional debug.
         using var hb = new HttpRequestMessage(HttpMethod.Post, "/beacons/heartbeat")
         {
             Content = new StringContent(
-                "{\"sentAt\":\"2033-12-22T01:31:07Z\",\"power\":{\"batteryPercent\":90}}",
+                "{\"sentAt\":\"2033-12-22T01:31:07Z\",\"health\":{\"batteryPercent\":90}}",
                 Encoding.UTF8, "application/json"),
         };
         hb.Headers.Add(BeaconAuthenticationHandler.HeaderName, beaconKey);
@@ -615,9 +619,11 @@ values ($1, $2, 2, true, now() + interval '1 hour', 'seed', now()) returning id;
             await wipe.ExecuteNonQueryAsync();
         }
         var minted = Keys.MintKey();
+        // A27 go-live gate: seed as healthy (last_seen_at set) so the status
+        // change to 3 passes the sql.md 8.4 check when the test writes it.
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, notes, role, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, '', 'beacon', $2, $3, true, 'seed', now()) returning id;", conn);
+insert into beacon (name, notes, key_hash, key_prefix, is_active, last_seen_at, created_by, updated_at)
+values ($1, '', $2, $3, true, now(), 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = minted.Prefix });

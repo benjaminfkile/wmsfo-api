@@ -128,8 +128,8 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
 
         await AssertPartialUniqueIndexRaisesAsync(
             constraint: "beacon_one_active",
-            firstInsert: "insert into beacon (name, role, key_hash, key_prefix, is_active, created_by) values ('b1', 'beacon', E'\\\\x0102', 'p1', true, 'test')",
-            secondInsert: "insert into beacon (name, role, key_hash, key_prefix, is_active, created_by) values ('b2', 'beacon', E'\\\\x0304', 'p2', true, 'test')");
+            firstInsert: "insert into beacon (name, key_hash, key_prefix, is_active, created_by) values ('b1', E'\\\\x0102', 'p1', true, 'test')",
+            secondInsert: "insert into beacon (name, key_hash, key_prefix, is_active, created_by) values ('b2', E'\\\\x0304', 'p2', true, 'test')");
     }
 
     private async Task AssertPartialUniqueIndexRaisesAsync(string constraint, string firstInsert, string secondInsert)
@@ -290,7 +290,6 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
         "alert_delivery_outbox_id_fkey", "alert_delivery_subscriber_id_fkey",
         // Check constraints.
         "event_funds_percent_check",
-        "beacon_role_check",
         "sponsor_year_amount_donated_check",
         "subscriber_channel_check",
         "media_asset_kind_check", "media_asset_state_check",

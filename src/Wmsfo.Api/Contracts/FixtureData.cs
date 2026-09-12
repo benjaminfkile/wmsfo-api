@@ -165,34 +165,58 @@ public static class FixtureData
         AccuracyM = 6,
     };
 
-    public static HeartbeatBody BuildHeartbeat() => new()
+    public static HeartbeatBody BuildHeartbeat()
     {
-        SentAt = DateTimeOffset.Parse("2026-12-22T01:31:07.000Z"),
-        Power = new HeartbeatPower { BatteryPercent = 87, Charging = true, BatteryTempC = 31.5, ThermalStatus = "none" },
-        Radio = new HeartbeatRadio { NetworkType = "LTE", SignalDbm = -95, SignalLevel = 3, AirplaneMode = false, Connected = true },
-        Gps = new HeartbeatGps
+        // contracts 4.2: sentAt + typed health + free-form debug. The debug
+        // object here is representative Red-Nose telemetry as a JSON tree; the
+        // API never interprets it.
+        const string debugJson = """
+{
+  "power": { "charging": true, "batteryTempC": 31.5, "thermalStatus": "none" },
+  "radio": { "networkType": "LTE", "signalDbm": -95, "signalLevel": 3, "airplaneMode": false, "connected": true },
+  "gps": {
+    "provider": "fused",
+    "satellitesUsed": 9,
+    "satellitesInView": 14,
+    "lastFixAccuracyM": 6,
+    "fixesLastMinute": 58,
+    "permission": { "foreground": true, "background": true, "precise": true }
+  },
+  "transport": {
+    "reconnectCount": 2,
+    "httpFallbackSeconds": 0,
+    "lastReceiptLatencyMs": 120,
+    "sendsFailedSinceBoot": 3
+  },
+  "process": {
+    "deviceUptimeS": 90000,
+    "serviceUptimeS": 3000,
+    "serviceRestartCount": 1,
+    "memoryPressure": "normal",
+    "batteryOptimizationExempt": true,
+    "notificationPermission": true,
+    "systemApp": true,
+    "rootAvailable": true
+  },
+  "identity": {
+    "deviceModel": "Pixel 6a",
+    "androidVersion": "14",
+    "appVersion": "1.0.3",
+    "clockSkewMs": -120
+  }
+}
+""";
+        using var doc = System.Text.Json.JsonDocument.Parse(debugJson);
+        return new HeartbeatBody
         {
-            Provider = "fused",
-            SatellitesUsed = 9,
-            SatellitesInView = 14,
-            LastFixAccuracyM = 6,
-            LastFixAgeS = 1,
-            FixesLastMinute = 58,
-            Permission = new HeartbeatGpsPermission { Foreground = true, Background = true, Precise = true },
-        },
-        Transport = new HeartbeatTransport
-        {
-            SocketState = "connected", ReconnectCount = 2, HttpFallbackSeconds = 0,
-            LastReceiptLatencyMs = 120, SendsFailedSinceBoot = 3,
-        },
-        Process = new HeartbeatProcess
-        {
-            DeviceUptimeS = 90000, ServiceUptimeS = 3000, ServiceRestartCount = 1, MemoryPressure = "normal",
-            BatteryOptimizationExempt = true, NotificationPermission = true, SystemApp = true, RootAvailable = true,
-        },
-        Identity = new HeartbeatIdentity
-        {
-            DeviceModel = "Pixel 6a", AndroidVersion = "14", AppVersion = "1.0.3", ClockSkewMs = -120,
-        },
-    };
+            SentAt = DateTimeOffset.Parse("2026-12-22T01:31:07.000Z"),
+            Health = new HeartbeatHealth
+            {
+                BatteryPercent = 87,
+                LastFixAgeS = 1,
+                SocketState = "connected",
+            },
+            Debug = doc.RootElement.Clone(),
+        };
+    }
 }

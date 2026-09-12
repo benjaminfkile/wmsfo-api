@@ -13,7 +13,6 @@ public sealed class EnrollResponse
 {
     public long BeaconId { get; set; }
     public string Name { get; set; } = "";
-    public string Role { get; set; } = "";
     public string Key { get; set; } = "";
     public string ApiBaseUrl { get; set; } = "";
     public string HubUrl { get; set; } = "";
@@ -26,7 +25,6 @@ public sealed class BeaconMeResponse
 {
     public long BeaconId { get; set; }
     public string Name { get; set; } = "";
-    public string Role { get; set; } = "";
     public bool IsActive { get; set; }
     public string ApiBaseUrl { get; set; } = "";
     public string HubUrl { get; set; } = "";
@@ -55,95 +53,26 @@ public sealed class LocationResponse
     public DateTimeOffset ServerTime { get; set; }
 }
 
-// POST /beacons/heartbeat body (contracts 4.2).
-// Top-level keys strict (7 exact); each nested group tolerates unknown keys and stores them (JsonExtensionData).
+// POST /beacons/heartbeat body (contracts 4.2). Exactly three keys:
+// `sentAt` (required rfc3339), `health` (optional typed object or null), and
+// `debug` (optional free-form object or null). Any other top-level key is
+// `400 validation_failed`; any key inside `health` that is not one of the three
+// typed leaves is also `400 validation_failed`. The stored jsonb is the exact
+// bytes the beacon sent.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class HeartbeatBody
 {
     public DateTimeOffset SentAt { get; set; }
-    public HeartbeatPower? Power { get; set; }
-    public HeartbeatRadio? Radio { get; set; }
-    public HeartbeatGps? Gps { get; set; }
-    public HeartbeatTransport? Transport { get; set; }
-    public HeartbeatProcess? Process { get; set; }
-    public HeartbeatIdentity? Identity { get; set; }
+    public HeartbeatHealth? Health { get; set; }
+    public JsonElement? Debug { get; set; }
 }
 
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatPower
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class HeartbeatHealth
 {
     public int? BatteryPercent { get; set; }
-    public bool? Charging { get; set; }
-    public double? BatteryTempC { get; set; }
-    public string? ThermalStatus { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatRadio
-{
-    public string? NetworkType { get; set; }
-    public int? SignalDbm { get; set; }
-    public int? SignalLevel { get; set; }
-    public bool? AirplaneMode { get; set; }
-    public bool? Connected { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatGps
-{
-    public string? Provider { get; set; }
-    public int? SatellitesUsed { get; set; }
-    public int? SatellitesInView { get; set; }
-    public double? LastFixAccuracyM { get; set; }
-    public int? LastFixAgeS { get; set; }
-    public int? FixesLastMinute { get; set; }
-    public HeartbeatGpsPermission? Permission { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatGpsPermission
-{
-    public bool? Foreground { get; set; }
-    public bool? Background { get; set; }
-    public bool? Precise { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatTransport
-{
+    public double? LastFixAgeS { get; set; }
     public string? SocketState { get; set; }
-    public int? ReconnectCount { get; set; }
-    public int? HttpFallbackSeconds { get; set; }
-    public int? LastReceiptLatencyMs { get; set; }
-    public int? SendsFailedSinceBoot { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatProcess
-{
-    public long? DeviceUptimeS { get; set; }
-    public long? ServiceUptimeS { get; set; }
-    public int? ServiceRestartCount { get; set; }
-    public string? MemoryPressure { get; set; }
-    public bool? BatteryOptimizationExempt { get; set; }
-    public bool? NotificationPermission { get; set; }
-    public bool? SystemApp { get; set; }
-    public bool? RootAvailable { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
-}
-
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Skip)]
-public sealed class HeartbeatIdentity
-{
-    public string? DeviceModel { get; set; }
-    public string? AndroidVersion { get; set; }
-    public string? AppVersion { get; set; }
-    public long? ClockSkewMs { get; set; }
-    [JsonExtensionData] public IDictionary<string, JsonElement>? Extras { get; set; }
 }
 
 public sealed class HeartbeatResponse

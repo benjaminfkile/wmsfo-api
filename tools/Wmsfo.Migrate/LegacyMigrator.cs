@@ -108,8 +108,8 @@ public sealed class LegacyMigrator
 
         var minted = Keys.MintKey();
         var newId = await ScalarLongAsync(target,
-            @"insert into beacon (name, notes, role, key_hash, key_prefix, is_active, revoked_at, created_by, updated_at)
-              values ($1, $2, 'beacon', $3, $4, false, now(), $5, now())
+            @"insert into beacon (name, notes, key_hash, key_prefix, is_active, revoked_at, created_by, updated_at)
+              values ($1, $2, $3, $4, false, now(), $5, now())
               returning id;",
             (NpgsqlDbType.Text, LegacyBeaconName),
             (NpgsqlDbType.Text, LegacyBeaconNotes),

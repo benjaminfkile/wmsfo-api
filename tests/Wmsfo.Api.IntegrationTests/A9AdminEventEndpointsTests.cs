@@ -277,6 +277,107 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         Assert.Contains(code, new[] { "event_not_current", "another_event_live" });
     }
 
+    // ---------- A27 go-live gate: status 3 requires a healthy active beacon. ----------
+    // sql.md 8.4: read the is_active row and refuse with 409 no_healthy_beacon
+    // (with details.beacon or null) unless revoked_at null, stale_since null,
+    // last_seen_at not null.
+
+    [Fact]
+    public async Task Status_transition_to_3_no_active_beacon_is_409_no_healthy_beacon_null_details()
+    {
+        var id = await CreateEvent(year: 2101);
+        await SetCurrentDirectAsync(id);
+        // No is_active beacon exists.
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal("no_healthy_beacon", body.RootElement.GetProperty("code").GetString());
+        var beacon = body.RootElement.GetProperty("details").GetProperty("beacon");
+        Assert.Equal(JsonValueKind.Null, beacon.ValueKind);
+    }
+
+    [Fact]
+    public async Task Status_transition_to_3_revoked_beacon_is_409_no_healthy_beacon()
+    {
+        var id = await CreateEvent(year: 2102);
+        await SetCurrentDirectAsync(id);
+        var beaconId = await SeedHealthyActiveBeaconAsync("revoked-b");
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(
+                "update beacon set revoked_at = now() where id = $1;", conn);
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+            await upd.ExecuteNonQueryAsync();
+        }
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal("no_healthy_beacon", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(beaconId, body.RootElement.GetProperty("details").GetProperty("beacon").GetProperty("id").GetInt64());
+    }
+
+    [Fact]
+    public async Task Status_transition_to_3_stale_beacon_is_409_no_healthy_beacon()
+    {
+        var id = await CreateEvent(year: 2103);
+        await SetCurrentDirectAsync(id);
+        var beaconId = await SeedHealthyActiveBeaconAsync("stale-b");
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(
+                "update beacon set stale_since = now() where id = $1;", conn);
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+            await upd.ExecuteNonQueryAsync();
+        }
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal("no_healthy_beacon", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(beaconId, body.RootElement.GetProperty("details").GetProperty("beacon").GetProperty("id").GetInt64());
+        Assert.NotEqual(JsonValueKind.Null, body.RootElement.GetProperty("details").GetProperty("beacon").GetProperty("staleSince").ValueKind);
+    }
+
+    [Fact]
+    public async Task Status_transition_to_3_never_seen_beacon_is_409_no_healthy_beacon()
+    {
+        var id = await CreateEvent(year: 2104);
+        await SetCurrentDirectAsync(id);
+        var beaconId = await SeedHealthyActiveBeaconAsync("never-seen-b");
+        // Clear last_seen_at.
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(
+                "update beacon set last_seen_at = null where id = $1;", conn);
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+            await upd.ExecuteNonQueryAsync();
+        }
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal("no_healthy_beacon", body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("details").GetProperty("beacon").GetProperty("lastSeenAt").ValueKind);
+    }
+
+    [Fact]
+    public async Task Status_transition_to_3_healthy_beacon_is_200()
+    {
+        var id = await CreateEvent(year: 2105);
+        await SetCurrentDirectAsync(id);
+        await SeedHealthyActiveBeaconAsync("healthy-b");
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal(3, body.RootElement.GetProperty("statusId").GetInt32());
+    }
+
     // A9 acceptance criterion 779: a status change writes history, outbox, a
     // new snapshot, and a live object with the new status id.
     [Fact]
@@ -284,6 +385,8 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     {
         var id = await CreateEvent(year: 2050);
         await SetCurrentDirectAsync(id);
+        // A27 go-live gate: status 3 requires a healthy active beacon.
+        await SeedHealthyActiveBeaconAsync("live-gate-1");
         var versionBefore = await ReadSnapshotVersionAsync();
 
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
@@ -327,6 +430,8 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     {
         var id = await CreateEvent(year: 2055);
         await SetCurrentDirectAsync(id);
+        // The row is already at status 3 (set directly via SQL), so the go-live
+        // gate does not run; jumping 3 → 4 needs no beacon.
         await SetStatusAsync(id, 3, setCurrent: false);
 
         // Seed some cookies on this event (need a person + a cookie_type).
@@ -363,6 +468,8 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     {
         var id = await CreateEvent(year: 2060);
         await SetCurrentDirectAsync(id);
+        // A27 go-live gate: status 3 requires a healthy active beacon.
+        await SeedHealthyActiveBeaconAsync("history-gate");
         await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status", "{\"statusId\":3,\"notify\":false}");
         await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status", "{\"statusId\":4,\"notify\":false}");
         using var req = _host!.AdminRequest(HttpMethod.Get, $"/admin/events/{id}/status-history");
@@ -576,8 +683,27 @@ values ($1, $2, 1, 'seed', now()) returning id;", conn);
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, role, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, 'beacon', $2, $3, false, 'seed', now()) returning id;", conn);
+insert into beacon (name, key_hash, key_prefix, is_active, created_by, updated_at)
+values ($1, $2, $3, false, 'seed', now()) returning id;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = key.Hash });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key.Prefix });
+        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    // Seeds the single active beacon healthy per contracts 4.5 Beacon.healthy:
+    // last_seen_at not null, stale_since null, revoked_at null. The go-live
+    // gate (sql.md 8.4) reads exactly these three fields on the is_active row.
+    private async Task<long> SeedHealthyActiveBeaconAsync(string name)
+    {
+        var key = Wmsfo.Api.Security.Keys.MintKey();
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using (var wipe = new NpgsqlCommand("update beacon set is_active = false where is_active;", conn))
+            await wipe.ExecuteNonQueryAsync();
+        await using var cmd = new NpgsqlCommand(@"
+insert into beacon (name, key_hash, key_prefix, is_active, last_seen_at, created_by, updated_at)
+values ($1, $2, $3, true, now(), 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = key.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key.Prefix });

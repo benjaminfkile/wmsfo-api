@@ -65,7 +65,6 @@ public sealed class BeaconDto
     public long Id { get; set; }
     public string Name { get; set; } = "";
     public string Notes { get; set; } = "";
-    public string Role { get; set; } = "";
     public string KeyPrefix { get; set; } = "";
     public bool IsActive { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
@@ -73,8 +72,9 @@ public sealed class BeaconDto
     public DateTimeOffset? LastLocationAt { get; set; }
     public DateTimeOffset? LastHeartbeatAt { get; set; }
     public DateTimeOffset? StaleSince { get; set; }
-    public HeartbeatBody? Telemetry { get; set; }
+    public JsonElement? Telemetry { get; set; }
     public bool? HubConnected { get; set; }
+    public bool Healthy { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
