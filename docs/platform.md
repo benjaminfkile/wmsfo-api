@@ -31,6 +31,8 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | Item | dev | prod |
 |---|---|---|
 | Manifest service, hub channel prefix, `WMSFO_SERVICE_NAME` | `wmsfo-api-dev` | `wmsfo-api` |
+| Beacon services on the fleet (section 3.6) | `simulator-beacon-dev`, `legacy-beacon-dev` | `simulator-beacon`, `legacy-beacon` |
+| Simulator control page | `<simulator-dev-domain>` (Vercel, from `dev`) | `<simulator-domain>` (Vercel, from `main`) |
 | Git branch that deploys it | `dev` | `main` |
 | GitHub Actions environment | `dev` | `prod` |
 | Image tag | `<sha>-dev` | `<sha>-prod` |
@@ -422,6 +424,17 @@ The callback paths `/realtime/authorize` and `/realtime/message` are reachable t
 - `POST /mgmt/services/<service>/restart` recreates the container fleet-wide (same digest); use it after a secret change if waiting for drift detection is not wanted.
 - Container logs go to CloudWatch group `/gateway/services/<service>`, one stream per instance, 30-day retention set by the gateway.
 
+### 3.6 The beacon services
+
+The simulator beacon and the legacy beacon (contracts 9.5) are two more manifest services, Node 22 containers on port 3000, deployed exactly like the API (CI builds to ECR and calls `deploy`; the manifest entry is created once from the dashboard). Neither joins the hub as a browser and neither publishes, so they carry no realtime fields; they run on every instance like any service, and each elects its own single worker through `GET /internal/leader` (contracts 7.5), because a replay or a Heroku poll must run once per fleet, not once per node. The follower nodes serve only the health probe (and, for the simulator, its control API, which forwards start and stop to the database row the leader watches).
+
+| Entry | Image | Port | Secret keys (flat JSON, one secret per environment) |
+|---|---|---|---|
+| `simulator-beacon` / `simulator-beacon-dev` | `<account-id>.dkr.ecr.<region>.amazonaws.com/simulator-beacon:<sha>-<env>` | 3000 | `SIM_ENV`, `SIM_API_BASE_URL` (the WMSFO API), `SIM_API_KEY` (a `wak_` key with the `events` capability, minted in the panel), `SIM_BEACON_KEY` (the `wbk_` key of the beacon named `simulator`), `SIM_HUB_URL`, `SIM_INGEST_CHANNEL`, `SIM_GATEWAY_INTERNAL_URL`, `SIM_DB_CONNECTION` (its own tiny state: one row, sql in its design), `SIM_COGNITO_ISSUER` (the admin pool), `SIM_COGNITO_CLIENT_IDS` (`wmsfo-simulator`), `SIM_ADMIN_GROUP`, `SIM_CORS_ORIGINS` (the control page origins), `SIM_LOG_LEVEL` |
+| `legacy-beacon` / `legacy-beacon-dev` | `<account-id>.dkr.ecr.<region>.amazonaws.com/legacy-beacon:<sha>-<env>` | 3000 | `LB_ENV`, `LB_API_BASE_URL`, `LB_BEACON_KEY` (the beacon named `legacy-tracker`), `LB_HUB_URL`, `LB_INGEST_CHANNEL`, `LB_GATEWAY_INTERNAL_URL`, `LB_SOURCE_URL` (`https://santatracker-api.herokuapp.com/get?id=406santa`), `LB_POLL_MS` (`1000`), `LB_LOG_LEVEL` |
+
+`GATEWAY_REALTIME_TOKEN` is injected into both by the gateway once their entries have been upserted from the dashboard; they use it only for `/internal/leader`. Health: `GET /api/health` on each, `200` once the worker loop is running (leader or follower). The simulator needs one Postgres table; it lives in a small database `wmsfo_sim_<env>` on the shared instance with the same two-role pattern (its design document has the DDL and the bootstrap), never in the API's database.
+
 ---
 
 ## 4. Identity: Cognito
@@ -451,10 +464,11 @@ Per contracts 3.1. `wmsfo-site` lives on the people pool, `wmsfo-admin` on the a
 
 | Client | Callback URLs | Sign-out URLs | Refresh token |
 |---|---|---|---|
-| `wmsfo-site` | prod: `https://<site-domain>/auth/callback`; dev: `https://<preview-site-domain>/auth/callback`, `http://localhost:5173/auth/callback` | the origins of the callbacks with `/` | 30 days |
+| `wmsfo-site` | none needed: the site signs in through the Cognito API (SRP), never the hosted UI; the registered URLs stay harmless | none | 30 days |
 | `wmsfo-admin` | prod: `https://<admin-domain>/auth/callback`; dev: `https://<admin-dev-domain>/auth/callback`, `http://localhost:5174/auth/callback` | same pattern | 1 day |
+| `wmsfo-simulator` (admin pool) | prod: `https://<simulator-domain>/auth/callback`; dev: `https://<simulator-dev-domain>/auth/callback`, `http://localhost:5175/auth/callback` | same pattern | 1 day |
 
-ID and access tokens 60 minutes. The `wmsfo-admin` client also carries scope `aws.cognito.signin.user.admin` for the panel's in-place TOTP enrolment.
+ID and access tokens 60 minutes. The `wmsfo-admin` client also carries scope `aws.cognito.signin.user.admin` for the panel's in-place TOTP enrolment. The `wmsfo-simulator` client is a second public client on the admin pool for the simulator beacon's control page; only members of `admin` may use it, which the simulator checks on the token's groups.
 
 ### 4.3 Operator procedure for admins
 
@@ -506,7 +520,7 @@ The second statement is required (the admin pool ARN of each environment): the A
 
 ### 6.2 CI role
 
-One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository `wmsfo-api`, branches `dev` and `main`, with `ecr:GetAuthorizationToken` on `*` and push permissions (`ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage`) on the `wmsfo-api` repository. No access keys in GitHub.
+One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository `wmsfo-api`, branches `dev` and `main`, with `ecr:GetAuthorizationToken` on `*` and push permissions (`ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage`) on the `wmsfo-api` repository. The two beacon repositories (`simulator-beacon`, `legacy-beacon`) get the same shape: the trust policy of that role widened to their `dev` and `main` refs and its ECR grant widened to their repositories, or one role each; either way no access keys in GitHub.
 
 ### 6.3 Operators
 
@@ -545,6 +559,8 @@ Each host has its own ACM certificate attached to the HTTPS listener. Idle timeo
 | Public site, preview | `santa`, `dev` (a second project with `dev` as its production branch) | Vite | contracts 8.3 dev set |
 | Admin panel | `wmsfo-admin-panel`, `main` | Vite | contracts 8.4 prod set |
 | Admin panel, dev | `wmsfo-admin-panel`, `dev` (a second project with `dev` as its production branch) | Vite | contracts 8.4 dev set |
+| Simulator control page | `simulator-beacon`, `main` (root `web/`) | Vite | its design's `VITE_` set: the simulator's API base URL, the admin pool authority, domain, and `wmsfo-simulator` client id |
+| Simulator control page, dev | `simulator-beacon`, `dev` (root `web/`) | Vite | the dev set |
 
 Settings on every project: framework preset Vite, output `dist`, SPA rewrite (`/(.*)` to `/index.html`) in `vercel.json`, headers `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`, no serverless functions, no Vercel analytics injection. Preview deployments for pull requests are on; their origins are not in any allow list, so the hub and CDN CORS refuse them and the API refuses their `Authorization` origins. That is intended: pull request previews render from the CDN objects only.
 
@@ -561,6 +577,10 @@ The deploy client credential is the existing CI app client on the ops pool with 
 ### 9.2 Site and admin panel
 
 Vercel git integration; no workflow file is required. Each repository has a `ci.yml` that runs type checks, unit tests, and the vendored-contracts check (contracts 13) on every push and pull request, so a red check blocks a merge before Vercel deploys it.
+
+### 9.2a The beacon services
+
+`simulator-beacon/.github/workflows/deploy.yml` and `legacy-beacon/.github/workflows/deploy.yml` mirror the API's: `npm ci`, the contracts check, `npm test`, `tsc --noEmit`, OIDC assume role, `docker buildx build --platform linux/arm64,linux/amd64` pushed as `<repo>:<sha>-<env>`, then the gateway `deploy` call and the wait. The simulator's `web/` is deployed by Vercel's git integration like the admin panel.
 
 ### 9.3 Red-Nose
 
@@ -659,17 +679,17 @@ One CloudWatch dashboard `wmsfo-<env>` with: `LocationPublished` per minute, `Li
 ### 12.1 Inputs
 
 ```
-dotnet run --project tools/Wmsfo.Migrate -- \
-  --legacy-db "<legacy connection string>" \
-  --new-db    "<WMSFO_DB_MIGRATION_CONNECTION value>" \
-  --legacy-bucket "<legacy bucket>" \
-  --bucket    "<bucket>" \
+AWS_REGION=<region> WMSFO_LEGACY_BUCKET=<legacy bucket> \
+dotnet run -c Release --project tools/Wmsfo.Migrate -- \
+  --legacy "<legacy connection string>" \
+  --target "<WMSFO_DB_MIGRATION_CONNECTION value>" \
+  --bucket "<bucket>" \
   --cdn-base-url "https://<cdn-domain>" \
   [--event-name-format "Santa Flyover {year}"] \
   [--dry-run]
 ```
 
-Run from an operator machine with an AWS profile that can read the legacy bucket and write the new one, reachable to both databases. `--dry-run` reads everything, reports counts per step, writes nothing.
+Run from an operator machine with an AWS profile that can read the legacy bucket and write the new one, reachable to both databases (from a machine without the RDS certificate bundle the connection strings carry `Trust Server Certificate=true`). `--dry-run` reads everything, reports counts per step, writes nothing; because every step rolls back, the message, funds, and 2025 route steps report failures in a dry run (they cannot see the events the flight-history step rolled back), which the real run does not. Dev was migrated this way on 2026-09-12 (six ended events, 8,590 points, the 2025 recording, seven sponsors with logos, 31 messages, 45 contact messages, the linger setting at 30) after truncating the test data with `page`, `section`, `section_item`, `site_setting_draft`, `content_version`, `app_setting`, and content-referenced `media_asset` rows kept; the dev 2026 event and the year 2100 e2e walk event were created afterwards through the API.
 
 ### 12.2 Order and idempotency
 
@@ -765,6 +785,8 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Alarms in prod only; dev has metric filters for the dashboard.
 - The no-location alarm is toggled by the runbook rather than reading the event status.
 - The legacy database is kept 90 days after cut-over.
+- The simulator beacon and the legacy beacon are manifest services with their own secrets and ECR repositories, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12).
+- The people pool's hosted UI is unused: the site signs people in through the Cognito API (2026-09-12).
 
 ## 17. Needs a decision
 

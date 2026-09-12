@@ -94,8 +94,6 @@ The API has no public read endpoint. The public reads the CDN objects in section
 
 The site renders one admin-composed page per status, plus the `no_event` page when `eventStatusId` is null (1.3a). There is no other grouping of statuses.
 
-**Beacon role**: `"beacon"`, `"admin"`.
-
 **Subscriber channel**: `"email"` (in use), `"sms"` (reserved; `400 validation_failed` in v1).
 
 **Beacon socket state** (telemetry): `"connected"`, `"connecting"`, `"reconnecting"`, `"disconnected"`.
@@ -118,11 +116,12 @@ The public site reads exactly three JSON objects plus media and icon files from 
 
 | Key in `<bucket>` | Content | Written by | When | `Cache-Control` |
 |---|---|---|---|---|
-| `live/location.json` | Live object (1.2) | An API node | Every stored update from the active beacon; after every snapshot-affecting admin write; after cookie moderation while the event has status 3; once by an ingest node that observes a version change (1.8); on explicit republish; on first boot of an environment | `s-maxage=1, max-age=0` |
+| `live/location.json` | Live object (1.2) | An API node | Every stored update from the active beacon; after every snapshot-affecting admin write; by the leader when the cookie tally moved while the event has status 3 (7.4); once by an ingest node that observes a version change (1.8); on explicit republish; on first boot of an environment | `s-maxage=1, max-age=0` |
 | `snapshots/{sha256}.json` | Snapshot (1.3) | The API node handling a snapshot-affecting admin write | Inside the write's transaction, before commit | `public, max-age=31536000, immutable` |
 | `routes/{sha256}.json` | Route (1.4) | The API node handling `POST /admin/routes`; the migration tool | Before the row insert | `public, max-age=31536000, immutable` |
 | `media/{mediaId}/{filename}` | An uploaded media asset (1.3b): sponsor logos, page images, uploaded icons | The admin panel, straight to S3 with a presigned PUT (4.5 Media); the migration tool | Before confirm; the object carries the tag `state=pending` until the API confirms it | `public, max-age=31536000, immutable` |
 | `media/{mediaId}/w{width}.webp` | Derived width variants of a raster asset (480, 960, 1600) | The API node handling the confirm | Inside the confirm | `public, max-age=31536000, immutable` |
+| `media/{mediaId}/dzi/poster.dzi`, `media/{mediaId}/dzi/poster_files/{level}/{col}_{row}.jpg` | The Deep Zoom tile pyramid of a large raster asset (longest side 2048 px or more): the descriptor and its JPEG tiles (1.3b) | The API node handling the confirm | Inside the confirm | `public, max-age=31536000, immutable` |
 | `icons/{sha256}.svg` | One icon of the built-in library (1.3b) | The node that migrates on boot, once per library change | Under the migration lock | `public, max-age=31536000, immutable` |
 
 The bucket is private; CloudFront reads it through origin access control and is the only reader (1.7). Nothing under any other prefix is written by v2. `{sha256}` is the lowercase hex SHA-256 of the object bytes (canonical bytes for JSON, section 1.6; the file bytes for icons). `{mediaId}` is the asset's UUID; `{filename}` is the uploaded name sanitized to `[A-Za-z0-9._-]`, at most 100 characters.
@@ -165,7 +164,7 @@ Keys appear in this order.
 | `eventStatusId` | `int \| null` | `eventId` is null | Status of the current event. The site's page switch. |
 | `pollIntervalMs` | `int` | never | CDN poll cadence floor. From setting `poll_interval_ms`. |
 | `snapshotUrl` | `string` | never (a snapshot always exists after first boot) | Absolute CDN URL of the current snapshot. Changes only when the snapshot is rebuilt with different content. |
-| `cookieTally` | `object` | never (`{}` when no cookies or no event) | Keys are cookie type ids as decimal strings, emitted in ascending numeric id order; values are `int` counts of non-hidden cookies on the current event. A type with zero cookies is absent; the site fills zeros from `snapshot.cookieTypes`. |
+| `cookieTally` | `object` | never (`{}` when no cookies or no event) | Keys are cookie type ids as decimal strings, emitted in ascending numeric id order; values are `int` counts of cookies on the current event. A type with zero cookies is absent; the site fills zeros from `snapshot.cookieTypes`. |
 | `seq` | `int64 \| null` | the current event has no published location | Arrival sequence of the location fields below, per event, strictly increasing. |
 | `lat`, `lng` | `number \| null` | same as `seq` | Degrees. |
 | `speedMps`, `altitudeM`, `headingDeg`, `accuracyM` | `number \| null` | same as `seq`, or the update carried null | Units per 0.2. |
@@ -176,7 +175,7 @@ Keys appear in this order.
 Rules:
 
 - The location fields are the latest `location` row with `published = true` on the current event. Switching the active beacon leaves these fields as they are until the newly active beacon's first update arrives.
-- `cookieTally` is the count of non-hidden cookies on the current event at the time the object is built while the event's status is 1, 2, 3, or 5. On entry into status 4 the counts are copied to `event.final_cookie_tally` and every later live object for that event carries that column unchanged. Cookie moderation (hide, unhide, delete) writes the object only while the event has status 3 (1.8).
+- `cookieTally` is the count of cookies on the current event at the time the object is built while the event's status is 1, 2, 3, or 5. On entry into status 4 the counts are copied to `event.final_cookie_tally` and every later live object for that event carries that column unchanged. There is no cookie moderation: a cookie once left counts until its event is deleted.
 - Apply rule on the site, for an incoming object `L` when `store.live` exists (when it does not, replace):
   - `L.eventId !== store.live.eventId`: replace only when `L.publishedAt > store.live.publishedAt`.
   - Same event, `store.live.seq !== null`, and `L.seq === null`: discard. Within one event the location fields never go from present to absent.
@@ -384,7 +383,7 @@ type Block =
 | `leaderboard` | yes | `{ heading: Inline \| null; variant: "panel" \| "full"; emptyText: Inline }` | none | reads `live.cookieTally` joined with `snapshot.cookieTypes` |
 | `sponsor_carousel` | yes | `{ heading: Inline \| null; logoWidth: 480 \| 960 }` | none | reads `snapshot.sponsors` and `lingerMs` |
 | `sponsor_grid` | yes | `{ heading: Inline \| null; columns: 2 \| 3 \| 4; showYears: boolean; emptyText: Inline }` | none | reads `snapshot.sponsors` |
-| `route_preview` | yes | `{ heading: Inline \| null; style: "image" \| "viewer"; disclaimer: Inline \| null; emptyText: Inline }` | none | reads `event.routeImageMediaId` through `media`; `image` renders the poster as a linked picture (the 960 variant, `srcset`); `viewer` is the pan-and-zoom poster viewer of site.md section 8.5 over the original bytes, with `disclaimer` shown above it |
+| `route_preview` | yes | `{ heading: Inline \| null; style: "image" \| "viewer"; disclaimer: Inline \| null; emptyText: Inline }` | none | reads `event.routeImageMediaId` through `media`; `image` renders the poster as a linked picture (the 960 variant, `srcset`); `viewer` is the deep-zoom poster viewer of site.md section 8.5 (OpenSeadragon over the asset's `dzi` pyramid, or over the original image when there is none) with pan, zoom, and a fullscreen button, and `disclaimer` shown above it |
 | `cookie_control` | yes | `{ heading: Inline \| null; copy: Inline \| null; signedOutCopy: Inline; closedCopy: Inline }` | none | the leave-a-cookie control; `signedOutCopy` when signed out; `closedCopy` when `live.eventStatusId` is not 3 |
 | `alerts_signup` | yes | `{ heading: Inline \| null; copy: Inline \| null; signedOutCopy: Inline }` | none | the subscription manager of 4.4 when signed in; `signedOutCopy` and a sign-in link otherwise |
 | `contact_form` | yes | `{ heading: Inline \| null; copy: Inline \| null; successText: Inline }` | none | posts `POST /contact` |
@@ -421,10 +420,13 @@ type MediaEntry = {
   width: number | null; height: number | null;   // pixels; null for svg
   alt: string;                               // the asset's alt text, may be empty
   variants: { [width: string]: string };     // "480", "960", "1600": absolute CDN URLs of the WebP variants that exist; {} for svg and gif
+  dzi: string | null;                        // absolute CDN URL of the Deep Zoom descriptor when a tile pyramid exists, else null
 };
 ```
 
 A variant exists only when the source is a raster image wider than that width; a 700 px upload has `variants: { "480": ... }`. The site renders a `MediaRef` as `<img>` with `srcset` from the variants plus the original at its own width and `sizes` from the section's width; it never constructs a media URL and never inlines SVG. Nothing in v2 overwrites or invalidates a media object.
+
+**Tile pyramid.** A raster asset whose longest side is 2048 px or more also gets a Deep Zoom pyramid at confirm: `media/{mediaId}/dzi/poster.dzi` (the XML descriptor: tile size 254, overlap 1, format `jpg`) and `media/{mediaId}/dzi/poster_files/{level}/{col}_{row}.jpg` down to level 0, JPEG quality 82, every object immutable. `dzi` is the descriptor's absolute CDN URL; the tiles resolve from the descriptor's own directory, as the Deep Zoom format defines. The pyramid lives with the asset: a new poster is a new asset with a new id and new URLs, so a viewer never sees a stale tile; deleting the asset deletes the pyramid with the rest of `media/{mediaId}/`. Smaller rasters have `dzi: null` and a viewer falls back to the original image.
 
 The icon library is a directory of SVG files in the API repository, `icons/<id>.svg`, each with a name and tags in `icons/library.json`. `icons` in the snapshot maps every id to `https://<cdn-domain>/icons/{sha256}.svg`. The library is written to the bucket by the migrating node under the migration lock whenever its hash differs from `icon_library_state.library_sha256`, followed by a snapshot rebuild, so a deploy that adds icons needs no operator action. Uploaded icons are media assets of kind `svg` and resolve through `media`. Every SVG, library or uploaded, passes the validator in 4.5 Media and renders through `<img>` only.
 
@@ -484,7 +486,7 @@ Every write of the live object is one S3 `PutObject` of the whole object and one
 |---|---|---|
 | A stored location with `published = true` | The node that stored it | The location transaction (7.2) reads the event row it locked and the `snapshot` row, so the object built inside the transaction carries the status and `snapshotUrl` of that moment |
 | A committed snapshot-affecting write (including every settings write and every status change) | The node that committed it | Refreshed from SQL after commit |
-| Cookie moderation (hide, unhide, delete) while the event has status 3 | The node that took the write | Tally re-read from SQL after commit |
+| The cookie tally moved while the event has status 3 | The leader, once per change, on its reconcile tick (7.4) | Refreshed from SQL on the tick |
 | A version change observed on the reconcile tick, by a node that wrote the object for a stored location since the previous version change it observed | That node, once | Refreshed from SQL on the tick (7.4) |
 | `POST /admin/live/republish` | The node that took the request | Refreshed from SQL |
 | First boot of an environment (no `snapshot` row) | The node that built snapshot version 1 | Refreshed from SQL |
@@ -575,14 +577,15 @@ Out-of-range colouring on the beacons view, from `Beacon.telemetry`, the row, an
 
 | Condition | Threshold |
 |---|---|
-| Battery low | `power.batteryPercent < 20` |
-| No recent fix | `gps.lastFixAgeS > 30`, or `lastLocationAt` older than 30 s while an event is live |
-| Permission missing | any of `gps.permission.foreground`, `.background`, `.precise` is false |
-| Socket down | `hubConnected === false`, or `hubConnected === null` and `transport.socketState !== "connected"` |
+| Battery low | `health.batteryPercent < 20` (only when the beacon reports it) |
+| No recent fix | `health.lastFixAgeS > 30` (only when reported), or `lastLocationAt` older than 30 s while an event is live |
+| Socket down | `hubConnected === false`, or `hubConnected === null` and `health.socketState !== "connected"` |
 | Stale | `staleSince !== null` |
 | Heartbeat old | `lastHeartbeatAt` older than `staleAfterS` |
 
-Before sending `POST /admin/events/{id}/status` with `statusId: 3`, the panel shows a confirmation naming the active beacon (or "none"), its heartbeat age, and its stale flag from the beacons list it already holds. Before `POST /admin/beacons/{id}/rotate`, `/revoke`, or `/deactivate` on a beacon whose `isActive` is true while any event in `GET /admin/events` has `statusId` 3, the panel shows a confirmation stating that location fan-out stops until another beacon is activated (rotate: or this phone is re-enrolled with the new key). The API does not block on any of it; the admin decides.
+Everything else a beacon sends rides in its free-form `debug` object (4.2) and is rendered as a JSON tree, never interpreted.
+
+Before sending `POST /admin/events/{id}/status` with `statusId: 3`, the panel shows a confirmation naming the active beacon (or "none"), its heartbeat age, and its stale flag from the beacons list it already holds, and disables the action while no active beacon is healthy; the API enforces the same rule with `409 no_healthy_beacon` (4.5 Events). Before `POST /admin/beacons/{id}/rotate`, `/revoke`, or `/deactivate` on a beacon whose `isActive` is true while any event in `GET /admin/events` has `statusId` 3, the panel shows a confirmation stating that location fan-out stops until another beacon is activated (rotate: or this phone is re-enrolled with the new key). The API does not block on any of it; the admin decides.
 
 ---
 
@@ -601,7 +604,7 @@ All channels are private at the gateway level because `realtimeAuthPath` is set;
 | `<service>:location` | Public site | `JoinChannel` | none (null) | none | `location` (published by the API) |
 | `<service>:event` | Nobody in this version | `JoinChannel` | none | none | reserved; nothing published |
 | `<service>:cookies` | Nobody in this version | `JoinChannel` | none | none | reserved; nothing published |
-| `<service>:ingest` | Red-Nose (any enrolled beacon) | `JoinPrivateChannel(channel, key)` | beacon key | beacon id and key version as `"<id>:<version>"` | nothing published; carries the client message `location` |
+| `<service>:ingest` | Any enrolled beacon (Red-Nose, the simulator beacon, the legacy beacon, or anything else holding a key) | `JoinPrivateChannel(channel, key)` | beacon key | beacon id and key version as `"<id>:<version>"` | nothing published; carries the client message `location` |
 
 Any other topic is denied. The admin panel does not use the hub.
 
@@ -732,7 +735,7 @@ Dev (`wmsfo-api-dev`): `tag` is `<sha>-dev`; `realtimeAllowedOrigins` is `https:
 
 ### 3.1 Cognito
 
-Two pools per environment. The people pool (`wmsfo-dev`, `wmsfo-prod`) carries the `wmsfo-site` client: self sign-up is enabled (the site's sign-in link leads to the hosted UI, which offers sign-up) and it holds nobody with a role. The admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) carries the `wmsfo-admin` client: self sign-up is off (`AllowAdminCreateUserOnly`), an operator creates every account, and it holds the `admin` and `editor` groups. The API accepts an ID token from either pool but a role counts only on a token the admin pool issued, so a self-created account can never reach `/admin/*`. Both clients are public (no client secret), authorization code grant with PKCE, scopes `openid email profile` (the `wmsfo-admin` client additionally `aws.cognito.signin.user.admin`, used by the panel's in-place TOTP enrolment). Username is the email address; Cognito verifies the email on sign-up.
+Two pools per environment. The people pool (`wmsfo-dev`, `wmsfo-prod`) carries the `wmsfo-site` client: self sign-up is enabled (the site's own sign-up page creates accounts through the Cognito API, below) and it holds nobody with a role. The admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) carries the `wmsfo-admin` client: self sign-up is off (`AllowAdminCreateUserOnly`), an operator creates every account, and it holds the `admin` and `editor` groups. The API accepts an ID token from either pool but a role counts only on a token the admin pool issued, so a self-created account can never reach `/admin/*`. Both clients are public (no client secret), authorization code grant with PKCE, scopes `openid email profile` (the `wmsfo-admin` client additionally `aws.cognito.signin.user.admin`, used by the panel's in-place TOTP enrolment). Username is the email address; Cognito verifies the email on sign-up.
 
 | Client | Used by | Callback URLs | Sign-out URLs |
 |---|---|---|---|
@@ -765,11 +768,11 @@ returning id;
 
 Authorization: an `/admin/*` route under the `Admin` policy requires `cognito:groups` to contain `admin`; one under `Editor` requires `admin` or `editor`; otherwise `403 forbidden`.
 
-Both frontends use `oidc-client-ts`:
+The admin panel uses `oidc-client-ts` against the admin pool's managed login:
 
 ```ts
 const userManager = new UserManager({
-  authority: COGNITO_AUTHORITY,          // https://cognito-idp.<region>.amazonaws.com/<pool-id>
+  authority: COGNITO_AUTHORITY,          // https://cognito-idp.<region>.amazonaws.com/<admin-pool-id>
   client_id: CLIENT_ID,
   redirect_uri: `${window.location.origin}/auth/callback`,
   response_type: "code",
@@ -778,9 +781,11 @@ const userManager = new UserManager({
 });
 ```
 
-The ID token is re-read from the user manager before every API call. Sign-out: Cognito's discovery document has no `end_session_endpoint`, so sign-out is `await userManager.removeUser()` followed by navigation to `${COGNITO_DOMAIN}/logout?client_id=${CLIENT_ID}&logout_uri=${encodeURIComponent(SIGN_OUT_URL)}`, where `SIGN_OUT_URL` is the registered sign-out URL for the current origin. Hosted UI endpoints in use on `<cognito-domain>`: `/oauth2/authorize`, `/oauth2/token`, `/logout`.
+The ID token is re-read from the user manager before every API call. Sign-out: Cognito's discovery document has no `end_session_endpoint`, so sign-out is `await userManager.removeUser()` followed by navigation to `${COGNITO_DOMAIN}/logout?client_id=${CLIENT_ID}&logout_uri=${encodeURIComponent(SIGN_OUT_URL)}`, where `SIGN_OUT_URL` is the registered sign-out URL for the current origin. Hosted UI endpoints in use on the admin pool's `<cognito-domain>`: `/oauth2/authorize`, `/oauth2/token`, `/logout`.
 
-The admin panel, after sign-in, checks `cognito:groups` on the ID token, shows only the views the caller's group allows, and shows a "this account has no role" page with a sign-out button when neither group is present. Red-Nose never uses Cognito.
+**The public site never shows a Cognito page.** Its sign-up, confirmation, sign-in, and password-reset pages are its own (site.md 11), themed like the rest of the site, and talk to the people pool through the Cognito Identity Provider API with `amazon-cognito-identity-js`: `SignUp`, `ConfirmSignUp`, `ResendConfirmationCode`, `InitiateAuth` with `USER_SRP_AUTH` (the password never leaves the browser in clear), `ForgotPassword`, `ConfirmForgotPassword`, and `REFRESH_TOKEN_AUTH` for renewal. The `wmsfo-site` client therefore needs `ALLOW_USER_SRP_AUTH` and `ALLOW_REFRESH_TOKEN_AUTH` (both already on) and no hosted UI, callback URL, or managed login page; its ID token is the same bearer as before. Sign-out is local (the site forgets its tokens and revokes the refresh token through `RevokeToken`). The people pool's hosted UI domain stays only because Cognito requires one on the pool; nothing links to it.
+
+The admin panel, after sign-in, checks `cognito:groups` on the ID token, shows only the views the caller's group allows, and shows a "this account has no role" page with a sign-out button when neither group is present. Beacons never use Cognito; the simulator beacon's control page signs its operator in through the admin pool like the panel (9.5).
 
 ### 3.2 Beacon keys
 
@@ -791,7 +796,7 @@ The admin panel, after sign-in, checks `cognito:groups` on the ID token, shows o
 | Hub | The raw key is the second argument of `JoinPrivateChannel(ingestChannel, key)`. |
 | At rest | `beacon.key_hash = sha256(key)` (32 bytes, unique index) plus `beacon.key_prefix` = the first 12 characters for display. Lookup is by hash; keys are never logged. |
 | Shown | Once, in the create and rotate responses. Never retrievable afterwards. |
-| Role | `beacon.role` is `beacon` or `admin`, chosen by the admin at creation, immutable. Both roles ingest identically; `admin` additionally unlocks Red-Nose's debug mode and `POST /beacons/logs`. |
+| Roles | None. Every beacon is the same kind of thing: a key that may post locations, heartbeats, and logs. What a beacon shows on its own screen (Red-Nose's debug mode, the simulator's control page) is the beacon's business, never the API's. |
 
 ### 3.3 Enrollment
 
@@ -804,14 +809,14 @@ Every key mint (create or rotate) also mints one enrollment token so the phone c
 | At rest | `beacon_enrollment_token.token_hash = sha256(token)`; `key_ciphertext` = AES-256-GCM of the plaintext key under `WMSFO_ENROLLMENT_ENCRYPTION_KEY` (12-byte nonce prepended, 16-byte tag appended). On use the row gets `consumed_at` and `key_ciphertext` is nulled; pending rows are deleted on the beacon's next rotate or revoke; the nightly chore deletes rows expired or consumed more than 24 h ago. |
 | QR payload | The enrollment URL as text: `rednose://enroll?api=<url-encoded api base url>&token=<token>`. Example: `rednose://enroll?api=https%3A%2F%2F<api-domain>&token=wet_...`. The API builds it from `WMSFO_PUBLIC_API_BASE_URL`. |
 | Rendering | The API returns the URL and a PNG rendering of it as a data URL (`qrPngDataUrl`) in the `Enrollment` object; the panel shows the PNG. |
-| Exchange | `POST /beacons/enroll` (4.2). The response carries `beaconId`, `name`, `role`, `key`, `apiBaseUrl`, `hubUrl`, `ingestChannel`, `serverTime`. |
+| Exchange | `POST /beacons/enroll` (4.2). The response carries `beaconId`, `name`, `key`, `apiBaseUrl`, `hubUrl`, `ingestChannel`, `serverTime`. |
 | Red-Nose handling | An intent filter on scheme `red-nose`, host `enroll`, so both the in-app scanner and the system camera land in the app. The app parses `api` and `token`, calls the exchange, and stores the fields in section 8.5 in Keystore-backed `EncryptedSharedPreferences`. |
 | Manual path | The enrollment screen has fields for the API base URL (prefilled from the build flavour) and the key. Red-Nose verifies by calling `GET /beacons/me` and stores the same fields from that response. |
 
 ### 3.4 Revoke, rotate, activate, deactivate
 
 - **Revoke** (`POST /admin/beacons/{id}/revoke`): sets `revoked_at`, clears `is_active`, deletes pending enrollment tokens. Effects: `X-Beacon-Key` calls answer `401 unauthenticated` immediately; hub joins are denied at the next callback; messages on an existing connection are rejected with `403` at the message path, so no update from a revoked key is stored; the gateway evicts the connection from the channel when its 15-minute allow lapses and the next sweep runs (up to about 16 minutes after the last join), and until then the message path's `403` is what stops it. Revocation is permanent; the row stays for history and export. Idempotent.
-- **Rotate** (`POST /admin/beacons/{id}/rotate`): mints a new key and enrollment token, replaces `key_hash` and `key_prefix`, increments `key_version`, deletes pending tokens. The old key stops working immediately with the same effects as revoke for it: `X-Beacon-Key` calls with it answer `401`, joins with it are denied, and messages on a connection that joined with it carry the old `key_version` in `identity` and are rejected with `403` at the message path (2.5). `is_active` and `role` are unchanged. The response shows the new key once. `409 beacon_revoked` on a revoked beacon.
+- **Rotate** (`POST /admin/beacons/{id}/rotate`): mints a new key and enrollment token, replaces `key_hash` and `key_prefix`, increments `key_version`, deletes pending tokens. The old key stops working immediately with the same effects as revoke for it: `X-Beacon-Key` calls with it answer `401`, joins with it are denied, and messages on a connection that joined with it carry the old `key_version` in `identity` and are rejected with `403` at the message path (2.5). `is_active` is unchanged. The response shows the new key once. `409 beacon_revoked` on a revoked beacon.
 - **Activate** (`POST /admin/beacons/{id}/activate`): clears `is_active` on every other row, then sets this beacon's `is_active = true`, in that order in one transaction (the partial unique index is checked per statement). `409 beacon_revoked` on a revoked beacon. Takes effect on the next stored update (the location transaction reads `is_active`, 7.2).
 - **Deactivate** (`POST /admin/beacons/{id}/deactivate`): clears `is_active`. Zero active beacons means nothing fans out until another is activated. Idempotent.
 
@@ -831,7 +836,7 @@ An API key lets a script or an agent (Claude Code configuring the site, a postin
 | Acting as | Requests carry no `email`; audit columns record `key:<name>`. No `person` row is upserted. The TOTP gate does not apply to keys. |
 | Rate limit | The `/admin/*` bucket is keyed by key id instead of person id. |
 
-Capabilities, one per endpoint group of 4.5, each named after its heading: `events`, `routes`, `beacons`, `sponsors`, `cookie_types`, `pages`, `sections`, `site_settings`, `content`, `media`, `icons`, `cookies`, `settings`, `contact_messages`, `subscribers`, `people`, `diagnostics`. Every `/admin/*` endpoint except the API-key endpoints names its capability in the endpoint metadata; a key request whose key lacks it is `403 forbidden`. A key with a capability reaches every endpoint in that group regardless of the group's Cognito policy (a key with `events` can change status; a key with `sponsors` can pin sponsors).
+Capabilities, one per endpoint group of 4.5, each named after its heading: `events`, `routes`, `beacons`, `sponsors`, `cookie_types`, `pages`, `sections`, `site_settings`, `content`, `media`, `icons`, `settings`, `contact_messages`, `subscribers`, `people`, `diagnostics`. Every `/admin/*` endpoint except the API-key endpoints names its capability in the endpoint metadata; a key request whose key lacks it is `403 forbidden`. A key with a capability reaches every endpoint in that group regardless of the group's Cognito policy (a key with `events` can change status; a key with `sponsors` can pin sponsors).
 
 ### 3.5 Protecting the callback endpoints
 
@@ -883,11 +888,12 @@ type EventMessage = { id: number; eventId: number; body: string; eventTime: stri
 type StatusHistory = { id: number; eventId: number; fromStatusId: number | null; toStatusId: number; changedBy: string; changedAt: string };
 type Route = { id: number; name: string; url: string; s3Key: string; sha256: string; pointCount: number; uploadedBy: string; createdAt: string };
 type Beacon = {
-  id: number; name: string; notes: string; role: "beacon" | "admin"; keyPrefix: string; isActive: boolean;
+  id: number; name: string; notes: string; keyPrefix: string; isActive: boolean;
   revokedAt: string | null; lastSeenAt: string | null; lastLocationAt: string | null; lastHeartbeatAt: string | null;
-  staleSince: string | null; telemetry: Heartbeat | null; hubConnected: boolean | null;
+  staleSince: string | null; telemetry: Heartbeat | null; hubConnected: boolean | null; healthy: boolean;
   createdBy: string; createdAt: string; updatedAt: string;
 };
+  // healthy: not revoked and not stale (4.5 Events, the go-live rule); computed by the API from the same rows the chore reads
 type Enrollment = { token: string; url: string; qrPngDataUrl: string; expiresAt: string };
 type BeaconLog = { id: number; receivedAt: string; appVersion: string | null; sizeBytes: number };
 type Sponsor = {
@@ -897,11 +903,11 @@ type Sponsor = {
 };
 type SponsorYear = { eventYear: number; amountDonated: number | null; active: boolean; canAdvertise: boolean; anonymous: boolean; pinnedPosition: number | null; lingerMsOverride: number | null; lingerMs: number; registeredAt: string };
                     // lingerMs is the value the snapshot would carry (1.3), computed by the API for the panel to show
-type ApiKeyCapability = "events" | "routes" | "beacons" | "sponsors" | "cookie_types" | "pages" | "sections" | "site_settings" | "content" | "media" | "icons" | "cookies" | "settings" | "contact_messages" | "subscribers" | "people" | "diagnostics";
+type ApiKeyCapability = "events" | "routes" | "beacons" | "sponsors" | "cookie_types" | "pages" | "sections" | "site_settings" | "content" | "media" | "icons" | "settings" | "contact_messages" | "subscribers" | "people" | "diagnostics";
 type ApiKey = { id: number; name: string; keyPrefix: string; allCapabilities: boolean; capabilities: ApiKeyCapability[]; expiresAt: string | null; createdBy: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
 type ApiKeyMinted = ApiKey & { key: string };   // the only response that ever carries the full key
-type CookieType = { id: number; name: string; icon: Icon | null; sort: number; active: boolean; createdAt: string; updatedAt: string };
-type CookieAdmin = { id: number; eventId: number; personId: number; personEmail: string; cookieTypeId: number; note: string | null; leftAt: string; hiddenAt: string | null; hiddenBy: string | null };
+type CookieType = { id: number; name: string; icon: Icon | null; sort: number; active: boolean; cookieCount: number; createdAt: string; updatedAt: string };
+  // cookieCount: cookies of this type across every event; a type with a count above zero cannot be deleted (4.5 Cookie types)
 type Subscription = { id: number; channel: "email"; address: string; verifiedAt: string | null; unsubscribedAt: string | null; createdAt: string };
 type SubscriberAdmin = Subscription & { personId: number; personEmail: string };
 type Person = { id: number; email: string; createdAt: string; lastSeenAt: string };
@@ -924,9 +930,10 @@ type IconInfo = { id: string; name: string; tags: string[]; url: string };
 type MediaAsset = {
   id: string; filename: string; contentType: string; kind: "raster" | "svg" | "gif"; state: "pending" | "ready" | "orphaned";
   sizeBytes: number | null; width: number | null; height: number | null; sha256: string | null; alt: string; title: string;
-  url: string; variants: { [width: string]: string }; uploadedBy: string; createdAt: string; confirmedAt: string | null;
+  url: string; variants: { [width: string]: string }; dziUrl: string | null; uploadedBy: string; createdAt: string; confirmedAt: string | null;
   unreferencedSince: string | null; orphanedAt: string | null;
 };
+  // dziUrl: absolute CDN URL of the Deep Zoom descriptor when the asset has a tile pyramid (1.3b), else null
 type UploadTicket = { media: MediaAsset; uploadUrl: string; method: "PUT"; headers: { [name: string]: string }; expiresAt: string };
 type MediaUsage = { draftPages: { id: number; slug: string; title: string }[]; versionCount: number; sponsors: { id: number; name: string }[]; cookieTypes: { id: number; name: string }[]; siteSettings: boolean };
 type ContentVersionInfo = { id: number; sha256: string; label: string | null; publishedBy: string; publishedAt: string; pageCount: number; sectionCount: number };
@@ -954,7 +961,7 @@ List endpoints that page use `?limit=` (default 50, max 500) and `?cursor=` (opa
 
 ```json
 {
-  "beaconId": 5, "name": "Helicopter phone", "role": "beacon",
+  "beaconId": 5, "name": "Helicopter phone",
   "key": "wbk_...", "apiBaseUrl": "https://<api-domain>", "hubUrl": "wss://<gateway-domain>/hub",
   "ingestChannel": "wmsfo-api:ingest",
   "serverTime": "2026-12-01T18:00:00.000Z"
@@ -963,7 +970,7 @@ List endpoints that page use `?limit=` (default 50, max 500) and `?cursor=` (opa
 
 Errors: `400 validation_failed` (format), `404 enrollment_token_invalid` (unknown, used, expired, or the beacon is revoked). Idempotency: none; the token is consumed on the first success in the same transaction. Not retryable after success.
 
-**`GET /beacons/me`**. `X-Beacon-Key`. `200 { "beaconId", "name", "role", "isActive", "apiBaseUrl", "hubUrl", "ingestChannel", "liveEventId", "serverTime" }` (`liveEventId` is `int64 | null`). Stamps `last_seen_at`. Errors: `401 unauthenticated` (unknown or revoked key).
+**`GET /beacons/me`**. `X-Beacon-Key`. `200 { "beaconId", "name", "isActive", "apiBaseUrl", "hubUrl", "ingestChannel", "liveEventId", "serverTime" }` (`liveEventId` is `int64 | null`). Stamps `last_seen_at`. Errors: `401 unauthenticated` (unknown or revoked key).
 
 **`POST /locations`**. `X-Beacon-Key`.
 
@@ -992,29 +999,27 @@ Handling: resolve the beacon (`401` if unknown or revoked); run the location tra
 
 Errors: `400 validation_failed`, `401 unauthenticated`, `409 no_live_event`, `429 rate_limited`. Idempotency: none. A retry after a lost response creates a second row with a higher `seq`; harmless.
 
-**`POST /beacons/heartbeat`**. `X-Beacon-Key`. HTTP only, every 15 s, whether or not the socket is up; its answer is the only source of `liveEventId`, `isActive`, and the clock skew on the phone.
+**`POST /beacons/heartbeat`**. `X-Beacon-Key`. HTTP only, every 15 s, whether or not the socket is up; its answer is the only source of `liveEventId`, `isActive`, and the clock skew on the beacon.
 
 ```json
 {
   "sentAt": "2026-12-22T01:31:07.000Z",
-  "power":     { "batteryPercent": 87, "charging": true, "batteryTempC": 31.5, "thermalStatus": "none" },
-  "radio":     { "networkType": "LTE", "signalDbm": -95, "signalLevel": 3, "airplaneMode": false, "connected": true },
-  "gps":       { "provider": "fused", "satellitesUsed": 9, "satellitesInView": 14, "lastFixAccuracyM": 6,
-                 "lastFixAgeS": 1, "fixesLastMinute": 58,
-                 "permission": { "foreground": true, "background": true, "precise": true } },
-  "transport": { "socketState": "connected", "reconnectCount": 2, "httpFallbackSeconds": 0,
-                 "lastReceiptLatencyMs": 120, "sendsFailedSinceBoot": 3 },
-  "process":   { "deviceUptimeS": 90000, "serviceUptimeS": 3000, "serviceRestartCount": 1, "memoryPressure": "normal",
-                 "batteryOptimizationExempt": true, "notificationPermission": true, "systemApp": true, "rootAvailable": true },
-  "identity":  { "deviceModel": "Pixel 6a", "androidVersion": "14", "appVersion": "1.0.3", "clockSkewMs": -120 }
+  "health": { "batteryPercent": 87, "lastFixAgeS": 1, "socketState": "connected" },
+  "debug":  { "anything": "the beacon wants to show", "nested": { "as": ["deep", "as", "it", "likes"] } }
 }
 ```
 
-Validation: top-level keys must be exactly these seven (`sentAt` required rfc3339; the six groups each an object or `null`); every leaf is nullable; numbers finite; strings 64 characters max; `thermalStatus`, `memoryPressure`, `socketState` from the lookups in 0.5 when non-null; whole body 8 KB max. Nested keys not listed here are tolerated and stored as received (the phone is sideloaded on its own schedule; new telemetry leaves never break heartbeats). Handling: stamp `last_heartbeat_at = now()`, `last_seen_at`, `telemetry = body`; clear `stale_since`. Both a heartbeat and a stored location (7.2) clear `stale_since`. Never touches the live object or the site.
+| Field | Type | Rule |
+|---|---|---|
+| `sentAt` | `rfc3339` | required |
+| `health` | `object \| null` | optional; the only leaves the API interprets, each optional and nullable: `batteryPercent` (`int`, 0 to 100), `lastFixAgeS` (`number`, 0 or more), `socketState` (a beacon socket state from 0.5). Unknown keys inside `health` are `400 validation_failed`. A beacon that has none of these sends `null` or omits the object. |
+| `debug` | `object \| null` | optional; any JSON object, stored verbatim and rendered by the panel as a themed JSON tree; never interpreted, never published. Nesting at most 8 levels; the whole body at most 32 KB. |
 
-`200 { "receivedAt": "...", "liveEventId": 7, "isActive": true, "serverTime": "..." }` (`liveEventId` is `int64 | null`; `isActive` is the row's flag; Red-Nose shows both on its status screen, section 9.3). Errors: `400`, `401`, `429`.
+No other top-level keys. Handling: stamp `last_heartbeat_at = now()`, `last_seen_at`, `telemetry = body`; clear `stale_since`. Both a heartbeat and a stored location (7.2) clear `stale_since`. Never touches the live object or the site. The panel's colouring (1.11) reads `health` only.
 
-**`POST /beacons/logs`**. `X-Beacon-Key` with role `admin`; `Content-Type: text/plain; charset=utf-8`; body up to 2 MB; optional header `X-App-Version` (64 characters max). Stored in `beacon_log`. `201 { "id": 17, "sizeBytes": 183422, "receivedAt": "...", "serverTime": "..." }`. Errors: `401`, `403 forbidden` (role `beacon`), `413`, `415`, `429`.
+`200 { "receivedAt": "...", "liveEventId": 7, "isActive": true, "serverTime": "..." }` (`liveEventId` is `int64 | null`; `isActive` is the row's flag; a beacon shows both on its own status surface, section 9.3). Errors: `400`, `401`, `413`, `429`.
+
+**`POST /beacons/logs`**. `X-Beacon-Key`, any beacon; `Content-Type: text/plain; charset=utf-8`; body up to 2 MB; optional header `X-App-Version` (64 characters max). Stored in `beacon_log`. `201 { "id": 17, "sizeBytes": 183422, "receivedAt": "...", "serverTime": "..." }`. Errors: `401`, `413`, `415`, `429`.
 
 ### 4.3 Public endpoints (no auth)
 
@@ -1048,12 +1053,12 @@ Rules: `name` 1 to 100, `email` a valid address 3 to 254, `message` 1 to 2000. S
 
 ```json
 { "eventId": 7, "eventStatusId": 3, "limit": 10, "used": 3, "remaining": 7,
-  "items": [ { "id": 90, "cookieTypeId": 3, "note": "yum", "leftAt": "...", "hiddenAt": null } ] }
+  "items": [ { "id": 90, "cookieTypeId": 3, "note": "yum", "leftAt": "..." } ] }
 ```
 
-`eventId` and `eventStatusId` null and `items` empty when no event is current. `limit` is the current `cookie_limit_per_person`; `used` counts hidden cookies too; `remaining` is `max(0, limit - used)`, an `int`.
+`eventId` and `eventStatusId` null and `items` empty when no event is current. `limit` is the current `cookie_limit_per_person`; `used` counts every cookie this person left on the event; `remaining` is `max(0, limit - used)`, an `int`.
 
-**`POST /cookies`**. `{ "items": [ { "cookieTypeId": 3, "count": 2 }, { "cookieTypeId": 5, "count": 1 } ], "note": "yum" }`: the whole pick in one request. `items` 1 to 50 entries, each `cookieTypeId` listed once with `count` 1 to 1000; `note` optional, 0 to 140 characters, `null` when absent, the same note on every cookie of the pick. Transaction: `select ... for update` on the person row (serializes this person's inserts); load the live event (`status_id = 3`) else `409 no_live_event`; every listed type must exist and be active else `404 not_found` with `details.cookieTypeIds` naming the missing ones; count this person's cookies on the event (hidden or not) and refuse the whole pick with `409 cookie_limit_reached` (`details.remaining`) when the total would pass `cookie_limit_per_person` read inside the transaction; one multi-row insert; commit; increment this node's tally counter per cookie. `201 { "eventId": 7, "left": 3, "remaining": 6, "cookies": [ { "id": 90, "cookieTypeId": 3, "leftAt": "..." }, ... ] }` (`remaining` is `max(0, limit - used)` after the insert, an `int`). All or nothing: a refused pick stores no cookie. Idempotency: none. Hidden cookies leave the tally but still count toward the limit; deleted cookies do not.
+**`POST /cookies`**. `{ "items": [ { "cookieTypeId": 3, "count": 2 }, { "cookieTypeId": 5, "count": 1 } ], "note": "yum" }`: the whole pick in one request. `items` 1 to 50 entries, each `cookieTypeId` listed once with `count` 1 to 1000; `note` optional, 0 to 140 characters, `null` when absent, the same note on every cookie of the pick. Transaction: `select ... for update` on the person row (serializes this person's inserts); load the live event (`status_id = 3`) else `409 no_live_event`; every listed type must exist and be active else `404 not_found` with `details.cookieTypeIds` naming the missing ones; count this person's cookies on the event and refuse the whole pick with `409 cookie_limit_reached` (`details.remaining`) when the total would pass `cookie_limit_per_person` read inside the transaction; one multi-row insert; commit; increment this node's tally counter per cookie. `201 { "eventId": 7, "left": 3, "remaining": 6, "cookies": [ { "id": 90, "cookieTypeId": 3, "leftAt": "..." }, ... ] }` (`remaining` is `max(0, limit - used)` after the insert, an `int`). All or nothing: a refused pick stores no cookie. Idempotency: none.
 
 ### 4.5 Admin endpoints (`Authorization: Bearer <id-token>` with group `admin` or `editor`)
 
@@ -1069,16 +1074,15 @@ Each group of endpoints names its policy (3.1): **Editor** admits both groups, *
 | `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt`, `fundsPercent`, `routeId`, `routeImageMediaId` (a ready raster media asset id; an empty string unlinks; null or absent leaves it unchanged, the same convention as `logoMediaId`) | `200 Event` | `404` (event, route, or media), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2), `409 media_not_ready`, `400 validation_failed` (an svg or gif asset as the route image) |
 | `DELETE /admin/events/{id}` **[snapshot]** | | `204`; cascades messages, cookies, status history; clears `is_current` | `409 event_live` (status 3), `409 event_has_locations` (any `location` row) |
 | `POST /admin/events/{id}/current` **[snapshot]** | none | `200 Event` (`isCurrent` true; the previous current event's flag cleared in the same transaction). Idempotent: on the already-current event, `200 Event` with no snapshot rebuild and no live-object write, in every status. | `409 current_event_live` (another event is current and live) |
-| `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true }` (both required) | `200 Event` | `400` (unknown status), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null) |
+| `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true }` (both required) | `200 Event` | `400` (unknown status), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null), `409 no_healthy_beacon` (3 requested and no beacon is active, or the active beacon is revoked or stale; `details.beacon` carries the active beacon's `id`, `name`, `lastSeenAt`, `staleSince`, or null when none is active) |
 | `GET /admin/events/{id}/status-history` | | `200 { "items": StatusHistory[] }` newest first | |
 | `GET /admin/events/{id}/messages` | | `200 { "items": EventMessage[] }` newest first | |
 | `POST /admin/events/{id}/messages` **[snapshot]** | `{ "body": "...", "eventTime": null, "notify": true }` (`body` 1 to 1000; `notify` required) | `201 EventMessage`; writes outbox `event.message_posted` only when `notify` is true | |
 | `PATCH /admin/events/{id}/messages/{messageId}` **[snapshot]** | `body`, `eventTime` | `200 EventMessage` (no outbox row) | `404` |
 | `DELETE /admin/events/{id}/messages/{messageId}` **[snapshot]** | | `204` | `404` |
 | `GET /admin/events/{id}/locations?cursor=&limit=&beaconId=&publishedOnly=false` | | `200 Page<LocationRow>` ordered `seq` asc; with `Accept: text/csv` streams every matching row (paging ignored) with the header `seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,altitudeM,headingDeg,accuracyM` | |
-| `GET /admin/events/{id}/cookies?cursor=&limit=&includeHidden=true` | | `200 Page<CookieAdmin>` newest first | |
 
-Status change transaction: lock the event row; check the rules above; update `status_id`; stamp `went_live_at = now()` on every entry into 3 and `ended_at = now()` on every entry into 4 (earlier stamps are overwritten; the admin can correct either with `PATCH`); on every entry into 4 also set `final_cookie_tally` to the current non-hidden counts (`jsonb_object_agg` per type) and on every exit from 4 set it to null; insert `event_status_history`; insert outbox `event.status_changed { eventId, fromStatusId, toStatusId, notify }`; rebuild the snapshot; commit. After commit the node writes the live object with the new `eventStatusId` and `snapshotUrl` and publishes it. Any status may follow any other status; the admin decides, and `notify` decides whether subscribers are emailed (only entries into 2 and 3 produce emails, section 7.7).
+Status change transaction: lock the event row; check the rules above; for `statusId` 3 also read the active beacon (`is_active`) and refuse with `409 no_healthy_beacon` unless it exists, has `revoked_at` null, `stale_since` null, and `last_seen_at` not null (a healthy beacon is one the API has heard from within `beacon_stale_after_s`; the socket is not required, HTTP heartbeats count); update `status_id`; stamp `went_live_at = now()` on every entry into 3 and `ended_at = now()` on every entry into 4 (earlier stamps are overwritten; the admin can correct either with `PATCH`); on every entry into 4 also set `final_cookie_tally` to the current counts (`jsonb_object_agg` per type) and on every exit from 4 set it to null; insert `event_status_history`; insert outbox `event.status_changed { eventId, fromStatusId, toStatusId, notify }`; rebuild the snapshot; commit. After commit the node writes the live object with the new `eventStatusId` and `snapshotUrl` and publishes it. Any status may follow any other status; the admin decides, and `notify` decides whether subscribers are emailed (only entries into 2 and 3 produce emails, section 7.7).
 
 #### Routes (Admin)
 
@@ -1098,9 +1102,9 @@ Attaching a route to an event is `PATCH /admin/events/{id}` with `routeId`.
 
 | Method and path | Body | Success | Errors |
 |---|---|---|---|
-| `GET /admin/beacons` | | `200 { "items": Beacon[], "staleAfterS": 45 }` by name (telemetry included; `staleAfterS` is the current `beacon_stale_after_s`; `hubConnected` is true when the gateway's presence list for `<service>:ingest` contains an identity `<id>:<keyVersion>` for the beacon, false when it does not, null when the presence call failed) | |
+| `GET /admin/beacons` | | `200 { "items": Beacon[], "staleAfterS": 45 }` by name (telemetry included; `staleAfterS` is the current `beacon_stale_after_s`; `hubConnected` is true when the gateway's presence list for `<service>:ingest` (its `members[].identity`) contains `<id>:<keyVersion>` for the beacon, false when it does not, null when the presence call failed; `healthy` is `revokedAt` null and `staleSince` null and `lastSeenAt` not null) | |
 | `GET /admin/beacons/{id}` | | `200 Beacon` (`hubConnected` resolved the same way) | |
-| `POST /admin/beacons` | `{ "name": "...", "notes": "", "role": "beacon" }` (`name` 1 to 100, `notes` 0 to 2000) | `201 { "beacon": Beacon, "key": "wbk_...", "enrollment": Enrollment }` | `400` |
+| `POST /admin/beacons` | `{ "name": "...", "notes": "" }` (`name` 1 to 100, `notes` 0 to 2000) | `201 { "beacon": Beacon, "key": "wbk_...", "enrollment": Enrollment }` | `400` |
 | `PATCH /admin/beacons/{id}` | `name`, `notes` | `200 Beacon` | `404` |
 | `POST /admin/beacons/{id}/activate` | none | `200 Beacon` | `409 beacon_revoked` |
 | `POST /admin/beacons/{id}/deactivate` | none | `200 Beacon` | |
@@ -1142,8 +1146,9 @@ An API key request on these three endpoints is `403 forbidden` whatever its capa
 | `GET /admin/cookie-types` | | `200 { "items": CookieType[] }` by `sort`, `id` | |
 | `POST /admin/cookie-types` **[snapshot]** | `{ "name": "...", "sort": 10, "active": true, "icon": null }` (`name` 1 to 100; `sort` -1000 to 1000; `icon` an `Icon` or null; all four required) | `201 CookieType` | `409 event_live`, `404` (media icon), `409 media_not_ready`, `400` (media icon not svg, unknown library id) |
 | `PATCH /admin/cookie-types/{id}` **[snapshot]** | subset of `name`, `sort`, `active`, `icon` | `200 CookieType` | `404`, `409 event_live`, `409 media_not_ready`, `400` |
+| `DELETE /admin/cookie-types/{id}` **[snapshot]** | | `204` | `404`, `409 event_live`, `409 cookie_type_in_use` (`details.cookieCount` cookies reference it; deactivate it instead) |
 
-Every write in this group returns `409 event_live` while any event has `status_id = 3`. There is no delete; `active: false` removes a type from the snapshot. Artwork is an icon: a library id or an uploaded SVG media asset.
+Every write in this group returns `409 event_live` while any event has `status_id = 3`. A type is deleted only while no cookie references it; `active: false` removes a type from the snapshot without deleting it. Artwork is an icon: a library id or an uploaded SVG media asset.
 
 #### Pages (Editor)
 
@@ -1207,7 +1212,7 @@ The pipeline is presign, upload, confirm. Media bytes never pass through the API
 |---|---|---|---|
 | `GET /admin/media?cursor=&limit=&kind=&state=&q=` | | `200 Page<MediaAsset>` newest first; `kind` and `state` optional filters; `q` matches `filename`, `title`, `alt` case-insensitively | |
 | `POST /admin/media/upload-url` | `{ "filename": "hangar.jpg", "contentType": "image/jpeg", "sizeBytes": 1834211, "alt": "", "title": "" }` (`contentType` one of `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/svg+xml`; `sizeBytes` 1 to the limit for the type; `filename` 1 to 100 after sanitizing; `alt` 0 to 500; `title` 0 to 200) | `201 UploadTicket`: a `pending` row, key `media/{id}/{filename}`, and a presigned `PUT` (15 minutes) whose signed headers are `Content-Type` and `x-amz-tagging: state=pending`; the panel must send exactly `headers` | `400`, `413` (over the type's limit) |
-| `POST /admin/media/{id}/confirm` | none | `200 MediaAsset` with `state: "ready"`. The API reads the object, checks the size against the ticket and the limit, sniffs the type (must match `contentType`), validates SVG (below), decodes raster with a 40-megapixel ceiling, records `width`, `height`, `sha256`, derives `w480`, `w960`, `w1600` WebP variants for raster narrower widths than the source (never for gif or svg), PUTs them, removes the pending tag, and updates the row. | `404` (row), `404 upload_not_found` (object missing), `409 media_not_pending`, `413`, `400 validation_failed` (sniff mismatch, SVG rules, decode failure; the object is deleted and the row removed) |
+| `POST /admin/media/{id}/confirm` | none | `200 MediaAsset` with `state: "ready"`. The API reads the object, checks the size against the ticket and the limit, sniffs the type (must match `contentType`), validates SVG (below), decodes raster with a 40-megapixel ceiling, records `width`, `height`, `sha256`, derives `w480`, `w960`, `w1600` WebP variants for raster narrower widths than the source (never for gif or svg), cuts the Deep Zoom tile pyramid for a raster whose longest side is 2048 px or more (1.3b), PUTs them all, removes the pending tag, and updates the row. | `404` (row), `404 upload_not_found` (object missing), `409 media_not_pending`, `413`, `400 validation_failed` (sniff mismatch, SVG rules, decode failure; the object is deleted and the row removed) |
 | `GET /admin/media/{id}` | | `200 MediaAsset` | `404` |
 | `GET /admin/media/{id}/usage` | | `200 MediaUsage` | `404` |
 | `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title` | `200 MediaAsset` | `404` |
@@ -1226,16 +1231,6 @@ Orphan collection (leader chore, 7.6): a ready asset referenced nowhere gets `un
 | `GET /admin/icons` | `200 { "items": IconInfo[] }`: the built-in library, ordered by `name`; `url` is the CDN URL the snapshot carries |
 
 Uploaded icons are media assets of kind `svg` (`GET /admin/media?kind=svg`); the panel's icon picker shows both.
-
-#### Cookies (moderation, Admin)
-
-| Method and path | Success | Errors |
-|---|---|---|
-| `POST /admin/cookies/{id}/hide` | `200 CookieAdmin` (`hiddenAt`, `hiddenBy` set; excluded from the tally) | `404` |
-| `POST /admin/cookies/{id}/unhide` | `200 CookieAdmin` | `404` |
-| `DELETE /admin/cookies/{id}` | `204` (hard delete) | `404` |
-
-Allowed in any event status. While the event has status 3, each re-reads the tally from SQL after commit and writes the live object (1.8); in any other status the write changes SQL only, no live object is written, and once the event has ended the public numbers are the frozen `final_cookie_tally`. No snapshot rebuild.
 
 #### Settings (Admin)
 
@@ -1284,7 +1279,8 @@ Contact messages and cookie notes have no automatic retention; they stay until a
 | `no_live_event` | 409 | `POST /locations`, `POST /cookies`, message path |
 | `cookie_limit_reached` | 409 | `POST /cookies` |
 | `address_taken`, `already_subscribed`, `already_verified` | 409 | subscriptions |
-| `event_status_unchanged`, `event_not_current`, `another_event_live`, `scheduled_at_required` | 409 | `POST /admin/events/{id}/status`; `scheduled_at_required` also on `PATCH /admin/events/{id}` |
+| `event_status_unchanged`, `event_not_current`, `another_event_live`, `scheduled_at_required`, `no_healthy_beacon` | 409 | `POST /admin/events/{id}/status`; `scheduled_at_required` also on `PATCH /admin/events/{id}` |
+| `cookie_type_in_use` | 409 | `DELETE /admin/cookie-types/{id}` |
 | `current_event_live` | 409 | `POST /admin/events/{id}/current` |
 | `event_live` | 409 | cookie type writes while an event is live; deleting a live event |
 | `event_has_locations` | 409 | `DELETE /admin/events/{id}` |
@@ -1384,7 +1380,6 @@ create table beacon (
   id                bigint generated always as identity primary key,
   name              text not null,
   notes             text not null default '',
-  role              text not null check (role in ('beacon', 'admin')),
   key_hash          bytea not null unique,
   key_prefix        text not null,
   key_version       integer not null default 1,   -- incremented by rotate; carried in the hub identity (2.4)
@@ -1451,6 +1446,7 @@ create table media_asset (
   height             integer,
   sha256             char(64),
   variants           jsonb not null default '{}',   -- { "480": "media/<id>/w480.webp", ... }
+  dzi_key            text,                          -- media/<id>/dzi/poster.dzi when a tile pyramid exists (1.3b)
   alt                text not null default '',
   title              text not null default '',
   uploaded_by        text not null,
@@ -1546,7 +1542,7 @@ create table cookie (
   cookie_type_id bigint not null references cookie_type (id),
   note           text,
   left_at        timestamptz not null default now(),
-  hidden_at      timestamptz,
+  hidden_at      timestamptz,   -- always null: moderation was removed; the columns stay so the index and the tally query are unchanged
   hidden_by      text
 );
 create index cookie_event_person       on cookie (event_id, person_id);
@@ -1871,8 +1867,7 @@ Environment secrets: `AWS_ROLE_ARN` (OIDC assume role for the ECR push), `ECR_RE
 | `VITE_HUB_URL` | `wss://<gateway-domain>/hub` |
 | `VITE_HUB_CHANNEL_PREFIX` | `wmsfo-api` or `wmsfo-api-dev` |
 | `VITE_API_BASE_URL` | `https://<api-domain>` |
-| `VITE_COGNITO_AUTHORITY` | `https://cognito-idp.<region>.amazonaws.com/<pool-id>` |
-| `VITE_COGNITO_DOMAIN` | `https://<cognito-domain>` |
+| `VITE_COGNITO_USER_POOL_ID` | `<pool-id>` (the people pool; the region is its prefix) |
 | `VITE_COGNITO_CLIENT_ID` | `<site-client-id>` |
 | `VITE_GOOGLE_MAPS_KEY` | referrer-restricted browser key |
 | `VITE_ANALYTICS_ID` | set on production only; empty disables analytics |
@@ -1895,7 +1890,7 @@ The site fetches `VITE_CDN_BASE_URL + "/live/location.json"` and otherwise only 
 | `REDNOSE_LOG_RING_BYTES` | 2,000,000 |
 | `REDNOSE_PROD_API_BASE_URL` | The prod API base URL, present in both flavours; replay (9.4) is offered only when the enrolled `apiBaseUrl` differs from it. |
 
-Runtime-stored fields (Keystore-backed `EncryptedSharedPreferences`), written by enrollment or typed by hand: `apiBaseUrl`, `hubUrl`, `ingestChannel`, `beaconId`, `name`, `role`, `key`, `gpsOnlyFallback` (bool, default false). Dev builds allow cleartext HTTP for a LAN API through the Android network security config; release builds do not.
+Runtime-stored fields (Keystore-backed `EncryptedSharedPreferences`), written by enrollment or typed by hand: `apiBaseUrl`, `hubUrl`, `ingestChannel`, `beaconId`, `name`, `key`, `gpsOnlyFallback` (bool, default false). Dev builds allow cleartext HTTP for a LAN API through the Android network security config; release builds do not.
 
 ### 8.6 Platform pieces the contracts assume
 
@@ -1911,15 +1906,17 @@ Runtime-stored fields (Keystore-backed `EncryptedSharedPreferences`), written by
 
 ---
 
-## 9. Red-Nose contract
+## 9. Beacon contract
 
-### 9.1 Roles and screens
+Every beacon (Red-Nose on the helicopter phone, the simulator beacon, the legacy beacon, or any other holder of a `wbk_` key) follows 9.2 and 9.3. 9.1 and 9.4 describe Red-Nose's screens; the other beacons' surfaces are in their own repositories (9.5).
+
+### 9.1 Red-Nose screens
 
 | Screen | Visible when |
 |---|---|
 | Enroll (scan or manual) | No stored key |
 | Status (name, socket state, live event state, last fix, last receipt, heartbeat age, skew, revoked banner) | Enrolled |
-| Debug (full telemetry, fix log, socket log, failure log, upload log button, replay, provisioning state) | Enrolled with `role === "admin"` |
+| Debug (full telemetry, fix log, socket log, failure log, upload log button, replay, provisioning state) | Enrolled; always available, the API knows nothing about it |
 
 The foreground service starts as soon as a key is stored and on every boot while one is stored. Clearing enrollment (a button on the status screen behind a long press) stops the service and wipes the stored fields.
 
@@ -1973,9 +1970,20 @@ Heartbeat loop: every `REDNOSE_HEARTBEAT_INTERVAL_MS`, `POST /beacons/heartbeat`
 
 A hub invoke that throws carries only the gateway's generic text. The debug log records it with the local time and the fix's `seqLocal`. HTTP errors are logged with their `code` and `requestId`. The status screen shows: socket state, `liveEventId` from the last HTTP heartbeat answer (or "no live event"), `active` or `spare` from that answer's `isActive`, last delivered `seqLocal` and receipt latency, heartbeat age, skew, and the revoked banner when set.
 
-### 9.4 Replay mode (admin role)
+### 9.4 Red-Nose replay mode
 
-Input: a route object (1.4) fetched from a URL typed on the debug screen, or a file picked on the phone. The service sends the points in order as fixes with `recordedAt = now()` at a chosen rate (1 to 10 per second) to the enrolled `apiBaseUrl`, `hubUrl`, and `ingestChannel` with the enrolled key. Replay uses the same two doors and the same loops; it differs only in where fixes come from. The debug screen offers replay only when the enrolled `apiBaseUrl` differs from `REDNOSE_PROD_API_BASE_URL` (8.5); replaying into dev means enrolling the phone against dev. Replay against dev with a dev event set live is the end-to-end test of the whole pipeline.
+Input: a route object (1.4) fetched from a URL typed on the debug screen, or a file picked on the phone. The service sends the points in order as fixes with `recordedAt = now()` at a chosen rate (1 to 10 per second) to the enrolled `apiBaseUrl`, `hubUrl`, and `ingestChannel` with the enrolled key. Replay uses the same two doors and the same loops; it differs only in where fixes come from. The debug screen offers replay only when the enrolled `apiBaseUrl` differs from `REDNOSE_PROD_API_BASE_URL` (8.5); replaying into dev means enrolling the phone against dev.
+
+### 9.5 The other beacons
+
+Two more beacons are services on the fleet, each its own repository with its own design document, each an ordinary enrolled beacon to the API:
+
+| Beacon | Repository | What it posts | Where its fixes come from |
+|---|---|---|---|
+| Simulator beacon | `simulator-beacon` (`docs/simulator-beacon.md`) | A past year's flight, replayed at a chosen speed, so a dev event set live shows a whole flight on the tracker | `GET /admin/events` and `GET /admin/events/{id}/locations` on the same API through a `wak_` key with the `events` capability (3.6); it posts through its enrolled `wbk_` key like any beacon |
+| Legacy beacon | `legacy-beacon` (`docs/legacy-beacon.md`) | Whatever the legacy Heroku tracker reports, normalized to the location body of 4.2, every second, in every mode | `GET https://santatracker-api.herokuapp.com/get?id=406santa` polled once per second |
+
+Both prefer the hub and fall back to HTTP per 9.2, heartbeat every 15 s with `health` and their own `debug` object per 4.2, and never give up. The simulator's control page signs in through the environment's admin pool (3.1); the legacy beacon has no user interface.
 
 ---
 
@@ -2044,9 +2052,7 @@ Cut-over order:
 
 **Editor changes the about page**: `PATCH /admin/sections/10 { data }` (draft-validated, nothing published); `POST /admin/content/preview-token` and the preview frame shows it; `POST /admin/content/publish` inserts the version, rebuilds the snapshot with the new `content`, commits, writes the live object with the new `snapshotUrl`; every browser fetches the new snapshot on its next hub event or poll and re-renders the page.
 
-**Person leaves a cookie**: `POST /cookies` with the ID token; the API inserts and increments its own tally; the ingest node re-reads the tally on its next tick (1 s) and its next live-object write carries it.
-
-**Admin hides a cookie during the event**: `POST /admin/cookies/90/hide`; the node re-reads the tally and writes the live object; the leaderboard changes on the next hub event or poll. After the event the same call changes SQL only (4.5).
+**Person leaves a cookie**: `POST /cookies` with the ID token; the API inserts and increments its own tally; every node re-reads the tally on its next tick (1 s), the ingest node's next live-object write carries it, and the leader rewrites the object within a tick when no fix is flowing (7.4).
 
 **Beacon enrollment**: `POST /admin/beacons` returns the key and `enrollment.qrPngDataUrl`; the phone scans `rednose://enroll?api=...&token=...`; `POST /beacons/enroll` returns the key, URLs, and `ingestChannel`; the service starts, joins `<service>:ingest`, and heartbeats.
 
@@ -2083,7 +2089,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - The snapshot object carries no `version` or `builtAt` (they stay on the row), so identical data yields identical bytes and the same key.
 - Tightened polling is `max(1000, pollIntervalMs / 2)` while live and the hub is disconnected or quiet for `2 * pollIntervalMs`; no extra settings or fields carry it.
 - The site switches pages on the live object immediately and renders time-shaped elements blank until the matching snapshot arrives; the signal-lost indicator shows after 30 s without a `seq` change while live, measured with `performance.now()`.
-- Only the node that stored a fix, took the admin write, took a moderation while live, or handled the republish writes the live object. A node that sees a version change on the tick refreshes memory only, except one that wrote for a stored location since the previous version change, which rewrites the object once so the CDN copy never stays behind an admin write.
+- Only the node that stored a fix, took the admin write, or handled the republish writes the live object, plus the leader once per tally change while live. A node that sees a version change on the tick refreshes memory only, except one that wrote for a stored location since the previous version change, which rewrites the object once so the CDN copy never stays behind an admin write.
 - The live object's PUT and publish are independent: the publish goes out whether or not the PUT succeeded. Admin responses are sent after commit and never wait for the live-object write.
 - Live-object write outcome is fleet-wide in the single-row `live_state` table; `GET /admin/live` returns it at the top level and the node's own memory under `node`.
 - `seq` is per event from `event.next_seq` under the event row lock; unique `(event_id, seq)` is the only full index on `location` besides the partial published index.
@@ -2097,7 +2103,12 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - Beacon key `wbk_` + 43 base64url chars, SHA-256 at rest with a 12-character display prefix; enrollment token `wet_`, 15 minutes, single use, carrying an AES-256-GCM copy of the key; the API returns a PNG QR rendering; rotation is the only way to get a fresh token; revoke is permanent.
 - The hub identity is `"<beaconId>:<keyVersion>"` rather than the bare beacon id, and the message path rejects a stale `key_version`, so a rotate stops the old phone at its next message.
 - Heartbeats are HTTP only; the hub carries locations only. The heartbeat answer carries `liveEventId` and `isActive`; a heartbeat `401` shows a revoked banner on the phone without stopping any loop. Send failures before the phone has learned a live event do not count in `sendsFailedSinceBoot`.
-- Heartbeat validation is strict on the seven top-level keys and the known leaves, and tolerant of unknown nested keys, which are stored as received.
+- Beacons have no roles: registering a beacon is registering a key, and the API never knows what runs behind it. A heartbeat is `sentAt`, an optional typed `health` core (battery, fix age, socket state) the panel colours, and an optional free `debug` object the panel renders as a JSON tree and never interprets. `POST /beacons/logs` is open to every beacon.
+- An event goes live only with a healthy active beacon (not revoked, heard from within `beacon_stale_after_s`); the socket is not part of health. `409 no_healthy_beacon` otherwise.
+- Cookie moderation does not exist: no hide, unhide, delete, or per-event cookie list on the API or the panel; the tally is every cookie left. A cookie type can be deleted while no cookie references it (`409 cookie_type_in_use` otherwise).
+- Large rasters get a Deep Zoom tile pyramid at confirm, served immutable from the CDN beside the asset; the route poster viewer is OpenSeadragon over it with fullscreen, and a new poster is a new asset, so nothing is ever stale.
+- The public site owns its sign-up and sign-in pages and speaks to the people pool through the Cognito API (SRP); only the admin panel uses a Cognito-hosted page.
+- Two more beacons are fleet services: the simulator (replays a past year through the events capability of an API key) and the legacy beacon (polls the Heroku tracker every second); both are ordinary enrolled beacons.
 - `serverTime` is stamped at response serialization after commit; Red-Nose computes skew from the request midpoint.
 - SignalR keep-alive 15 s and client timeout 30 s on every client; the load balancer idle timeout stays at or above 60 s.
 - Anonymous `SendToChannel` on the public channel reaches the API's no-I/O `403` branch until the gateway forwards client messages only for credentialed joins (gateway backlog).
@@ -2112,7 +2123,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - The current event is an explicit `event.is_current` flag set by `POST /admin/events/{id}/current`; nothing derives it from the year.
 - `POST /admin/events/{id}/current` on the already-current event is a no-op `200`.
 - `latestMessage` is the message with the greatest `created_at`, not `eventTime`; ties go to the greatest `id`.
-- Hidden cookies count toward `cookie_limit_per_person`; deleted cookies do not.
+- Every cookie left counts toward `cookie_limit_per_person` and toward the tally; nothing removes one short of deleting its event.
 - The tally is frozen in `event.final_cookie_tally` on entry into status 4 and carried unchanged by every later live object for that event.
 - Anonymous sponsor years are omitted from the snapshot entirely; admin views still show them.
 - A sponsor year with `can_advertise = false` is left out of the snapshot entirely, so the sponsor appears nowhere on the site; `canAdvertise` is not a public field.

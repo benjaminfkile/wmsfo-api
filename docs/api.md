@@ -58,7 +58,7 @@ wmsfo-api/
     Endpoints/Beacons.cs              # enroll, me, locations, heartbeat, logs
     Endpoints/PublicWrites.cs         # contact, subscriptions verify and unsubscribe
     Endpoints/Me.cs                   # me, subscriptions, cookies
-    Endpoints/Admin/Events.cs  Routes.cs  Beacons.cs  Sponsors.cs  CookieTypes.cs  Cookies.cs  ApiKeys.cs
+    Endpoints/Admin/Events.cs  Routes.cs  Beacons.cs  Sponsors.cs  CookieTypes.cs  ApiKeys.cs
     Endpoints/Admin/Settings.cs  Inbox.cs (contact, subscribers, people)  Diagnostics.cs (snapshot, live)
     Endpoints/Admin/Pages.cs  Sections.cs (sections, items, order, move, duplicate)  SiteSettings.cs
     Endpoints/Admin/Content.cs (kinds, status, draft, publish, versions, restore, preview token)  Media.cs  Icons.cs
@@ -85,7 +85,7 @@ wmsfo-api/
     Objects/CanonicalJson.cs          # the serializer options and sha256 helper (contracts 1.6)
     Objects/CdnObjects.cs             # LiveObject, Snapshot, Route DTOs in contract key order
     Realtime/GatewayInternalClient.cs # publish and leader calls with the injected token
-    Media/ImageSniffer.cs  SvgValidator.cs  VariantDeriver.cs  Presigner.cs  MediaConfirm.cs  MediaUsage.cs
+    Media/ImageSniffer.cs  SvgValidator.cs  VariantDeriver.cs  DeepZoomTiler.cs  Presigner.cs  MediaConfirm.cs  MediaUsage.cs
     Security/Keys.cs                  # wbk_, wet_, wsv_, wsu_, wpv_ minting, hashing, AES-GCM
     Security/QrRenderer.cs
     Email/SesSender.cs  Templates.cs
@@ -164,7 +164,7 @@ Middleware order in `Program.cs`, outermost first:
 2. **Forwarded headers**: `ForwardedHeadersMiddleware` with `ForwardLimit = WMSFO_TRUSTED_PROXY_HOPS`, known networks cleared, so `HttpContext.Connection.RemoteIpAddress` is the client IP counted from the right of `X-Forwarded-For`. It is mounted with `UseWhen` on every path except `/realtime/*`, because the middleware removes the `X-Forwarded-For` entries it consumes and the callback guard (section 12.1) must see the raw headers.
 3. **Request id and logging scope**: `Activity.Current?.Id ?? HttpContext.TraceIdentifier` becomes `requestId`; every log line in the request carries it.
 4. **Exception handler**: maps `ApiException` to its status and code, `BadHttpRequestException` (body too large, malformed JSON) to `413 payload_too_large` or `400 validation_failed`, `OperationCanceledException` on a client abort to nothing, everything else to `500 internal_error` with the stack logged at Error and never returned.
-5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 8 KB heartbeats. Media bytes never arrive here.
+5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 32 KB heartbeats. Media bytes never arrive here.
 6. **CORS**: one policy with the exact origins from `WMSFO_CORS_ORIGINS`, methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version`, `SetPreflightMaxAge(600)`, credentials off. Applied to every route except the two callbacks and `/api/health`.
 7. **Authentication**: two schemes registered; each endpoint names the one it requires through `RequireAuthorization(policy)`. A request carrying both `Authorization` and `X-Beacon-Key` is `400 validation_failed` before any scheme runs.
 8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0, partitioned by beacon id, person id, or client IP as the table says; over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
@@ -184,8 +184,8 @@ Error shape: `ApiException(status, code, message, details)`; `RequestValidation`
 
 1. Read `X-Beacon-Key`. Absent: no result (the endpoint's policy then answers `401`).
 2. Check the regex `^wbk_[A-Za-z0-9_-]{43}$`; on mismatch fail with `401 unauthenticated`.
-3. `select id, role, is_active, revoked_at, key_version from beacon where key_hash = sha256($key)`; missing or `revoked_at` set: `401 unauthenticated`. The lookup is one indexed read; no timing-sensitive comparison is needed because the index lookup is on the hash.
-4. Principal claims: `beacon_id`, `beacon_role`, `beacon_active`, `key_version`. Policies: `Beacon` (any beacon), `BeaconAdmin` (`beacon_role = admin`, else `403 forbidden`).
+3. `select id, is_active, revoked_at, key_version from beacon where key_hash = sha256($key)`; missing or `revoked_at` set: `401 unauthenticated`. The lookup is one indexed read; no timing-sensitive comparison is needed because the index lookup is on the hash.
+4. Principal claims: `beacon_id`, `beacon_active`, `key_version`. One policy, `Beacon`; there are no beacon roles.
 
 `last_seen_at` is stamped by the handlers that the contracts say stamp it, not by the scheme.
 
@@ -235,8 +235,8 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `POST /beacons/enroll` | none (IP-limited) | validate token format; one transaction: lock the token row by hash, check unconsumed and unexpired and the beacon not revoked, decrypt `key_ciphertext`, set `consumed_at`, null the ciphertext; respond with the key and URLs from options | sql.md 8 enroll |
 | `GET /beacons/me` | Beacon | stamp `last_seen_at`; read the live event id | |
 | `POST /locations` | Beacon | validate; location transaction; respond; then `LiveObjectWriter.WriteForLocation` when `published` | contracts 7.2 |
-| `POST /beacons/heartbeat` | Beacon | validate the seven groups; store telemetry, stamp `last_heartbeat_at`, `last_seen_at`, clear `stale_since`; respond with the live event id and `is_active` | |
-| `POST /beacons/logs` | BeaconAdmin | `text/plain` only; insert `beacon_log` | |
+| `POST /beacons/heartbeat` | Beacon | validate `sentAt`, the three optional `health` leaves, and the `debug` object's depth and size (section 15); store the body as telemetry, stamp `last_heartbeat_at`, `last_seen_at`, clear `stale_since`; respond with the live event id and `is_active` | |
+| `POST /beacons/logs` | Beacon | `text/plain` only; insert `beacon_log` | |
 | `POST /contact` | none (IP-limited) | validate; insert `contact_message` and outbox `contact.received` in one transaction | |
 | `POST /subscriptions/verify` | none | hash lookup; set `verified_at` per the contracts' three cases | |
 | `POST /subscriptions/unsubscribe` | none | token from query or JSON; accept form-urlencoded and ignore its body; set `unsubscribed_at` | |
@@ -244,12 +244,12 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /me/subscriptions`, `POST`, `POST .../resend-verification`, `DELETE .../{id}` | Person | per contracts 4.4; verify token mint and outbox `subscription.verify` in the same transaction | |
 | `GET /me/cookies` | Person | current event, limit from settings, counts | |
 | `POST /cookies` | Person | the whole pick in one cookie transaction (every type checked, the limit checked against the total, one multi-row insert); increment the node tally per cookie | sql.md 8.9 |
-| `/admin/events*` | Admin (`events`) | events, status, messages, status history, locations export, cookies list; `routeImageMediaId` must name a `ready` raster asset (`409 media_not_ready`, `400` for svg or gif) | contracts 7.3 for the [snapshot] writes; status transaction per contracts 4.5 |
+| `/admin/events*` | Admin (`events`) | events, status, messages, status history, locations export; `routeImageMediaId` must name a `ready` raster asset (`409 media_not_ready`, `400` for svg or gif); status 3 requires a healthy active beacon (`409 no_healthy_beacon` with `details.beacon`), checked on the locked event row against the `is_active` beacon's `revoked_at`, `stale_since`, and `last_seen_at` | contracts 7.3 for the [snapshot] writes; status transaction per contracts 4.5 and sql.md 8.4 |
 | `/admin/routes*` | Admin (`routes`) | flight recordings: canonicalize, hash, existing-row check, PUT, insert; `from-event` reads the event's published locations in `seq` order and feeds the same path | section 11.1 |
-| `/admin/beacons*` | Admin | create, patch, activate, deactivate, rotate, revoke, logs; list and get resolve `hubConnected` from one presence call | section 14 |
+| `/admin/beacons*` | Admin | create, patch, activate, deactivate, rotate, revoke, logs; list and get resolve `hubConnected` from one presence call (the gateway's `members[].identity`) and compute `healthy` (not revoked, not stale, seen at least once) | section 14 |
 | `/admin/sponsors*` | Editor (`sponsors`) | CRUD, years upsert with `pinnedPosition` (`409 pinned_position_taken` from the partial unique index) and `lingerMsOverride`; `order/{eventYear}` reads and rewrites the pinned list for a year in one transaction; `logoMediaId` must name a `ready` asset (`409 media_not_ready`); every `SponsorYear` answered carries the computed `lingerMs` | [snapshot] |
 | `/admin/api-keys*` | Admin, Cognito only (`DenyApiKeys`) | list, mint, revoke | section 6.4 |
-| `/admin/cookie-types*` | Admin | CRUD with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard | [snapshot] |
+| `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard on every write; delete answers `409 cookie_type_in_use` while any cookie references the type (sql.md 8.10) | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
 | `/admin/site-settings` | Editor | read and replace the single row; draft validation | sql.md 8.21 |
 | `GET /admin/content/kinds` | Editor | the registry as `KindInfo[]` with schemas inlined | section 11a.1 |
@@ -260,7 +260,6 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /preview/document` | none (IP-limited) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
 | `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (alt and title, [snapshot]), delete with the usage guard | section 11.2 to 11.5 |
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
-| `/admin/cookies/{id}/hide`, `unhide`, `DELETE` | Admin | moderation; tally re-read and live-object write only while status 3 | |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
 | `/admin/contact-messages*`, `/admin/subscribers*`, `/admin/people*` | Admin | paged lists, deletes, summary | |
 | `GET /admin/snapshot`, `POST /admin/snapshot/rebuild`, `GET /admin/live`, `POST /admin/live/republish` | Admin | diagnostics (section 10.3) | |
@@ -362,9 +361,10 @@ First boot (`SnapshotBootstrap.EnsureVersionOneAsync`): the same steps with no w
 2. `HeadObject`; missing: `404 upload_not_found`. Size over the type's limit: delete the object and the row, `413`.
 3. `GetObject` into memory (at most 20 MB). `ImageSniffer` decides png, jpeg, webp, gif, or svg from the bytes; a mismatch with `content_type`: delete both, `400 validation_failed` on `file`. SVG runs `SvgValidator` (11.4); failure deletes both, `400`.
 4. Raster (png, jpeg, webp): ImageSharp decode with a 40-megapixel ceiling (`400` beyond it), record width and height; for each of 480, 960, 1600 that is less than the width, resize to that width (aspect kept), encode WebP quality 82, PUT `media/{id}/w{width}.webp` with the immutable header and the same pending tag (3 s, one attempt each; failure: `502 media_write_failed`, row stays pending, the panel retries confirm). GIF: width and height from the decoder, no variants. SVG: width and height null, no variants.
-5. `sha256` of the original bytes. `DeleteObjectTagging` on the original and every variant (removes the pending tag so the lifecycle rule ignores them). Update the row to `ready` (sql.md 8.22). Answer `MediaAsset`.
+5. Tile pyramid (`DeepZoomTiler`), raster only, when `max(width, height) >= 2048`: from the decoded image build the Deep Zoom pyramid with tile size 254 and overlap 1 (the format's defaults, which OpenSeadragon reads without configuration): level `n = ceil(log2(max(width, height)))` is the full image, each lower level halves both dimensions (rounding up) down to level 0 at 1 by 1; every level is cut into tiles `{col}_{row}.jpg` of 254 px plus the 1 px overlap on inner edges, JPEG quality 82, PUT under `media/{id}/dzi/poster_files/{level}/` with the immutable header and the pending tag; then PUT the descriptor `media/{id}/dzi/poster.dzi` (`<Image TileSize="254" Overlap="1" Format="jpg" xmlns="http://schemas.microsoft.com/deepzoom/2008"><Size Width=".." Height=".."/></Image>`, `Content-Type: application/xml`). The tiles are PUT concurrently, eight at a time, 3 s each; a 40-megapixel poster is about 1,000 tiles and a few seconds. Any failure: `502 media_write_failed`, row stays pending, confirm retried. Record `dzi_key`.
+6. `sha256` of the original bytes. `DeleteObjectTagging` on the original, every variant, the descriptor, and every tile (removes the pending tag so the lifecycle rule ignores them; the tile untagging runs concurrently like the PUTs). Update the row to `ready` (sql.md 8.22). Answer `MediaAsset` with `dziUrl` when a pyramid was cut.
 
-Confirm is idempotent while the row is pending: a retry after a step 4 failure re-derives and re-PUTs (same bytes, same keys). No snapshot rebuild: an asset reaches the site only when something published references it.
+Confirm is idempotent while the row is pending: a retry after a step 4 or 5 failure re-derives and re-PUTs (same bytes, same keys). No snapshot rebuild: an asset reaches the site only when something published references it. `DELETE /admin/media/{id}` removes the pyramid with everything else under `media/{id}/` (11.5).
 
 ### 11.4 SVG validation
 
@@ -478,7 +478,7 @@ Activate, deactivate, revoke follow contracts 3.4 exactly; activate runs the two
 
 ## 15. Telemetry and heartbeats
 
-`HeartbeatIngest.HandleAsync(beaconId, body)`: validate the seven top-level keys (`sentAt` required rfc3339; each group object or null), the known leaves (finite numbers, strings up to 64 characters, enum values from contracts 0.5), and the 8 KB limit; unknown nested keys pass through. Store with one statement:
+`HeartbeatIngest.HandleAsync(beaconId, body)`: validate the body per contracts 4.2: exactly the keys `sentAt` (required rfc3339), `health` (optional object or null with only `batteryPercent` 0 to 100, `lastFixAgeS` 0 or more, `socketState` from contracts 0.5, each optional and nullable; any other key inside is `400 validation_failed`), and `debug` (optional object or null, any content, nesting at most 8 levels, checked by walking the `JsonElement`); the whole body at most 32 KB (the route's body limit). Nothing inside `debug` is inspected beyond depth. Store with one statement:
 
 ```sql
 update beacon set telemetry = $body::jsonb, last_heartbeat_at = now(), last_seen_at = now(), stale_since = null
@@ -587,7 +587,10 @@ Tests:
 - Leadership expires 90 s after the last good answer on its own (two missed gateway reconcile loops), so a stalled poll can never leave a node believing it is leader.
 - The tally delta counter bridges the second between a cookie insert and the next tick on the inserting node; the tick's SQL count is the truth every second.
 - API keys share the `Authorization` header with ID tokens and are told apart by the `wak_` prefix; capabilities are endpoint metadata checked by one authorization requirement, so adding an endpoint group is one `.RequireCapability` call.
-- Raster uploads decode with a 40-megapixel ceiling; the width variants are WebP quality 82 at 480, 960, and 1600 px, each only when narrower than the source.
+- Raster uploads decode with a 40-megapixel ceiling; the width variants are WebP quality 82 at 480, 960, and 1600 px, each only when narrower than the source; a raster with a longest side of 2048 px or more also gets a Deep Zoom pyramid (254 px JPEG tiles, overlap 1, quality 82) cut in the API process at confirm and served immutable beside the asset.
+- Beacons carry no role; `POST /beacons/logs` is open to every beacon; a heartbeat is `sentAt` plus an optional typed `health` core and an optional free `debug` object bounded only by depth and size.
+- Going live is refused without a healthy active beacon; health is the API's own stamps (not revoked, not stale, seen at least once), never the socket.
+- Cookie moderation endpoints do not exist; `cookie.hidden_at` stays null and the tally query is unchanged.
 - SVG validation uses a non-resolving `XmlReader` with DTDs prohibited and keeps the uploaded bytes.
 - Enrollment QR codes are PNG, 8 px per module, error correction M.
 - Cursors are base64url ids; CSV exports stream.

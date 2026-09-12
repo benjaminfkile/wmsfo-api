@@ -19,6 +19,8 @@ The technical designs that make this exact live in each repository's `docs/` fol
 | API (C#) | new | ASP.NET Core minimal API, .NET 10, EF Core + Npgsql, runs behind the gateway as `wmsfo-api` |
 | Realtime | gateway hub | public channel for the site, private channel for beacons, publish from the container |
 | Data | new Postgres schema | legacy rows migrated once; content (pages, sections, media) lives here too and publishes into the snapshot |
+| Simulator beacon | new, Node and TypeScript, on the fleet behind the gateway, control page on Vercel | an enrolled beacon that replays a past year's flight at a chosen speed; its control page signs in through the admin pool; reads flights through an API key with the `events` capability |
+| Legacy beacon | new, Node and TypeScript, on the fleet behind the gateway | an enrolled beacon that polls the legacy Heroku tracker once a second and posts what it reports, normalized; no user interface |
 | Alerts | SES email only (year one) | opt in, double opt in, unsubscribe link in every message; SMS numbers kept in §6 for later |
 | Auth | two Cognito pools per environment: a people pool (`wmsfo-dev`, `wmsfo-prod`) and an admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) | people self sign up in the people pool; admins and editors are operator-created in the admin pool as groups with MFA enforced; a role counts only on an admin-pool token |
 
@@ -39,7 +41,7 @@ event_message           id, event_id, body, event_time, created_at   (the "event
 - Status changes happen in one transaction: row update + `event_status_history` row + snapshot rebuild and new URL + an outbox row. The publisher (see §8) turns the outbox into alert fan-out; the node cache picks the change up through the version (§4) and the node republishes the live object (CDN + hub) carrying the new `eventStatusId`.
 - The site derives everything from `eventStatusId` on the location payload: one screen per status, named after the status (planned, scheduled, live, ended, cancelled). No mode field anywhere, and no grouping of statuses into shared layouts.
 - Anything time-shaped (countdown, liftoff timer) reads from `scheduled_at` / `went_live_at`.
-- Status changes only when an admin changes it. Nothing infers, schedules, or auto-flips a status.
+- Status changes only when an admin changes it. Nothing infers, schedules, or auto-flips a status. Going live needs a healthy active beacon: one the API has heard from within the stale window (a heartbeat or a fix; the socket is not required). The API refuses otherwise and the panel says why.
 
 ## 4. Location pipeline
 
@@ -61,16 +63,9 @@ Payload the API expects (everything else is rejected with a 400 that says why):
   "speedMps": 31.2, "altitudeM": 1210, "headingDeg": 84, "accuracyM": 6 }
 ```
 
-**Telemetry** rides separately: the beacon sends a heartbeat (`POST /beacons/heartbeat`, HTTP only, the socket carries locations only) every 15 s whether or not it has a fix, so the admin sees a healthy beacon on the ground before liftoff. It lands on the beacon row (`last_heartbeat_at`, `telemetry jsonb`) and is never published to the site. What it carries, all of it useful when the pilot cannot touch the phone:
+**Telemetry** rides separately: the beacon sends a heartbeat (`POST /beacons/heartbeat`, HTTP only, the socket carries locations only) every 15 s whether or not it has a fix, so the admin sees a healthy beacon on the ground before liftoff. It lands on the beacon row (`last_heartbeat_at`, `telemetry jsonb`) and is never published to the site. The API knows nothing about what a beacon is: a heartbeat is `sentAt`, a tiny optional `health` core the panel colours (battery percent, age of the last fix, socket state), and a free-form `debug` object the beacon fills with whatever it wants the admin to see. The panel renders `debug` as a themed JSON tree and never interprets it. Red-Nose puts its whole telemetry set there (power, radio, GPS, transport, process, identity, clock skew); the simulator and the legacy beacon put their own. Skew is telemetry only; it never affects what fans out.
 
-- Power: battery %, charging, battery temperature, thermal status.
-- Radio: network type, signal strength, airplane mode, whether Android reports connectivity.
-- GPS: provider, satellites used and in view, accuracy of the last fix, age of the last fix, fixes in the last minute, location permission state (foreground, background, precise).
-- Transport: socket state, reconnect count, seconds on HTTP fallback, last receipt latency, sends failed since boot.
-- Process: device uptime, service uptime, service restart count, memory pressure, battery-optimization exemption granted, notification permission granted, installed as a system app, root available.
-- Identity: device model, Android version, app version, clock skew versus the API (the API echoes its time in every 2xx). Skew is telemetry only; it never affects what fans out.
-
-The admin panel's beacon page renders this live and colours anything out of range (battery under 20 %, no fix for 30 s, permissions missing). Telemetry is also the first thing debug mode shows on the phone itself.
+The admin panel's beacon page renders this live and colours the three health values out of range (battery under 20 %, no fix for 30 s, socket down) plus the API's own stamps (stale, heartbeat old). Telemetry is also the first thing debug mode shows on the phone itself.
 
 Server stamps `received_at`, `beacon_id`, `event_id` (the live event), `seq` (arrival order, the only order that exists). No live event means 409, the update is not stored. `recordedAt` is informational: stored and shown, it never decides anything. The latest update received from the active beacon is Santa's location, whatever its timestamp says, and it fans out the moment it is stored.
 
@@ -94,7 +89,7 @@ How the site uses it: load, fetch `live/location.json` from the CDN, fetch `snap
 
 **Node cache and reconcile loop.** Each node keeps the live object in memory. Its reconcile loop, on a short tick like the gateway's, reads the single-row `snapshot` table (url, version) and the live event's id and status, and refreshes its copy when the version moved. Location writes go straight into memory on arrival (and to SQL for the record), then to `live/location.json` and the hub. The cookie tally is a handful of counters kept in memory, incremented on write and re-read by the loop. The node that took an admin write refreshes immediately and republishes the live object so the status change reaches the CDN and the hub without waiting for a location update.
 
-**The route the public sees is a poster.** The route page shows a high-resolution image of the planned route (the same kind of poster the old site showed) in a pan-and-zoom viewer, with a disclaimer that the plan changes on the night. The admin uploads it through the media library and links it to the event; the snapshot carries its media id and the viewer reads the original bytes through the media map. Nothing draws planned points on a map.
+**The route the public sees is a poster.** The route page shows a high-resolution image of the planned route (the same kind of poster the old site showed) in a deep-zoom viewer with pan, zoom, and fullscreen, with a disclaimer that the plan changes on the night. The admin uploads it through the media library and links it to the event; at upload the API cuts a Deep Zoom tile pyramid beside the asset on the CDN, the snapshot carries the media id, and the viewer (OpenSeadragon, as on the legacy site) streams the tiles it needs at the zoom it is at, so a phone never downloads the whole poster. A new poster is a new asset with new URLs, so nothing is ever cached stale. Nothing draws planned points on a map.
 
 **Flight history rides in the snapshot.** A route JSON (`routes/{sha256}.json`, a `route` row linked from the event) is a recording of a flight: built from an event's stored locations, or uploaded. Red-Nose's replay mode, admin exports, and the end-to-end tests read it from the CDN. The tracker reads it from the snapshot: the recording linked to the current event is embedded as `event.flightHistory`, thinned to an admin-set point cap, so the first snapshot a browser fetches carries it and the "flight history" toggle draws it as a projected route with no second request. The admin links a different recording to the event at any time and the next snapshot carries that one. The tracker never draws where Santa has been; it shows only where he is. A new event inherits the recording of the most recent event that had one.
 
@@ -107,7 +102,7 @@ One beacon is **active** at a time, marked by the admin in the panel. Only its u
 | Actor | How | Can |
 |---|---|---|
 | Anyone | nothing | read the site, current event, sponsors, route poster, leave a contact message |
-| Beacon | key (header or hub credential) | post locations and heartbeats |
+| Beacon | key (header or hub credential) | post locations, heartbeats with its own debug data, and log files; every beacon is the same to the API, whatever runs behind the key |
 | Script or agent | API key minted by an admin, with every capability or a chosen subset and an optional expiry | whatever its capabilities allow across the admin surface; never mint, list, or revoke keys |
 | Registered person | the env's Cognito pool, no MFA, email as username | manage alerts, leave cookies |
 | Editor | the env's admin pool, group `editor`, MFA enforced | pages, sections, media, icons, site settings, publish and versions, preview, sponsors |
@@ -137,17 +132,14 @@ cookie            id, event_id, person_id, cookie_type_id, note, left_at
 ```
 
 - The public site shows one thing: the cookie leaderboard, every type with its count, sorted most to least popular. It is on the live screen and stays on the ended screen afterwards. The tally rides on the live object as `cookieTally` (a few numbers), kept in each node's memory and refreshed by the reconcile loop, so the leaderboard needs no endpoint of its own; the live object written on the transition to `ended` carries the final counts and nothing overwrites it after that.
-- Notes are never shown publicly (anyone could type anything). They are visible to admins in the panel, and the admin can hide or delete a cookie.
+- Notes are never shown publicly (anyone could type anything) and the panel has no cookie view either: a hundred thousand people leave cookies on the night and nobody sifts through them. There is no moderation; a cookie counts until its event is deleted.
 - Cookies are accepted only while an event is live; any other time the write is a 409. The tally reaches the CDN on the back of the once-a-second live-object writes that only happen during a live event, so no extra write path exists for cookies.
 - The per-person limit is an admin setting (`app_setting cookie_limit_per_person`), read at the time a cookie is left, so it can change mid-event. The API enforces it with a count query inside the insert transaction.
-- Types are admin-managed rows, so a sponsor can have a branded cookie for a year by adding a type with their icon (a library icon or an uploaded SVG). Types are locked while an event is live: create, edit, and deactivate all return 409 until the event ends, so the leaderboard never changes shape mid-event.
+- Types are admin-managed rows, so a sponsor can have a branded cookie for a year by adding a type with their icon (a library icon or an uploaded SVG). Types are locked while an event is live: create, edit, deactivate, and delete all return 409 until the event ends, so the leaderboard never changes shape mid-event. A type is deleted only while no cookie references it; otherwise it is deactivated.
 
 ## 6b. Red-Nose, the beacon app (Android, React Native)
 
-One app, two roles, decided by the key it enrolled with:
-
-- **Beacon**: runs on a dedicated Android phone in the helicopter and posts location. The pilot never touches it.
-- **Admin**: a beacon plus debug mode. Only a key with the admin role (scanned from the panel's QR) unlocks it.
+One app: it runs on a dedicated Android phone in the helicopter and posts location. The pilot never touches it. Its debug mode is always there for whoever holds the phone; the API and the panel know nothing about it, because a beacon is a key and nothing more.
 
 Staying alive (the part React Native cannot do; a small Kotlin foreground service owns GPS and the send loop so JS being frozen or killed changes nothing):
 
@@ -166,9 +158,9 @@ Transport, websocket first:
 
 Telemetry goes out as a 15 s heartbeat independent of GPS fixes (the list is in §4) so the admin panel shows beacon health without anyone touching the phone.
 
-Debug mode: the full telemetry set on screen, plus a live log of fixes, socket state changes with drop reasons and reconnect attempts, per-fix receipt latency, failures, service restarts; ring-buffer file log with an upload button to an admin-only endpoint; a replay mode that plays a past year's route into the dev API as the end-to-end test of the whole pipeline.
+Debug mode: the full telemetry set on screen, plus a live log of fixes, socket state changes with drop reasons and reconnect attempts, per-fix receipt latency, failures, service restarts; ring-buffer file log with an upload button to the API's log endpoint; a replay mode that plays a past year's route into the dev API as the end-to-end test of the whole pipeline.
 
-Enrollment: scan the panel's QR, exchange the one-time token for a key and role, store in Keystore-backed encrypted storage. Distribution is a Magisk module (the signed APK plus the `service.d` watchdog) flashed on the rooted phone; no store, no Play review. Before December the real device gets a month-long soak against dev with reboot, airplane mode, and kill-from-recents drills.
+Enrollment: scan the panel's QR, exchange the one-time token for a key, store in Keystore-backed encrypted storage. Distribution is a Magisk module (the signed APK plus the `service.d` watchdog) flashed on the rooted phone; no store, no Play review. Before December the real device gets a month-long soak against dev with reboot, airplane mode, and kill-from-recents drills.
 
 ## 6c. Public site rewrite
 
@@ -178,7 +170,7 @@ Vite, React, TypeScript, a static single-page app. Vercel recommends Next.js, bu
 - **Screens** are one page per status, named after the status (planned, scheduled, live, ended, cancelled) plus a no-event page, every one of them admin-composed from the section palette (§6d). The site never hard-codes what a status screen contains; it renders the page whose role matches `eventStatusId`. Live sections (map, countdown, leaderboard, latest message, sponsor carousel) read the live object and the snapshot; everything else is content. Static pages (about, donate, cheer meter, sponsors, route, contact, and anything an admin adds) are pages with slugs.
 - **Map:** Google Maps JS with the existing key. The live screen (map style picker, terrain toggle, snow, the flight history toggle, time labels, location prompt, liftoff timer) is rebuilt from scratch; the six map styles carry over and the picker stays.
 - **Visual design is decided.** Direction "North Pole Night": a midnight-navy dark theme and an ice-and-paper light theme, one ice-blue accent, gold for the funds ring and the star, holly red for status. Light, dark, or follow the system, the visitor's choice, defaulting to system; no other visitor-facing theme controls. IBM Plex Sans for prose and UI, IBM Plex Mono for any value that came from the API at runtime, Bricolage Grotesque for the two heading sizes. Seasonal layers (snow, a string of lights on the header, frost glass on the liftoff card and live overlays) are the only decoration; snow and lights have site-setting defaults and a per-visitor off switch. Tokens live in one file with a contrast unit test, components never write a hex, hover is a 120 ms border change, radii are 6 and 10 px, the public site is hand-rolled CSS with no UI library. Library icons render inline so they take the accent. The reference mock is the theme studio artifact.
-- **Accounts:** Cognito hosted UI with PKCE through a small OIDC client, not Amplify. Sign-in is a link in the menu. Signed-out users see everything; signed-in users get the alerts page and the leave-a-cookie control on the live screen.
+- **Accounts:** the site's own sign-up, confirmation, sign-in, and password-reset pages, themed like everything else, talking to the people pool through the Cognito API (SRP, so the password never leaves the browser in clear); no AWS-hosted page anywhere on the public site. Sign-in is a link in the menu. Signed-out users see everything; signed-in users get the alerts page and the leave-a-cookie control on the live screen.
 - **Small things that carry over:** wake lock on the live screen (the Screen Wake Lock API replaces nosleep), analytics only on the production origins, the reduced-motion check for snow and animations, the in-app-browser warning for location.
 - **Config** is Vercel env vars per project: CDN base URL, hub URL, API base URL, Cognito pool and client ids. No secrets in the bundle; the Maps key stays referrer-restricted.
 - **Testing:** Vitest for the store and the status switch; Playwright against the preview site and the dev stack for the full flow, including a scripted status walk from planned to ended with a replayed route from Red-Nose's debug mode.
@@ -219,7 +211,7 @@ Live sections carry configuration only; their data is the live object and the op
 
 **Icons anywhere.** An icon is a value type `{ source: "library" | "media", id }` used by every place that takes one: section decorations, hero, link items, icon rows, icon blocks, inline in text, nav entries, cookie types, and the site settings (favicon, logo). The library is a curated set of about sixty Christmas and winter line icons in one visual style (Santa, sleigh, reindeer, candy cane, tree, ornament, gift, snowflake, star, bell, stocking, cookie, mug, mitten, helicopter, map pin, and the like), shipped in the API repository, written to the bucket once per deploy, and published into the snapshot as a map of id to CDN URL; `media` points at an uploaded SVG. Admins add icons by uploading SVGs; the library grows in code. Every SVG, library or uploaded, passes the same validator (no scripts, handlers, foreign objects, or external references). Uploaded SVGs render through `<img>` only; the library also ships inside the site's bundle as inline components on one drawing rule, so library icons take the theme's colour.
 
-**Media.** The portfolio's pipeline, unchanged in shape: the admin asks the API for an upload URL, PUTs the bytes straight to S3 with a pending tag, then confirms; the API verifies the object, records size and dimensions, strips the tag, and for raster images derives width variants (480, 960, 1600) as WebP so the site can use `srcset` and a design change never means re-uploading. Keys are `media/{uuid}/{filename}` and variants sit beside them; every object carries a one-year immutable cache header; nothing is ever overwritten and nothing is ever invalidated. Abandoned uploads expire by lifecycle rule on the pending tag. Unreferenced media is found by scanning references (working set, retained versions, sponsor logos, cookie artwork, site settings) after every publish, tagged orphaned with a 30-day grace and a 7-day undo window, and expired by a second lifecycle rule. Sponsor logos are media assets chosen from the library, and cookie types carry an icon; the snapshot carries a `media` map of id to URL (with variants) and every renderer resolves through it. Raster uploads accept PNG, JPEG, WebP, and GIF up to 20 MB; SVG up to 1 MB. A media asset in use anywhere cannot be deleted.
+**Media.** The portfolio's pipeline, unchanged in shape: the admin asks the API for an upload URL, PUTs the bytes straight to S3 with a pending tag, then confirms; the API verifies the object, records size and dimensions, strips the tag, and for raster images derives width variants (480, 960, 1600) as WebP so the site can use `srcset` and a design change never means re-uploading. A raster whose longest side is 2048 px or more also gets a Deep Zoom tile pyramid beside it, so a poster-sized image can be explored tile by tile. Keys are `media/{uuid}/{filename}` and variants sit beside them; every object carries a one-year immutable cache header; nothing is ever overwritten and nothing is ever invalidated. Abandoned uploads expire by lifecycle rule on the pending tag. Unreferenced media is found by scanning references (working set, retained versions, sponsor logos, cookie artwork, site settings) after every publish, tagged orphaned with a 30-day grace and a 7-day undo window, and expired by a second lifecycle rule. Sponsor logos are media assets chosen from the library, and cookie types carry an icon; the snapshot carries a `media` map of id to URL (with variants) and every renderer resolves through it. Raster uploads accept PNG, JPEG, WebP, and GIF up to 20 MB; SVG up to 1 MB. A media asset in use anywhere cannot be deleted.
 
 **Site settings** are content too and publish with the pages: site name and tagline, logo and favicon icons, extra nav links, footer links and footer text, the seasonal layer defaults (snow, lights), the donate link, the contact address shown on the site, and analytics on or off. Enough for the tweaks you would otherwise ask for as deploys, without becoming a style editor. Colours and type are not settings.
 
@@ -306,6 +298,13 @@ Cut-over: freeze the old API, run the migration, point the site and the panel at
 - Sponsors: no tiers; largest gift first; tracker time proportional to the gift; per-year pin order and time override in the panel.
 - API keys: `wak_` keys with every capability or a chosen subset and an optional expiry, minted by a TOTP admin, reaching every admin group but the key endpoints.
 - Admin panel moves to Vite alongside the Cognito rewiring.
+- Beacons (2026-09-12): no roles. A beacon is a key; its heartbeat carries a tiny typed health core plus a free debug object the panel shows as a JSON tree; logs are open to every beacon; Red-Nose's debug mode is always available on the phone.
+- Go-live gate (2026-09-12): an event goes live only with a healthy active beacon (heard from within the stale window; the socket is not required).
+- Cookies (2026-09-12): no moderation, no admin cookie view; a cookie type can be deleted while nothing references it.
+- Route poster (2026-09-12): a Deep Zoom tile pyramid cut at upload and served from the CDN; the site's viewer is OpenSeadragon with fullscreen.
+- Site accounts (2026-09-12): the site's own themed auth pages over the Cognito API; the hosted UI is used only by the admin panel.
+- Two more beacons (2026-09-12): a simulator beacon (replays a past year, control page behind the admin pool) and a legacy beacon (polls the Heroku tracker), both fleet services and ordinary enrolled beacons.
+- Admin panel usability (2026-09-12): every editable row has an edit control; the flight recording upload shows the JSON shape it expects.
 
 ## 11. Still open
 

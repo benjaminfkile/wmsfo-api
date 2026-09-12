@@ -18,7 +18,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | Money | `numeric(12,2)`; only `sponsor_year.amount_donated`. |
 | Hashes | SHA-256 of a credential is `bytea` (32 bytes); SHA-256 of object bytes is `char(64)` lowercase hex where it is displayed (`route.sha256`). |
 | Triggers | None. The API writes `updated_at = now()` in every update statement that touches a table with that column. |
-| Soft delete | Only `cookie.hidden_at`. Every other delete is a hard delete. |
+| Soft delete | None. `cookie.hidden_at` and `hidden_by` exist but are never set (moderation was removed; the tally query's `hidden_at is null` filter is therefore always true). Every delete is a hard delete. |
 | Isolation | Read committed. Correctness comes from explicit row locks (`for update`) in the recipes of section 8 and from the unique indexes. |
 | Constraint names | Postgres default names (`<table>_pkey`, `<table>_<columns>_key`, `<table>_<column>_fkey`, `<table>_<column>_check`), fixed explicitly in the EF Core model so the generated migration produces exactly these names (section 14). The API maps unique violations to error codes by constraint name (section 4.3). |
 
@@ -42,7 +42,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `person` | Registered people, keyed by Cognito `sub` | Upsert on every authenticated request | about 20k |
 | `subscriber` | Alert subscriptions | Person and admin writes; nightly cleanup | about 20k |
 | `cookie_type` | Admin-managed cookie types with an icon value | Admin writes; migration seed | tens |
-| `cookie` | Cookies left during live events | `POST /cookies`; moderation | up to `cookie_limit_per_person` × people per event |
+| `cookie` | Cookies left during live events | `POST /cookies` | up to `cookie_limit_per_person` × people per event |
 | `contact_message` | Contact form submissions | `POST /contact`; migration tool | tens per year |
 | `app_setting` | The five admin knobs, one row per key | `PUT /admin/settings/{key}`; seed; migration tool | 5 |
 | `media_asset` | The media library: one row per upload, state, dimensions, variants | Upload ticket, confirm, patch, delete; orphan chore; migration tool | hundreds |
@@ -175,7 +175,6 @@ create table beacon (
   id                bigint generated always as identity primary key,
   name              text not null,
   notes             text not null default '',
-  role              text not null check (role in ('beacon', 'admin')),
   key_hash          bytea not null unique,
   key_prefix        text not null,
   key_version       integer not null default 1,
@@ -192,8 +191,7 @@ create table beacon (
 );
 create unique index beacon_one_active on beacon (is_active) where is_active;
 
-comment on table beacon is 'A trusted sender. Rows are never deleted; revoke is permanent.';
-comment on column beacon.role is 'beacon or admin. Immutable after creation.';
+comment on table beacon is 'A trusted sender: a key and nothing more. Rows are never deleted; revoke is permanent.';
 comment on column beacon.key_hash is 'sha256 of the plaintext key, 32 bytes. The plaintext is never stored.';
 comment on column beacon.key_prefix is 'First 12 characters of the key, for display.';
 comment on column beacon.key_version is 'Incremented by rotate. Carried in the hub identity as "<id>:<key_version>"; the message path rejects a stale version.';
@@ -203,7 +201,7 @@ comment on column beacon.last_seen_at is 'Any authenticated contact: REST call, 
 comment on column beacon.last_location_at is 'Last stored location, published or not.';
 comment on column beacon.last_heartbeat_at is 'Last stored heartbeat.';
 comment on column beacon.stale_since is 'Set by the stale-beacon chore; cleared by a heartbeat or a stored location.';
-comment on column beacon.telemetry is 'The last heartbeat body, stored as received.';
+comment on column beacon.telemetry is 'The last heartbeat body, stored as received: sentAt, the optional health core, and the beacon''s own debug object (contracts 4.2).';
 ```
 
 ### 3.7 `beacon_enrollment_token`
@@ -363,7 +361,7 @@ create table cookie_type (
   updated_at timestamptz not null default now()
 );
 
-comment on table cookie_type is 'Admin-managed. Locked (409 event_live) while any event has status 3. No delete; active = false removes a type from the snapshot.';
+comment on table cookie_type is 'Admin-managed. Locked (409 event_live) while any event has status 3. Deleted only while no cookie references it (409 cookie_type_in_use); active = false removes a type from the snapshot without deleting it.';
 comment on column cookie_type.icon is 'Icon value (contracts 1.3a): {"source":"library","id":"cookie"} or {"source":"media","id":"<uuid of a ready svg media_asset>"}; null until chosen.';
 ```
 
@@ -398,8 +396,8 @@ create index cookie_event_type_visible on cookie (event_id, cookie_type_id) wher
 create index cookie_person             on cookie (person_id);
 
 comment on table cookie is 'A cookie left by a registered person during a live event. No location.';
-comment on column cookie.note is 'Never public. Visible to admins only.';
-comment on column cookie.hidden_at is 'Soft delete for moderation. Hidden cookies leave the tally but still count toward the per-person limit.';
+comment on column cookie.note is 'Never shown anywhere; stored for the record.';
+comment on column cookie.hidden_at is 'Always null. Moderation was removed; the column and the partial index stay so the tally query is unchanged.';
 ```
 
 ### 3.16 `contact_message`
@@ -531,6 +529,7 @@ create table media_asset (
   height             integer,
   sha256             char(64),
   variants           jsonb not null default '{}',
+  dzi_key            text,
   alt                text not null default '',
   title              text not null default '',
   uploaded_by        text not null,
@@ -540,6 +539,8 @@ create table media_asset (
   orphaned_at        timestamptz
 );
 create index media_asset_state_created on media_asset (state, created_at);
+
+comment on column media_asset.dzi_key is 'media/{id}/dzi/poster.dzi when confirm cut a Deep Zoom pyramid (raster, longest side 2048 px or more); null otherwise. The tiles sit under media/{id}/dzi/poster_files/.';
 
 comment on table media_asset is 'The media library. pending: ticket issued, bytes may or may not be in the bucket. ready: confirmed. orphaned: unreferenced for 30 days, objects tagged for lifecycle expiry; the row is deleted 8 days later.';
 comment on column media_asset.id is 'Minted by the API (UUID v4) when the upload ticket is issued; it is the key segment media/{id}/.';
@@ -929,6 +930,8 @@ select id, status_id, is_current, scheduled_at from event where id = $event for 
 --   to 3 and not is_current                         -> 409 event_not_current
 --   to 3 and exists (select 1 from event where status_id = 3 and id <> $event) -> 409 another_event_live
 --   to 2 and scheduled_at is null                   -> 409 scheduled_at_required
+--   to 3: select id, name, revoked_at, stale_since, last_seen_at from beacon where is_active;
+--         no row, or revoked_at not null, or stale_since not null, or last_seen_at null -> 409 no_healthy_beacon
 update event
 set status_id    = $to,
     went_live_at = case when $to = 3 then now() else went_live_at end,
@@ -1031,17 +1034,17 @@ commit;
 
 The person row lock makes the count-then-insert safe against the same person's concurrent requests. The event row is read without a lock; a status change committing between the read and the commit can admit a pick on an event that ended a few milliseconds earlier, which is accepted. After commit the node increments its in-memory tally once per cookie.
 
-### 8.10 Cookie moderation
+### 8.10 Cookie type delete (`DELETE /admin/cookie-types/{id}`)
 
-Autocommit, one statement each:
+The frame of 8.5 with:
 
 ```sql
-update cookie set hidden_at = now(), hidden_by = $admin_email where id = $cookie and hidden_at is null returning *;   -- hide
-update cookie set hidden_at = null,  hidden_by = null        where id = $cookie returning *;                          -- unhide
-delete from cookie where id = $cookie;                                                                                 -- delete
+select id from event where status_id = 3;                                     -- any: rollback, 409 event_live
+select count(*) from cookie where cookie_type_id = $type;                     -- above 0: rollback, 409 cookie_type_in_use (details.cookieCount)
+delete from cookie_type where id = $type;                                     -- 0 rows: 404
 ```
 
-Then, when the cookie's event has status 3, the node re-reads the tally (section 8.17) and writes the live object.
+`cookie_type.cookieCount` on the list (contracts 4.0) is `select cookie_type_id, count(*) from cookie group by 1` joined in; `cookie_person` and `cookie_event_type_visible` make it cheap and the table is read once per list.
 
 ### 8.11 Beacon writes
 
@@ -1049,8 +1052,8 @@ Create:
 
 ```sql
 begin;
-insert into beacon (name, notes, role, key_hash, key_prefix, created_by)
-values ($name, $notes, $role, $key_hash, $key_prefix, $admin_email)
+insert into beacon (name, notes, key_hash, key_prefix, created_by)
+values ($name, $notes, $key_hash, $key_prefix, $admin_email)
 returning *;
 insert into beacon_enrollment_token (beacon_id, token_hash, key_ciphertext, expires_at)
 values ($beacon, $token_hash, $key_ciphertext, now() + interval '15 minutes')
@@ -1521,7 +1524,7 @@ Subscriber status filter: `verified` is `verified_at is not null and unsubscribe
 |---|---|---|
 | `location` | Forever | nothing deletes rows; an event with rows cannot be deleted |
 | `event`, `event_status_history`, `event_message`, `route`, `sponsor`, `sponsor_year`, `cookie_type`, `person`, `beacon` | Until an admin deletes (beacons never) | admin endpoints |
-| `cookie` | Until an admin deletes | moderation |
+| `cookie` | With its event; nothing else deletes one | the event delete cascade |
 | `contact_message` | Until an admin deletes | admin endpoint |
 | `beacon_enrollment_token` | 24 h after expiry or consumption; also deleted by rotate and revoke while pending | nightly cleanup; beacon writes |
 | `beacon_log` | 30 days | nightly cleanup |
@@ -1687,7 +1690,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
@@ -1904,7 +1907,8 @@ For every sponsor whose legacy `logo_s3_key` names an object in the legacy bucke
 
 - Two roles per environment: `wmsfo_migrate_<env>` owns the database and runs migrations and the tool; `wmsfo_app_<env>` (the contracts' role name) is the API's runtime role with DML only. The container env gains `WMSFO_DB_MIGRATION_CONNECTION`.
 - `app_setting` is seeded with the five defaults (`updated_by = 'seed'`); the compiled default for a missing row stays as the fallback.
-- `cookie_type` is seeded with Chocolate chip, Gingerbread, Snickerdoodle, Sugar, Happy (sort 10 to 50) only when the table is empty; sponsor specials are admin-added.
+- `cookie_type` is seeded with Chocolate chip, Gingerbread, Snickerdoodle, Sugar, Happy (sort 10 to 50) only when the table is empty; sponsor specials are admin-added; a type is deleted only while no cookie references it.
+- `beacon` has no role column (dropped 2026-09-12); `cookie.hidden_at` is never set (moderation removed 2026-09-12) and stays for the index and the tally query; `media_asset.dzi_key` records the Deep Zoom pyramid confirm cut for large rasters.
 - No triggers; the API writes `updated_at` in every update statement.
 - Constraint and index names are the Postgres defaults, fixed explicitly in the EF model; the API maps `23505` to error codes by constraint name (section 4.3).
 - Three indexes beyond the contracts' list: `subscriber_verify_token_hash`, `cookie_person`, `alert_delivery_outbox`.
