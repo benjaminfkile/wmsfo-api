@@ -423,12 +423,12 @@ The callback paths `/realtime/authorize` and `/realtime/message` are reachable t
 
 ### 4.1 Pools
 
-Two user pools, `wmsfo-dev` and `wmsfo-prod`, created once each, identical settings:
+Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod` (the site's `wmsfo-site` client, self sign-up on) and the admin pools `wmsfo-admin-dev` and `wmsfo-admin-prod` (the panel's `wmsfo-admin` client, self sign-up off, the `admin` and `editor` groups). Settings, identical except where the table says otherwise:
 
 | Setting | Value |
 |---|---|
 | Sign-in | Email as username (`UsernameAttributes = email`), case-insensitive usernames |
-| Self sign-up | On. The hosted UI offers sign-up; the site's sign-in link leads there |
+| Self sign-up | People pools: on, the hosted UI offers sign-up and the site's sign-in link leads there. Admin pools: off (`AllowAdminCreateUserOnly`), every account is created by an operator and invited by email; the admin panel's sign-in page never offers sign-up |
 | Verification | Email, code, sent by Cognito's default sender (no SES integration for pool mail in v1) |
 | Required attributes | `email` |
 | Password policy | 12 characters minimum, no composition rules, temporary passwords valid 7 days |
@@ -436,13 +436,13 @@ Two user pools, `wmsfo-dev` and `wmsfo-prod`, created once each, identical setti
 | Account recovery | Email only |
 | Deletion protection | On (prod) |
 | Advanced security | Off (no plus tier features are used) |
-| Hosted UI domain | `<cognito-prefix>-dev` and `<cognito-prefix>-prod` under `auth.<region>.amazoncognito.com` |
+| Hosted UI domain | People pools `<cognito-prefix>-dev` and `<cognito-prefix>-prod`, admin pools `<cognito-prefix>-admin-dev` and `<cognito-prefix>-admin-prod`, under `auth.<region>.amazoncognito.com` |
 | Hosted UI version | Managed login (domain `ManagedLoginVersion = 2`) with a managed login style assigned to each app client, Cognito-provided values. Its pages carry labelled inputs and a "Change password" first-login step; the classic hosted UI is not used |
-| Groups | `admin` (precedence 0, no role), `editor` (precedence 1, no role) |
+| Groups | Admin pools only: `admin` (precedence 0, no role), `editor` (precedence 1, no role). The people pools have no groups and the API ignores any group claim on a people-pool token |
 
 ### 4.2 App clients
 
-Per contracts 3.1. Both public, no secret, authorization code grant with PKCE, scopes `openid email profile`, `ALLOW_REFRESH_TOKEN_AUTH` and `ALLOW_USER_SRP_AUTH`; the dev pool's `wmsfo-admin` client additionally has `ALLOW_USER_PASSWORD_AUTH` for the end-to-end test harness (a dedicated test admin user with TOTP, its secret in CI), never the prod clients; token revocation on, `PreventUserExistenceErrors = ENABLED`.
+Per contracts 3.1. `wmsfo-site` lives on the people pool, `wmsfo-admin` on the admin pool. Both public, no secret, authorization code grant with PKCE, scopes `openid email profile`, `ALLOW_REFRESH_TOKEN_AUTH` and `ALLOW_USER_SRP_AUTH`; the dev admin pool's `wmsfo-admin` client additionally has `ALLOW_USER_PASSWORD_AUTH` for the end-to-end test harness (a dedicated test admin and a test editor with TOTP, their secrets in CI), never the prod clients; token revocation on, `PreventUserExistenceErrors = ENABLED`.
 
 | Client | Callback URLs | Sign-out URLs | Refresh token |
 |---|---|---|---|
@@ -453,9 +453,9 @@ ID and access tokens 60 minutes. The `wmsfo-admin` client also carries scope `aw
 
 ### 4.3 Operator procedure for admins
 
-1. The admin signs up through the admin panel's hosted UI link (or is created in the console).
-2. The admin enrols TOTP on the panel's setup page (shown whenever the API answers `403 mfa_required`).
-3. An operator adds the user to group `editor` (content, media, sponsors, publish) or `admin` (everything) in the console. Until then the panel shows "this account has no role"; with a group but without TOTP the API answers `403 mfa_required` and the panel shows the TOTP setup page.
+1. An operator creates the user in the admin pool (`AdminCreateUser` with email delivery: Cognito emails a temporary password) and adds it to group `editor` (content, media, sponsors, publish) or `admin` (everything).
+2. The admin signs in through the panel, sets a password on the managed login's first-login step, and lands on the panel's TOTP setup page (the API answers `403 mfa_required` until `SOFTWARE_TOKEN_MFA` is enabled on the user).
+3. After enrolling, the admin signs out and back in with a code. A user without a group sees "this account has no role".
 
 Removing or changing a role: edit the groups; the API sees the change on the next token (up to 60 minutes) and immediately if the token is revoked. A person in both groups is an admin.
 
@@ -492,12 +492,12 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-dev",
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-prod"] },
     { "Effect": "Allow", "Action": "cognito-idp:AdminGetUser",
-      "Resource": "arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>" }
+      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] }
   ]
 }
 ```
 
-The second statement is required (one pool ARN per environment): the API's admin TOTP check calls `AdminGetUser`. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design.
+The second statement is required (the admin pool ARN of each environment): the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design.
 
 ### 6.2 CI role
 
