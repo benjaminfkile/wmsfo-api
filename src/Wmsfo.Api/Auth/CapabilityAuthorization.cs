@@ -115,7 +115,12 @@ public sealed class CapabilityOrGroupHandler : AuthorizationHandler<CapabilityOr
             return Task.CompletedTask;
         }
 
-        // Cognito principal: admit if any of the admitted groups is present.
+        // Cognito principal: only a token the admin pool issued can carry a
+        // role (contracts 3.1); admit if any of the admitted groups is present.
+        if (!string.Equals(user.FindFirst(PersonClaims.Pool)?.Value, PersonClaims.PoolAdmin, StringComparison.Ordinal))
+        {
+            return Task.CompletedTask;
+        }
         foreach (var group in requirement.AdmittedGroups)
         {
             if (HasGroup(user, group))

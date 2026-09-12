@@ -80,6 +80,7 @@ public sealed class DevStaticTokenAuthenticationHandler : AuthenticationHandler<
         identity.AddClaim(new Claim(PersonClaims.Sub, sub));
         identity.AddClaim(new Claim(PersonClaims.Email, email));
         identity.AddClaim(new Claim(PersonClaims.TokenUse, "id"));
+        identity.AddClaim(new Claim(PersonClaims.Pool, System.Linq.Enumerable.Any(groups) ? PersonClaims.PoolAdmin : PersonClaims.PoolPeople));
         foreach (var group in groups)
         {
             identity.AddClaim(new Claim(PersonClaims.Groups, group));

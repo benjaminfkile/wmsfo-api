@@ -32,6 +32,11 @@ public sealed class WmsfoOptions
     public string CognitoIssuer { get; set; } = "";
     public string CognitoClientIds { get; set; } = "";
     public string CognitoUserPoolId { get; set; } = "";
+    // api.md 6.2: the admin pool (contracts 3.1). Empty means the people pool
+    // also carries the admins (single-pool mode, refused in prod).
+    public string CognitoAdminIssuer { get; set; } = "";
+    public string CognitoAdminClientIds { get; set; } = "";
+    public string CognitoAdminUserPoolId { get; set; } = "";
     public string AdminGroup { get; set; } = "admin";
     public string EditorGroup { get; set; } = "editor";
     public string SesFromAddress { get; set; } = "";
@@ -67,6 +72,9 @@ public sealed class WmsfoOptions
         public const string CognitoIssuer = "WMSFO_COGNITO_ISSUER";
         public const string CognitoClientIds = "WMSFO_COGNITO_CLIENT_IDS";
         public const string CognitoUserPoolId = "WMSFO_COGNITO_USER_POOL_ID";
+        public const string CognitoAdminIssuer = "WMSFO_COGNITO_ADMIN_ISSUER";
+        public const string CognitoAdminClientIds = "WMSFO_COGNITO_ADMIN_CLIENT_IDS";
+        public const string CognitoAdminUserPoolId = "WMSFO_COGNITO_ADMIN_USER_POOL_ID";
         public const string AdminGroup = "WMSFO_ADMIN_GROUP";
         public const string EditorGroup = "WMSFO_EDITOR_GROUP";
         public const string SesFromAddress = "WMSFO_SES_FROM_ADDRESS";
@@ -85,6 +93,14 @@ public sealed class WmsfoOptions
     public IReadOnlyList<string> CognitoClientIdList()
     {
         return SplitCsv(CognitoClientIds);
+    }
+
+    public bool HasSeparateAdminPool => !string.IsNullOrWhiteSpace(CognitoAdminIssuer);
+    public string EffectiveAdminIssuer => HasSeparateAdminPool ? CognitoAdminIssuer : CognitoIssuer;
+    public string EffectiveAdminUserPoolId => HasSeparateAdminPool ? CognitoAdminUserPoolId : CognitoUserPoolId;
+    public IReadOnlyList<string> EffectiveAdminClientIdList()
+    {
+        return HasSeparateAdminPool ? SplitCsv(CognitoAdminClientIds) : SplitCsv(CognitoClientIds);
     }
 
     public IReadOnlyList<string> CorsOriginList()
@@ -132,6 +148,9 @@ public sealed class WmsfoOptions
             CognitoIssuer = Get(Keys.CognitoIssuer),
             CognitoClientIds = Get(Keys.CognitoClientIds),
             CognitoUserPoolId = Get(Keys.CognitoUserPoolId),
+            CognitoAdminIssuer = Get(Keys.CognitoAdminIssuer),
+            CognitoAdminClientIds = Get(Keys.CognitoAdminClientIds),
+            CognitoAdminUserPoolId = Get(Keys.CognitoAdminUserPoolId),
             AdminGroup = string.IsNullOrEmpty(Get(Keys.AdminGroup)) ? "admin" : Get(Keys.AdminGroup),
             EditorGroup = string.IsNullOrEmpty(Get(Keys.EditorGroup)) ? "editor" : Get(Keys.EditorGroup),
             SesFromAddress = Get(Keys.SesFromAddress),
@@ -184,6 +203,12 @@ public sealed class WmsfoOptionsValidator : IValidateOptions<WmsfoOptions>
         Require(WmsfoOptions.Keys.CognitoIssuer, IsHttpsAbsolute(o.CognitoIssuer));
         Require(WmsfoOptions.Keys.CognitoClientIds, o.CognitoClientIdList().Count > 0);
         Require(WmsfoOptions.Keys.CognitoUserPoolId, !string.IsNullOrWhiteSpace(o.CognitoUserPoolId));
+        if (o.HasSeparateAdminPool || o.Env == "prod")
+        {
+            Require(WmsfoOptions.Keys.CognitoAdminIssuer, IsHttpsAbsolute(o.CognitoAdminIssuer));
+            Require(WmsfoOptions.Keys.CognitoAdminClientIds, o.EffectiveAdminClientIdList().Count > 0);
+            Require(WmsfoOptions.Keys.CognitoAdminUserPoolId, !string.IsNullOrWhiteSpace(o.CognitoAdminUserPoolId));
+        }
         Require(WmsfoOptions.Keys.SesFromAddress, IsMailbox(o.SesFromAddress));
         Require(WmsfoOptions.Keys.ContactNotifyEmail, IsEmail(o.ContactNotifyEmail));
         Require(WmsfoOptions.Keys.AlertSendPerSec, o.AlertSendPerSec is >= 1 and <= 50);

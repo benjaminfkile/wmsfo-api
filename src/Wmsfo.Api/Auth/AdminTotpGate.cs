@@ -88,7 +88,8 @@ public interface IAdminTotpChecker
     Task<bool> HasSoftwareTokenMfaAsync(string sub, CancellationToken ct);
 }
 
-// api.md 6.3: cognito-idp:AdminGetUser on the instance role; WMSFO_COGNITO_USER_POOL_ID
+// api.md 6.3: cognito-idp:AdminGetUser on the instance role; the admin pool id
+// (WMSFO_COGNITO_ADMIN_USER_POOL_ID, or the people pool's in single-pool mode)
 // in the secret.
 public sealed class CognitoAdminTotpChecker : IAdminTotpChecker
 {
@@ -105,7 +106,7 @@ public sealed class CognitoAdminTotpChecker : IAdminTotpChecker
     {
         var response = await _cognito.AdminGetUserAsync(new AdminGetUserRequest
         {
-            UserPoolId = _options.CognitoUserPoolId,
+            UserPoolId = _options.EffectiveAdminUserPoolId,
             Username = sub,
         }, ct);
         return response.UserMFASettingList is { } list

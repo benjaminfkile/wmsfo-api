@@ -5,7 +5,11 @@ namespace Wmsfo.Api.Auth;
 public static class AuthSchemes
 {
     public const string BeaconKey = "BeaconKey";
+    // Selects by the token's iss: the admin pool's bearer scheme or the people
+    // pool's (api.md 6.2). Under dev static tokens it is the static handler.
     public const string CognitoJwt = "CognitoJwt";
+    public const string CognitoPeopleJwt = "CognitoPeopleJwt";
+    public const string CognitoAdminJwt = "CognitoAdminJwt";
     // Composite that lets a single request produce either principal.
     public const string BeaconOrCognito = "BeaconOrCognito";
     // 6.4: wak_ bearer scheme, selected by prefix on the Authorization header.
@@ -43,6 +47,11 @@ public static class PersonClaims
     public const string Email = "email";
     public const string Groups = "cognito:groups";
     public const string TokenUse = "token_use";
+    // Stamped by the scheme that validated the token: "admin" for the admin
+    // pool, "people" for the people pool. Only "admin" reaches /admin/*.
+    public const string Pool = "wmsfo_pool";
+    public const string PoolAdmin = "admin";
+    public const string PoolPeople = "people";
 }
 
 // api.md 6.4 principal claims for an API key request.

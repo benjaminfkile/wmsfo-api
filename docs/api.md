@@ -132,11 +132,14 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `GATEWAY_REALTIME_TOKEN` | string | injected by the gateway; optional locally, then publish and leader calls are disabled and logged once |
 | `WMSFO_CORS_ORIGINS` | list | comma-separated absolute origins, no wildcard |
 | `WMSFO_TRUSTED_PROXY_HOPS` | int | 0 to 5, default 2 |
-| `WMSFO_COGNITO_ISSUER` | https url | the pool issuer |
-| `WMSFO_COGNITO_CLIENT_IDS` | list | one or more |
+| `WMSFO_COGNITO_ISSUER` | https url | the people pool's issuer |
+| `WMSFO_COGNITO_CLIENT_IDS` | list | one or more, the people pool's clients |
+| `WMSFO_COGNITO_USER_POOL_ID` | string | the people pool id |
+| `WMSFO_COGNITO_ADMIN_ISSUER` | https url | the admin pool's issuer; empty means the people pool also carries the admins (refused when `WMSFO_ENV` is `prod`) |
+| `WMSFO_COGNITO_ADMIN_CLIENT_IDS` | list | the admin pool's clients; required with the admin issuer |
+| `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | string | the admin pool id for `AdminGetUser`; required with the admin issuer |
 | `WMSFO_ADMIN_GROUP` | string | default `admin` |
 | `WMSFO_EDITOR_GROUP` | string | default `editor` |
-| `WMSFO_COGNITO_USER_POOL_ID` | string | the pool id for `AdminGetUser` |
 | `WMSFO_SES_FROM_ADDRESS` | mailbox | `Name <address>` or bare address |
 | `WMSFO_SES_CONFIGURATION_SET` | string | may be empty |
 | `WMSFO_CONTACT_NOTIFY_EMAIL` | address | valid |
@@ -188,25 +191,25 @@ Error shape: `ApiException(status, code, message, details)`; `RequestValidation`
 
 ### 6.2 Cognito ID token scheme
 
-`JwtBearer` configured from `WMSFO_COGNITO_ISSUER`:
+Two `JwtBearer` schemes, `CognitoPeopleJwt` from `WMSFO_COGNITO_ISSUER` and `CognitoAdminJwt` from `WMSFO_COGNITO_ADMIN_ISSUER` (the people pool's values again when the admin issuer is empty), behind one policy scheme named `CognitoJwt` whose selector reads the bearer's unverified `iss` and forwards to the admin scheme when it equals the admin issuer, else to the people scheme; the chosen scheme then verifies the token in full:
 
 ```csharp
-options.Authority = cfg.CognitoIssuer;                 // discovery + JWKS, cached, refreshed on unknown kid
+options.Authority = issuer;                            // discovery + JWKS, cached, refreshed on unknown kid
 options.TokenValidationParameters = new()
 {
-    ValidIssuer = cfg.CognitoIssuer,
-    ValidAudiences = cfg.CognitoClientIds,
+    ValidIssuer = issuer,
+    ValidAudiences = audiences,
     ValidateLifetime = true,
     ClockSkew = TimeSpan.FromSeconds(60),
 };
-options.Events.OnTokenValidated = ctx => RequireTokenUse(ctx, "id");   // reject access tokens
+options.Events.OnTokenValidated = ctx => RequireTokenUse(ctx, "id") then stamp wmsfo_pool = "admin" | "people";
 ```
 
-After validation an endpoint filter upserts the person (contracts 3.1 SQL) and attaches `person_id` to the request. Policies: `Person` (any valid token), `Editor` (`cognito:groups` contains `WMSFO_EDITOR_GROUP` or `WMSFO_ADMIN_GROUP`), `Admin` (contains `WMSFO_ADMIN_GROUP`); a policy miss is `403 forbidden`. Every `/admin/*` route names `Editor` or `Admin` per the contracts' group headings (4.5); the audit email is the `email` claim.
+After validation an endpoint filter upserts the person (contracts 3.1 SQL) and attaches `person_id` to the request. Policies: `Person` (any valid token from either pool), `Editor` (`wmsfo_pool` is `admin` and `cognito:groups` contains `WMSFO_EDITOR_GROUP` or `WMSFO_ADMIN_GROUP`), `Admin` (`wmsfo_pool` is `admin` and the groups contain `WMSFO_ADMIN_GROUP`); a policy miss is `403 forbidden`. Under `WMSFO_DEV_STATIC_TOKENS` the static handler registers as `CognitoJwt` itself and stamps the admin and editor tokens with the admin pool. Every `/admin/*` route names `Editor` or `Admin` per the contracts' group headings (4.5); the audit email is the `email` claim.
 
 ### 6.3 Admin TOTP gate
 
-`AdminTotpGate` is an endpoint filter attached by `RequireCapability` and `DenyApiKeys` (so every `/admin/*` endpoint carries it, under both the `Editor` and the `Admin` policy) that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the instance role and `WMSFO_COGNITO_USER_POOL_ID` in the secret. A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most. The gate skips requests authenticated by an API key (6.4). The checker is `CognitoAdminTotpChecker` over an `AmazonCognitoIdentityProviderClient` for `AWS_REGION`; with `WMSFO_DEV_STATIC_TOKENS` (section 20) there is no pool to ask and every admin counts as enrolled.
+`AdminTotpGate` is an endpoint filter attached by `RequireCapability` and `DenyApiKeys` (so every `/admin/*` endpoint carries it, under both the `Editor` and the `Admin` policy) that calls `AdminGetUser` for the token's `sub` once per 5 minutes per user (memory cache), and answers `403 mfa_required` unless `UserMFASettingList` contains `SOFTWARE_TOKEN_MFA`. Needs `cognito-idp:AdminGetUser` on the admin pool for the instance role and `WMSFO_COGNITO_ADMIN_USER_POOL_ID` in the secret (the people pool id when the admin issuer is empty). A Cognito call failure is treated as not enabled (`403`), logged at Warning; the cache means one failure per user per 5 minutes at most. The gate skips requests authenticated by an API key (6.4). The checker is `CognitoAdminTotpChecker` over an `AmazonCognitoIdentityProviderClient` for `AWS_REGION`; with `WMSFO_DEV_STATIC_TOKENS` (section 20) there is no pool to ask and every admin counts as enrolled.
 
 ### 6.4 API key scheme
 

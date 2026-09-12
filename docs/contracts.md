@@ -732,24 +732,24 @@ Dev (`wmsfo-api-dev`): `tag` is `<sha>-dev`; `realtimeAllowedOrigins` is `https:
 
 ### 3.1 Cognito
 
-Two pools, `wmsfo-dev` and `wmsfo-prod`, each with two app clients, both public (no client secret), authorization code grant with PKCE, scopes `openid email profile` (the `wmsfo-admin` client additionally `aws.cognito.signin.user.admin`, used by the panel's in-place TOTP enrolment). Username is the email address; Cognito verifies the email on sign-up; self sign-up is enabled (the site's sign-in link leads to the hosted UI, which offers sign-up). People and admins share the pool.
+Two pools per environment. The people pool (`wmsfo-dev`, `wmsfo-prod`) carries the `wmsfo-site` client: self sign-up is enabled (the site's sign-in link leads to the hosted UI, which offers sign-up) and it holds nobody with a role. The admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) carries the `wmsfo-admin` client: self sign-up is off (`AllowAdminCreateUserOnly`), an operator creates every account, and it holds the `admin` and `editor` groups. The API accepts an ID token from either pool but a role counts only on a token the admin pool issued, so a self-created account can never reach `/admin/*`. Both clients are public (no client secret), authorization code grant with PKCE, scopes `openid email profile` (the `wmsfo-admin` client additionally `aws.cognito.signin.user.admin`, used by the panel's in-place TOTP enrolment). Username is the email address; Cognito verifies the email on sign-up.
 
 | Client | Used by | Callback URLs | Sign-out URLs |
 |---|---|---|---|
-| `wmsfo-site` (`<site-client-id>`) | Public site | prod: `https://<site-domain>/auth/callback`; dev: `https://<preview-site-domain>/auth/callback`, `http://localhost:5173/auth/callback` | prod: `https://<site-domain>/`; dev: `https://<preview-site-domain>/`, `http://localhost:5173/` |
-| `wmsfo-admin` (`<admin-client-id>`) | Admin panel | prod: `https://<admin-domain>/auth/callback`; dev: `https://<admin-dev-domain>/auth/callback`, `http://localhost:5174/auth/callback` | prod: `https://<admin-domain>/`; dev: `https://<admin-dev-domain>/`, `http://localhost:5174/` |
+| `wmsfo-site` (`<site-client-id>`, people pool) | Public site | prod: `https://<site-domain>/auth/callback`; dev: `https://<preview-site-domain>/auth/callback`, `http://localhost:5173/auth/callback` | prod: `https://<site-domain>/`; dev: `https://<preview-site-domain>/`, `http://localhost:5173/` |
+| `wmsfo-admin` (`<admin-client-id>`, admin pool) | Admin panel | prod: `https://<admin-domain>/auth/callback`; dev: `https://<admin-dev-domain>/auth/callback`, `http://localhost:5174/auth/callback` | prod: `https://<admin-domain>/`; dev: `https://<admin-dev-domain>/`, `http://localhost:5174/` |
 
 Token lifetimes: ID and access tokens 60 minutes; refresh token 30 days on `wmsfo-site`, 1 day on `wmsfo-admin`.
 
-Pool MFA setting is optional with TOTP enabled and SMS disabled. Two groups: `admin` (name in `WMSFO_ADMIN_GROUP`, value `admin`) and `editor` (name in `WMSFO_EDITOR_GROUP`, value `editor`). Two authorization policies: `Editor` admits either group, `Admin` admits `admin` only; every `/admin/*` endpoint names one (4.5). The API enforces TOTP for both groups: on every `/admin/*` request it calls `AdminGetUser` for the token's `sub` (cached 5 minutes per user) and answers `403 mfa_required` unless `SOFTWARE_TOKEN_MFA` is enabled on the user. This needs `WMSFO_COGNITO_USER_POOL_ID` in the secret and `cognito-idp:AdminGetUser` on the instance role.
+Both pools' MFA setting is optional with TOTP enabled and SMS disabled. The admin pool's two groups: `admin` (name in `WMSFO_ADMIN_GROUP`, value `admin`) and `editor` (name in `WMSFO_EDITOR_GROUP`, value `editor`). Two authorization policies: `Editor` admits either group, `Admin` admits `admin` only, and both require the token to come from the admin pool; every `/admin/*` endpoint names one (4.5). The API enforces TOTP for both groups: on every `/admin/*` request it calls `AdminGetUser` on the admin pool for the token's `sub` (cached 5 minutes per user) and answers `403 mfa_required` unless `SOFTWARE_TOKEN_MFA` is enabled on the user. This needs `WMSFO_COGNITO_ADMIN_USER_POOL_ID` in the secret and `cognito-idp:AdminGetUser` on the admin pool for the instance role.
 
 **Token used on every surface: the ID token.** The site and the admin panel send `Authorization: Bearer <id-token>` to the API. The API validates:
 
 | Check | Value |
 |---|---|
-| Signature | JWKS at `https://cognito-idp.<region>.amazonaws.com/<pool-id>/.well-known/jwks.json`, cached, refreshed on an unknown `kid` |
-| `iss` | `WMSFO_COGNITO_ISSUER` = `https://cognito-idp.<region>.amazonaws.com/<pool-id>` |
-| `aud` | One of `WMSFO_COGNITO_CLIENT_IDS` |
+| Signature | JWKS at `https://cognito-idp.<region>.amazonaws.com/<pool-id>/.well-known/jwks.json` of the pool the token names, cached, refreshed on an unknown `kid` |
+| `iss` | `WMSFO_COGNITO_ISSUER` (the people pool) or `WMSFO_COGNITO_ADMIN_ISSUER` (the admin pool), each `https://cognito-idp.<region>.amazonaws.com/<pool-id>`; the API picks the scheme by the token's `iss` and stamps the principal with the pool it came from |
+| `aud` | One of `WMSFO_COGNITO_CLIENT_IDS` for the people pool, one of `WMSFO_COGNITO_ADMIN_CLIENT_IDS` for the admin pool |
 | `token_use` | `"id"` |
 | `exp` | Not expired, 60 s leeway |
 
@@ -1825,8 +1825,11 @@ Unsubscribe link in the body: `https://<site-domain>/alerts/unsubscribe?token=ws
   "WMSFO_CORS_ORIGINS": "https://<preview-site-domain>,https://<admin-dev-domain>,http://localhost:5173,http://localhost:5174",
   "WMSFO_TRUSTED_PROXY_HOPS": "2",
   "WMSFO_COGNITO_ISSUER": "https://cognito-idp.<region>.amazonaws.com/<pool-id>",
-  "WMSFO_COGNITO_CLIENT_IDS": "<site-client-id>,<admin-client-id>",
+  "WMSFO_COGNITO_CLIENT_IDS": "<site-client-id>",
   "WMSFO_COGNITO_USER_POOL_ID": "<pool-id>",
+  "WMSFO_COGNITO_ADMIN_ISSUER": "https://cognito-idp.<region>.amazonaws.com/<admin-pool-id>",
+  "WMSFO_COGNITO_ADMIN_CLIENT_IDS": "<admin-client-id>",
+  "WMSFO_COGNITO_ADMIN_USER_POOL_ID": "<admin-pool-id>",
   "WMSFO_ADMIN_GROUP": "admin",
   "WMSFO_EDITOR_GROUP": "editor",
   "WMSFO_SES_FROM_ADDRESS": "Santa Tracker <alerts@<mail-domain>>",
@@ -1879,7 +1882,7 @@ The site fetches `VITE_CDN_BASE_URL + "/live/location.json"` and otherwise only 
 
 ### 8.4 Admin panel (Vercel, `VITE_` prefix)
 
-`VITE_ENV`, `VITE_API_BASE_URL`, `VITE_CDN_BASE_URL`, `VITE_COGNITO_AUTHORITY`, `VITE_COGNITO_DOMAIN`, `VITE_COGNITO_CLIENT_ID` (`<admin-client-id>`). Two projects: one deployed from `main` with the prod set at `<admin-domain>`, one deployed from `dev` with the dev set at `<admin-dev-domain>`. Local work runs on `http://localhost:5174` with the dev set in `.env.local`.
+`VITE_ENV`, `VITE_API_BASE_URL`, `VITE_CDN_BASE_URL`, `VITE_COGNITO_AUTHORITY` (the admin pool's issuer), `VITE_COGNITO_DOMAIN` (the admin pool's managed login domain), `VITE_COGNITO_CLIENT_ID` (`<admin-client-id>`). Two projects: one deployed from `main` with the prod set at `<admin-domain>`, one deployed from `dev` with the dev set at `<admin-dev-domain>`. Local work runs on `http://localhost:5174` with the dev set in `.env.local`.
 
 ### 8.5 Red-Nose (build config per flavour, `dev` and `prod`)
 

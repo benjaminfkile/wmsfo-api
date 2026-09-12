@@ -24,9 +24,10 @@ public static class WmsfoPipeline
         authBuilder.AddScheme<BeaconAuthenticationOptions, BeaconAuthenticationHandler>(
             AuthSchemes.BeaconKey, _ => { });
 
-        // Cognito JWT (6.2) or the dev static token scheme when
-        // WMSFO_DEV_STATIC_TOKENS is on. Both register under the same scheme name
-        // so endpoint policies stay one line.
+        // Cognito JWT (6.2): one bearer scheme per pool and a selector on the
+        // token's iss under the CognitoJwt name, or the dev static token scheme
+        // under that same name when WMSFO_DEV_STATIC_TOKENS is on, so endpoint
+        // policies stay one line.
         if (options.DevStaticTokens)
         {
             authBuilder.AddScheme<DevStaticTokenAuthenticationOptions, DevStaticTokenAuthenticationHandler>(
@@ -34,7 +35,13 @@ public static class WmsfoPipeline
         }
         else
         {
-            authBuilder.AddJwtBearer(AuthSchemes.CognitoJwt, o => CognitoAuth.Configure(o, options));
+            authBuilder.AddJwtBearer(AuthSchemes.CognitoPeopleJwt, o => CognitoAuth.ConfigurePeople(o, options));
+            authBuilder.AddJwtBearer(AuthSchemes.CognitoAdminJwt, o => CognitoAuth.ConfigureAdmin(o, options));
+            authBuilder.AddPolicyScheme(AuthSchemes.CognitoJwt, "Cognito people or admin pool", o =>
+            {
+                o.ForwardDefaultSelector = ctx =>
+                    CognitoAuth.SelectScheme(ctx.Request.Headers.Authorization.ToString(), options);
+            });
         }
 
         // 6.4 api key scheme, and a composite that hands wak_ bearers to it and
