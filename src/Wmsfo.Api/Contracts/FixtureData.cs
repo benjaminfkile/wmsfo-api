@@ -153,8 +153,144 @@ public static class FixtureData
             Content = content,
             Media = media,
             Icons = icons,
+            QrCodes = new SortedDictionary<string, SnapshotQrCode>(StringComparer.Ordinal)
+            {
+                // The example code resolves through an ancestor place that opens
+                // the sponsors page; the snapshot carries the resolved slug.
+                ["qr-001"] = new SnapshotQrCode { PageSlug = "sponsors", ForwardUrl = null },
+            },
         };
     }
+
+    public static QrCodeDto BuildQrCode() => new()
+    {
+        Id = 1,
+        Tag = "qr-001",
+        BatchNo = 1,
+        PrintedAt = DateTimeOffset.Parse("2026-12-20T18:00:00.000Z"),
+        Active = true,
+        Note = "",
+        OpensPageId = null,
+        ForwardUrl = null,
+        Opens = new Contracts.Dtos.OpensDto { Kind = "page", PageId = 4, Slug = "sponsors" },
+        OpensSource = "place",
+        Attachment = new Contracts.Dtos.QrAttachmentSummaryDto
+        {
+            Id = 3,
+            PlaceId = 5,
+            PlacePath = new List<string> { "Southgate Mall", "West wing" },
+            Since = DateTimeOffset.Parse("2026-12-20T20:00:00.000Z"),
+        },
+        Scans = new Contracts.Dtos.QrScanSummaryDto
+        {
+            People = 42,
+            Flagged = 3,
+            LastScanAt = DateTimeOffset.Parse("2026-12-22T01:00:00.000Z"),
+        },
+        CreatedBy = "canvasser@wmsfo.test",
+        CreatedAt = DateTimeOffset.Parse("2026-12-20T18:00:00.000Z"),
+        UpdatedAt = DateTimeOffset.Parse("2026-12-20T20:00:00.000Z"),
+        Audit = new Contracts.Dtos.AuditStampDto
+        {
+            Action = "attach",
+            By = "person:canvasser@wmsfo.test",
+            At = DateTimeOffset.Parse("2026-12-20T20:00:00.000Z"),
+        },
+    };
+
+    public static QrCodeDetailDto BuildQrCodeDetail()
+    {
+        var basic = BuildQrCode();
+        return new QrCodeDetailDto
+        {
+            Id = basic.Id,
+            Tag = basic.Tag,
+            BatchNo = basic.BatchNo,
+            PrintedAt = basic.PrintedAt,
+            Active = basic.Active,
+            Note = basic.Note,
+            OpensPageId = basic.OpensPageId,
+            ForwardUrl = basic.ForwardUrl,
+            Opens = basic.Opens,
+            OpensSource = basic.OpensSource,
+            Attachment = basic.Attachment,
+            Scans = basic.Scans,
+            CreatedBy = basic.CreatedBy,
+            CreatedAt = basic.CreatedAt,
+            UpdatedAt = basic.UpdatedAt,
+            Audit = basic.Audit,
+            History = new List<Contracts.Dtos.QrHistoryEntryDto>
+            {
+                new()
+                {
+                    AttachmentId = 3,
+                    PlaceId = 5,
+                    PlacePath = new List<string> { "Southgate Mall", "West wing" },
+                    FromAt = DateTimeOffset.Parse("2026-12-20T20:00:00.000Z"),
+                    ToAt = null,
+                    People = 42,
+                    EarlyScans = 2,
+                },
+            },
+            Daily = new List<Contracts.Dtos.QrDailyDto>
+            {
+                new() { Day = "2026-12-20", People = 12 },
+                new() { Day = "2026-12-21", People = 18 },
+                new() { Day = "2026-12-22", People = 12 },
+            },
+        };
+    }
+
+    public static Contracts.Dtos.PlaceDto BuildPlace() => new()
+    {
+        Id = 5,
+        ParentId = 2,
+        Name = "West wing",
+        Description = "Wing near the food court",
+        Path = new List<string> { "Southgate Mall", "West wing" },
+        OpensPageId = null,
+        ForwardUrl = null,
+        Opens = new Contracts.Dtos.OpensDto { Kind = "page", PageId = 4, Slug = "sponsors" },
+        OpensSource = "ancestor",
+        Location = new Contracts.Dtos.PlaceLocationDto
+        {
+            Lat = 46.916,
+            Lng = -114.039,
+            AccuracyM = 140,
+            Source = "phone",
+            PinnedBy = "canvasser@wmsfo.test",
+            PinnedAt = DateTimeOffset.Parse("2026-12-20T19:00:00.000Z"),
+        },
+        Pin = new Contracts.Dtos.PlacePinResolvedDto { Lat = 46.916, Lng = -114.039, FromPlaceId = 5 },
+        Codes = new List<Contracts.Dtos.PlaceCodeRefDto>
+        {
+            new() { Id = 1, Tag = "qr-001" },
+        },
+        Scans = new Contracts.Dtos.PlaceScansDto { People = 42 },
+        CreatedBy = "canvasser@wmsfo.test",
+        CreatedAt = DateTimeOffset.Parse("2026-12-20T18:00:00.000Z"),
+        UpdatedAt = DateTimeOffset.Parse("2026-12-20T19:00:00.000Z"),
+        Audit = new Contracts.Dtos.AuditStampDto
+        {
+            Action = "location",
+            By = "person:canvasser@wmsfo.test",
+            At = DateTimeOffset.Parse("2026-12-20T19:00:00.000Z"),
+        },
+    };
+
+    public static Contracts.Dtos.PlacePinDto BuildPlacePin() => new()
+    {
+        PlaceId = 5,
+        Name = "West wing",
+        Path = new List<string> { "Southgate Mall", "West wing" },
+        Lat = 46.916,
+        Lng = -114.039,
+        People = 42,
+        Codes = new List<Contracts.Dtos.PlacePinCodeRefDto>
+        {
+            new() { Tag = "qr-001", PlaceName = "West wing", People = 42 },
+        },
+    };
 
     public static RouteObject BuildRoute() => new()
     {

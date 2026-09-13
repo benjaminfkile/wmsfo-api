@@ -392,3 +392,61 @@ public sealed class AuditLog
     public JsonDocument? After { get; set; }
     public string? RequestId { get; set; }
 }
+
+public sealed class Place
+{
+    public long Id { get; set; }
+    public long? ParentId { get; set; }
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public long? OpensPageId { get; set; }
+    public string? ForwardUrl { get; set; }
+    public double? Lat { get; set; }
+    public double? Lng { get; set; }
+    public double? AccuracyM { get; set; }
+    public string? PinSource { get; set; }
+    public string? PinnedBy { get; set; }
+    public DateTimeOffset? PinnedAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class QrCode
+{
+    public long Id { get; set; }
+    public string Tag { get; set; } = "";
+    public int BatchNo { get; set; }
+    public DateTimeOffset PrintedAt { get; set; }
+    public bool Active { get; set; }
+    public string Note { get; set; } = "";
+    public long? OpensPageId { get; set; }
+    public string? ForwardUrl { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class QrAttachment
+{
+    public long Id { get; set; }
+    public long QrCodeId { get; set; }
+    public long PlaceId { get; set; }
+    public DateTimeOffset FromAt { get; set; }
+    public DateTimeOffset? ToAt { get; set; }
+    public string AttachedBy { get; set; } = "";
+}
+
+public sealed class QrScan
+{
+    public long Id { get; set; }
+    public long QrCodeId { get; set; }
+    public long? AttachmentId { get; set; }
+    public long? EventId { get; set; }
+    public DateTimeOffset At { get; set; }
+    public string? UserAgent { get; set; }
+    public string? Referrer { get; set; }
+    public string IpHash { get; set; } = "";
+    public bool IsBot { get; set; }
+    public bool IsRepeat { get; set; }
+}

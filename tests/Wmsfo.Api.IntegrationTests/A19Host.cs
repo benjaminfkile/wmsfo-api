@@ -74,6 +74,8 @@ public sealed class A19Host : IAsyncDisposable
             CognitoUserPoolId = "us-east-2_pool",
             AdminGroup = "admin",
             EditorGroup = "editor",
+            CanvasserGroup = "canvasser",
+            ScanSalt = "test-scan-salt",
             SesFromAddress = "alerts@example.com",
             ContactNotifyEmail = "inbox@example.com",
             AlertSendPerSec = 10,
@@ -162,6 +164,8 @@ public sealed class A19Host : IAsyncDisposable
         AdminContentEndpoints.MapAll(app);
         AdminApiKeyEndpoints.MapAll(app);
         AdminAuditEndpoints.MapAll(app);
+        QrEndpoints.MapAll(app);
+        PlaceEndpoints.MapAll(app);
         AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
         // Local-upload route (Program.cs installs this when LocalObjectStore is
@@ -217,6 +221,9 @@ public sealed class A19Host : IAsyncDisposable
 
     public HttpRequestMessage PersonRequest(HttpMethod method, string path) =>
         Bearer(method, path, DevStaticTokens.PersonToken);
+
+    public HttpRequestMessage CanvasserRequest(HttpMethod method, string path) =>
+        Bearer(method, path, DevStaticTokens.CanvasserToken);
 
     private static HttpRequestMessage Bearer(HttpMethod method, string path, string token)
     {

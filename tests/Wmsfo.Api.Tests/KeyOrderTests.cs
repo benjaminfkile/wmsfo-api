@@ -26,7 +26,7 @@ public class KeyOrderTests
     {
         var expected = new[]
         {
-            "schemaVersion", "event", "sponsors", "cookieTypes", "content", "media", "icons",
+            "schemaVersion", "event", "qrCodes", "sponsors", "cookieTypes", "content", "media", "icons",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json"));
         Assert.Equal(expected, actual);

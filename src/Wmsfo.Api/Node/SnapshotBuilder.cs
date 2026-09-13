@@ -328,6 +328,73 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
         snap.Sponsors = sponsors;
         snap.CookieTypes = cookieTypes;
 
+        // 6a. qrCodes: every active printed code already resolved (contracts 4.5a).
+        // A code resolves its own opens setting, else the nearest ancestor of its
+        // open attachment's place, else null (the home page, meaning absent from
+        // the map). Each active code with an open attachment triggers one
+        // recursive walk of the place tree (up to 32 levels) to resolve the
+        // ancestor's opens setting.
+        var qrCodes = new SortedDictionary<string, SnapshotQrCode>(StringComparer.Ordinal);
+        var attachedCodes = new List<(string Tag, long? CodePage, string? CodeUrl, long? StartPlace)>();
+        await using (var cmd = new NpgsqlCommand(@"
+select c.tag, c.opens_page_id, c.forward_url, a.place_id
+from qr_code c
+left join qr_attachment a on a.qr_code_id = c.id and a.to_at is null
+where c.active;", conn, tx))
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var tag = reader.GetString(0);
+                long? codePage = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+                string? codeUrl = reader.IsDBNull(2) ? null : reader.GetString(2);
+                long? startPlace = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+                attachedCodes.Add((tag, codePage, codeUrl, startPlace));
+            }
+        }
+        // Build a page-id -> slug map for role pages ('/') and non-role pages.
+        var pageSlug = new Dictionary<long, string>();
+        var pageRole = new Dictionary<long, string>();
+        var hiddenPages = new HashSet<long>();
+        await using (var cmd = new NpgsqlCommand(
+            "select id, slug, role, is_hidden from page;", conn, tx))
+        {
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var pid = reader.GetInt64(0);
+                pageSlug[pid] = reader.GetString(1);
+                pageRole[pid] = reader.GetString(2);
+                if (reader.GetBoolean(3)) hiddenPages.Add(pid);
+            }
+        }
+        foreach (var code in attachedCodes)
+        {
+            long? resolvedPage = code.CodePage;
+            string? resolvedUrl = code.CodeUrl;
+            if (resolvedPage is null && resolvedUrl is null && code.StartPlace is long startId)
+            {
+                var (p, u) = await ResolvePlaceOpensAsync(conn, tx, startId, ct).ConfigureAwait(false);
+                resolvedPage = p;
+                resolvedUrl = u;
+            }
+            string? slug = null;
+            string? url = null;
+            if (resolvedPage is long pageId && pageSlug.TryGetValue(pageId, out var s) && !hiddenPages.Contains(pageId))
+            {
+                var role = pageRole.TryGetValue(pageId, out var rl) ? rl : "none";
+                slug = role == "none" ? s : "/";
+            }
+            else if (resolvedUrl is not null)
+            {
+                url = resolvedUrl;
+            }
+            // Absent from the map means "opens the home page" (contracts 1.3).
+            if (slug is null && url is null) continue;
+            qrCodes[code.Tag] = new SnapshotQrCode { PageSlug = slug, ForwardUrl = url };
+        }
+        snap.QrCodes = qrCodes;
+
         // 7. the published content document (newest content_version row) verbatim.
         Guid[] contentMediaIds = Array.Empty<Guid>();
         ContentDocument content = new ContentDocument
@@ -416,6 +483,35 @@ order by id;", conn, tx);
         snap.Icons = icons;
 
         return snap;
+    }
+
+    // contracts 4.5a: walk the place chain from placeId up to at most 32 levels,
+    // returning the first ancestor's opens_page_id or forward_url that is set;
+    // (null, null) when the chain is exhausted with no setter (the home page).
+    private static async Task<(long? PageId, string? Url)> ResolvePlaceOpensAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, long placeId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+with recursive chain(id, parent_id, opens_page_id, forward_url, depth) as (
+  select id, parent_id, opens_page_id, forward_url, 0
+  from place where id = $1
+  union all
+  select p.id, p.parent_id, p.opens_page_id, p.forward_url, c.depth + 1
+  from place p
+  join chain c on p.id = c.parent_id
+  where c.depth < 32
+)
+select opens_page_id, forward_url
+from chain
+where opens_page_id is not null or forward_url is not null
+order by depth
+limit 1;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = placeId });
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return (null, null);
+        var pageId = reader.IsDBNull(0) ? (long?)null : reader.GetInt64(0);
+        var url = reader.IsDBNull(1) ? null : reader.GetString(1);
+        return (pageId, url);
     }
 
     private static int ComputeLingerMs(decimal? amount, int? lingerOverride, int perDollar, int minMs)

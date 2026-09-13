@@ -25,19 +25,32 @@ public sealed class LiveObject
     [JsonPropertyOrder(15)] public DateTimeOffset PublishedAt { get; set; }
 }
 
-// Snapshot contracts 1.3.
+// Snapshot contracts 1.3. `qrCodes` is a top-level property (contracts 1.3, 4.5a);
+// the doc row lists it interspersed with event fields but the key is not
+// prefixed with `event.`, so it sits at the snapshot's root, right after the
+// event object.
 public sealed class Snapshot
 {
     [JsonPropertyOrder(0)] public int SchemaVersion { get; set; } = 1;
     [JsonPropertyOrder(1)] public SnapshotEvent? Event { get; set; }
-    [JsonPropertyOrder(2)] public IList<SnapshotSponsor> Sponsors { get; set; } = new List<SnapshotSponsor>();
-    [JsonPropertyOrder(3)] public IList<SnapshotCookieType> CookieTypes { get; set; } = new List<SnapshotCookieType>();
+    // Every active printed code already resolved (contracts 4.5a). Keys are QR
+    // tags in ascending string order; absent tags open the home page.
+    [JsonPropertyOrder(2)] public SortedDictionary<string, SnapshotQrCode> QrCodes { get; set; } = new(StringComparer.Ordinal);
+    [JsonPropertyOrder(3)] public IList<SnapshotSponsor> Sponsors { get; set; } = new List<SnapshotSponsor>();
+    [JsonPropertyOrder(4)] public IList<SnapshotCookieType> CookieTypes { get; set; } = new List<SnapshotCookieType>();
     // The published content document (contracts 1.3a) verbatim.
-    [JsonPropertyOrder(4)] public ContentDocument Content { get; set; } = new();
+    [JsonPropertyOrder(5)] public ContentDocument Content { get; set; } = new();
     // Keys in ascending string order (contracts 1.3).
-    [JsonPropertyOrder(5)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
+    [JsonPropertyOrder(6)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
     // Keys in ascending string order (contracts 1.3).
-    [JsonPropertyOrder(6)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
+    [JsonPropertyOrder(7)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
+}
+
+// One resolved QR code inside `qrCodes` (contracts 1.3, 4.5a).
+public sealed class SnapshotQrCode
+{
+    [JsonPropertyOrder(0)] public string? PageSlug { get; set; }
+    [JsonPropertyOrder(1)] public string? ForwardUrl { get; set; }
 }
 
 public sealed class SnapshotEvent
