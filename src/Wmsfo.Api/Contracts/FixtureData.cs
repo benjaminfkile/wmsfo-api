@@ -13,7 +13,8 @@ public static class FixtureData
     public const string RouteSha    = "9c0e5b7d3f4a2c1e8b6a9d0f5e2c4b7a1d8f3c9e6b4a7d2f5c8e1b0a9f4d77ab";
     public const string CookieIconSha    = "bb2200000000000000000000000000000000000000000000000000000000ffff";
     public const string CandyCaneIconSha = "aa1100000000000000000000000000000000000000000000000000000000ffff";
-    public const string MediaAssetIdSvg    = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
+    public const string HangarMediaId      = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
+    public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
     public const string RoutePosterMediaId = "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
@@ -64,13 +65,28 @@ public static class FixtureData
                 },
                 Dzi = $"{CdnBase}/media/{RoutePosterMediaId}/dzi/poster.dzi",
             },
-            [MediaAssetIdSvg] = new MediaEntry
+            [HangarMediaId] = new MediaEntry
             {
-                Url = $"{CdnBase}/media/{MediaAssetIdSvg}/logo.svg",
+                Url = $"{CdnBase}/media/{HangarMediaId}/hangar.jpg",
+                Kind = "raster",
+                Width = 2400,
+                Height = 1600,
+                Alt = "The helicopter in its hangar",
+                Variants = new SortedDictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["1600"] = $"{CdnBase}/media/{HangarMediaId}/w1600.webp",
+                    ["480"]  = $"{CdnBase}/media/{HangarMediaId}/w480.webp",
+                    ["960"]  = $"{CdnBase}/media/{HangarMediaId}/w960.webp",
+                },
+                Dzi = $"{CdnBase}/media/{HangarMediaId}/dzi/poster.dzi",
+            },
+            [GingerbreadMediaId] = new MediaEntry
+            {
+                Url = $"{CdnBase}/media/{GingerbreadMediaId}/gingerbread.svg",
                 Kind = "svg",
                 Width = null,
                 Height = null,
-                Alt = "Sponsor logo",
+                Alt = "Gingerbread cookie",
                 Variants = new SortedDictionary<string, string>(StringComparer.Ordinal),
                 Dzi = null,
             },
@@ -123,7 +139,7 @@ public static class FixtureData
                     WebsiteUrl = "https://example.com",
                     FbUrl = null,
                     IgUrl = "https://instagram.com/example",
-                    LogoMediaId = MediaAssetIdSvg,
+                    LogoMediaId = HangarMediaId,
                     LatestYear = 2026,
                     YearsAsSponsor = 3,
                     LingerMs = 12000,
@@ -132,7 +148,7 @@ public static class FixtureData
             CookieTypes = new List<SnapshotCookieType>
             {
                 new() { Id = 1, Name = "Chocolate chip", Icon = new IconValue { Source = "library", Id = "cookie" }, Sort = 10 },
-                new() { Id = 3, Name = "Gingerbread",    Icon = new IconValue { Source = "library", Id = "candy-cane" }, Sort = 20 },
+                new() { Id = 3, Name = "Gingerbread",    Icon = new IconValue { Source = "media", Id = GingerbreadMediaId }, Sort = 20 },
             },
             Content = content,
             Media = media,
