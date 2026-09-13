@@ -27,20 +27,25 @@ public static class EndpointCapabilityExtensions
     // endpoint group. The CapabilityOrGroupRequirement handler reads this
     // to decide the API-key branch of the policy. The call also attaches the
     // AdminTotpGate (api.md 6.3): every /admin/* endpoint carries the gate,
-    // which skips API-key principals on its own.
+    // which skips API-key principals on its own. Every /admin/* endpoint also
+    // carries the AuditEndpointFilter (api.md 5a): a POST / PATCH / PUT / DELETE
+    // whose response is 2xx and whose metadata declares an audit action and
+    // entity records one row in audit_log.
     public static TBuilder RequireCapability<TBuilder>(this TBuilder builder, string capability)
         where TBuilder : IEndpointConventionBuilder
     {
         var metadata = new RequireCapabilityMetadata(capability);
-        return builder.WithMetadata(metadata).WithAdminTotpGate();
+        return builder.WithMetadata(metadata).WithAdminTotpGate().WithAuditFilter();
     }
 
     // Mark the endpoint as Cognito-only: an API-key principal is refused with
-    // 403 forbidden regardless of capability. The TOTP gate applies here too.
+    // 403 forbidden regardless of capability. The TOTP gate applies here too;
+    // the audit filter attaches so denied endpoints still audit on the writes
+    // that succeed (api.md 5a).
     public static TBuilder DenyApiKeys<TBuilder>(this TBuilder builder)
         where TBuilder : IEndpointConventionBuilder
     {
-        return builder.WithMetadata(new DenyApiKeysMetadata()).WithAdminTotpGate();
+        return builder.WithMetadata(new DenyApiKeysMetadata()).WithAdminTotpGate().WithAuditFilter();
     }
 
     // The gate is the registered singleton (its five-minute cache is shared by
@@ -50,6 +55,16 @@ public static class EndpointCapabilityExtensions
     {
         return builder.AddEndpointFilter(async (ctx, next) =>
             await ctx.HttpContext.RequestServices.GetRequiredService<AdminTotpGate>().Filter(ctx, next));
+    }
+
+    // The scoped audit filter. Attached alongside the TOTP gate so every admin
+    // endpoint carries it. On admin writes with 2xx responses, the filter
+    // records one row in audit_log (fallback path per api.md 5a).
+    public static TBuilder WithAuditFilter<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.AddEndpointFilter(async (ctx, next) =>
+            await ctx.HttpContext.RequestServices.GetRequiredService<Wmsfo.Api.Endpoints.AuditEndpointFilter>().InvokeAsync(ctx, next));
     }
 }
 

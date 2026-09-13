@@ -130,6 +130,7 @@ public sealed class SponsorDto
     public IList<SponsorYearDto> Years { get; set; } = new List<SponsorYearDto>();
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SponsorYearDto
@@ -519,4 +520,24 @@ public sealed class ErrorResponse
     public string Message { get; set; } = "";
     public JsonElement? Details { get; set; }
     public string RequestId { get; set; } = "";
+}
+
+public sealed class AuditStampDto
+{
+    public string Action { get; set; } = "";
+    public string By { get; set; } = "";
+    public DateTimeOffset At { get; set; }
+}
+
+public sealed class AuditEntryDto
+{
+    public long Id { get; set; }
+    public DateTimeOffset At { get; set; }
+    public string Actor { get; set; } = "";
+    public string Action { get; set; } = "";
+    public string Entity { get; set; } = "";
+    public string EntityId { get; set; } = "";
+    public JsonElement? Before { get; set; }
+    public JsonElement? After { get; set; }
+    public string? RequestId { get; set; }
 }

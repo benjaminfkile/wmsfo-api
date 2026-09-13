@@ -105,6 +105,9 @@ public sealed class A12Host : IAsyncDisposable
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<AuditRecorder>();
+        builder.Services.AddSingleton<AuditEndpointFilter>();
         // Real DB person upsert so cookies (with a foreign key to person) actually persist.
         builder.Services.AddSingleton<IPersonUpsert, DbPersonUpsert>();
 

@@ -179,20 +179,17 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/cookie-types/{id:long}",
-            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
                 {
                     await GuardNoLiveEventAsync(conn, tx, token);
 
-                    int cookieCount;
-                    await using (var count = new NpgsqlCommand(
-                        "select count(*)::int from cookie where cookie_type_id = $1;", conn, tx))
-                    {
-                        count.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        cookieCount = (int)(await count.ExecuteScalarAsync(token) ?? 0);
-                    }
+                    CookieTypeDto? before = await ReadByIdAsync(conn, tx, id, token);
+                    if (before is null) throw NotFound("cookie type not found");
+
+                    int cookieCount = before.CookieCount;
                     if (cookieCount > 0)
                     {
                         throw new ApiException(StatusCodes.Status409Conflict,
@@ -205,6 +202,9 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var rows = await del.ExecuteNonQueryAsync(token);
                     if (rows == 0) throw NotFound("cookie type not found");
+                    await audit.RecordAsync(conn, tx, "delete", "cookie_type",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -213,7 +213,8 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.CookieTypes)
-            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson)
+            .WithAudit("delete", "cookie_type");
     }
 
     private sealed record CookieTypeInUseDetails(

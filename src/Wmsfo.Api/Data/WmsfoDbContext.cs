@@ -52,6 +52,7 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<ContentVersion> ContentVersion => Set<ContentVersion>();
     public DbSet<PreviewToken> PreviewToken => Set<PreviewToken>();
     public DbSet<IconLibraryState> IconLibraryState => Set<IconLibraryState>();
+    public DbSet<AuditLog> AuditLog => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -728,6 +729,35 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.ExpiresAt).HasColumnType("timestamptz").IsRequired();
             e.HasAlternateKey(x => x.TokenHash).HasName("preview_token_token_hash_key");
+        });
+
+        // 3.29 audit_log
+        mb.Entity<AuditLog>(e =>
+        {
+            e.ToTable("audit_log", t =>
+                t.HasComment("One row per admin write. Actor is person:<email> or key:<name>; action is create/update/delete or the endpoint verb; entity is the kind and entity_id is the row id as text; before and after are the endpoint response shapes (4.5 Audit). Read by GET /admin/audit and by the audit stamp on every DTO that carries one."));
+            e.HasKey(x => x.Id).HasName("audit_log_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.At).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.Actor).HasColumnType("text").IsRequired()
+                .HasComment("person:<email> or key:<name>.");
+            e.Property(x => x.Action).HasColumnType("text").IsRequired()
+                .HasComment("create, update, delete, or the endpoint's verb (4.5 Audit).");
+            e.Property(x => x.Entity).HasColumnType("text").IsRequired()
+                .HasComment("The entity kind (4.5 Audit).");
+            e.Property(x => x.EntityId).HasColumnType("text").IsRequired()
+                .HasComment("The row's id as text (uuid for media, a setting's key, the year for a sponsor order).");
+            e.Property(x => x.Before).HasColumnType("jsonb")
+                .HasComment("The resource before the write, null on create.");
+            e.Property(x => x.After).HasColumnType("jsonb")
+                .HasComment("The resource after the write, null on delete.");
+            e.Property(x => x.RequestId).HasColumnType("text");
+            e.HasIndex(x => new { x.Entity, x.EntityId, x.Id })
+                .HasDatabaseName("audit_log_entity")
+                .IsDescending(false, false, true);
+            e.HasIndex(x => new { x.Action, x.Id })
+                .HasDatabaseName("audit_log_action")
+                .IsDescending(false, true);
         });
 
         // 3.28 icon_library_state

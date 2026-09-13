@@ -118,6 +118,9 @@ public sealed class A19Host : IAsyncDisposable
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<AuditRecorder>();
+        builder.Services.AddSingleton<AuditEndpointFilter>();
         builder.Services.AddSingleton<StarterContent>();
         builder.Services.AddSingleton<Publisher>();
         builder.Services.AddSingleton<Restorer>();
@@ -157,6 +160,8 @@ public sealed class A19Host : IAsyncDisposable
         PublicWriteEndpoints.MapAll(app);
         AdminInboxEndpoints.MapAll(app);
         AdminContentEndpoints.MapAll(app);
+        AdminApiKeyEndpoints.MapAll(app);
+        AdminAuditEndpoints.MapAll(app);
         AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
         // Local-upload route (Program.cs installs this when LocalObjectStore is

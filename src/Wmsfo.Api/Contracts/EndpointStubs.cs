@@ -628,6 +628,15 @@ public static class EndpointStubs
         app.MapPost("/admin/api-keys/{id:long}/revoke", NotImplemented)
             .WithTags("AdminApiKeys")
             .Produces<ApiKeyDto>(StatusCodes.Status200OK);
+
+        // A31 audit log endpoints.
+        app.MapGet("/admin/audit", NotImplemented)
+            .WithTags("AdminAudit")
+            .Produces<PageResponse<AuditEntryDto>>(StatusCodes.Status200OK);
+
+        app.MapGet("/admin/audit/entities", NotImplemented)
+            .WithTags("AdminAudit")
+            .Produces<ItemsResponse<string>>(StatusCodes.Status200OK);
     }
 
     // The diagnostics endpoints have real handlers in Node.AdminDiagnosticsEndpoints;
