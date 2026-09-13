@@ -379,3 +379,16 @@ public sealed class IconLibraryState
     public string? LibrarySha256 { get; set; }
     public DateTimeOffset? WrittenAt { get; set; }
 }
+
+public sealed class AuditLog
+{
+    public long Id { get; set; }
+    public DateTimeOffset At { get; set; }
+    public string Actor { get; set; } = "";
+    public string Action { get; set; } = "";
+    public string Entity { get; set; } = "";
+    public string EntityId { get; set; } = "";
+    public JsonDocument? Before { get; set; }
+    public JsonDocument? After { get; set; }
+    public string? RequestId { get; set; }
+}

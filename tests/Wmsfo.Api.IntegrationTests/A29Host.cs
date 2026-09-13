@@ -108,6 +108,9 @@ public sealed class A29Host : IAsyncDisposable
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<AuditRecorder>();
+        builder.Services.AddSingleton<AuditEndpointFilter>();
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);

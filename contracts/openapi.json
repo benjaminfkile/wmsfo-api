@@ -2349,6 +2349,44 @@
         }
       }
     },
+    "/admin/audit": {
+      "get": {
+        "tags": [
+          "AdminAudit"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponseOfAuditEntryDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/audit/entities": {
+      "get": {
+        "tags": [
+          "AdminAudit"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfstring"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/realtime/authorize": {
       "post": {
         "tags": [
@@ -2737,6 +2775,76 @@
           },
           "key": {
             "type": "string"
+          }
+        }
+      },
+      "AuditEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "entity": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string"
+          },
+          "before": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "after": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "requestId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AuditStampDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -4186,6 +4294,17 @@
           }
         }
       },
+      "ItemsResponseOfstring": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ItemsResponseOfSubscriptionDto": {
         "type": "object",
         "properties": {
@@ -5225,6 +5344,23 @@
           }
         }
       },
+      "PageResponseOfAuditEntryDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PageResponseOfContactMessageDto": {
         "type": "object",
         "properties": {
@@ -6198,6 +6334,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -6703,6 +6849,9 @@
     },
     {
       "name": "AdminApiKeys"
+    },
+    {
+      "name": "AdminAudit"
     },
     {
       "name": "Realtime"

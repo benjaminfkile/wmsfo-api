@@ -98,6 +98,9 @@ public sealed class A26Host : IAsyncDisposable
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<AuditRecorder>();
+        builder.Services.AddSingleton<AuditEndpointFilter>();
         // Deterministic no-op so the tests do not race with the background stamp.
         builder.Services.AddSingleton<IApiKeyLastUsedStamp, NoOpApiKeyLastUsedStamp>();
 

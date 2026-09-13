@@ -116,6 +116,9 @@ public sealed class A30Host : IAsyncDisposable
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddHttpContextAccessor();
+        builder.Services.AddScoped<AuditRecorder>();
+        builder.Services.AddSingleton<AuditEndpointFilter>();
         builder.Services.AddSingleton<IPersonUpsert, DbPersonUpsert>();
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);

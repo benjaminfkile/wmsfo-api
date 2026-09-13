@@ -135,7 +135,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
     {
         app.MapPatch("/admin/sponsors/{id:long}",
             async (long id, PatchSponsorRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   WmsfoOptions options, CancellationToken ct) =>
+                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Name is not null) ValidateName(body.Name, v);
@@ -164,7 +164,9 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
 
                 var (dto, _) = await snap.RunAsync<SponsorDto>(async (conn, tx, token) =>
                 {
-                    // Confirm the sponsor exists (and lock it).
+                    // Confirm the sponsor exists (and lock it), and capture the
+                    // pre-write DTO so the audit row carries a proper `before`.
+                    SponsorDto? before;
                     await using (var check = new NpgsqlCommand(
                         "select 1 from sponsor where id = $1 for update;", conn, tx))
                     {
@@ -172,6 +174,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound("sponsor not found");
                     }
+                    before = await ReadSponsorByIdAsync(conn, tx, id, options, token);
 
                     // Check logo media asset readiness when the caller is setting a new id.
                     if (setLogo && parsedLogo is not null)
@@ -222,6 +225,9 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
 
                     var updated = await ReadSponsorByIdAsync(conn, tx, id, options, token);
                     if (updated is null) throw NotFound("sponsor not found");
+                    await audit.RecordAsync(conn, tx, "update", "sponsor",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, updated, token);
                     return updated;
                 }, ct);
                 return Results.Ok(dto);
@@ -232,7 +238,8 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Sponsors)
-            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson)
+            .WithAudit("update", "sponsor");
     }
 
     // DELETE /admin/sponsors/{id} [snapshot]. Cascades years; logo asset stays in the library.
@@ -750,9 +757,15 @@ select s.id, s.name, s.contact_person, s.email, s.phone, s.address,
        m.filename, m.content_type, m.kind, m.state, m.s3_key,
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
-       m.unreferenced_since, m.orphaned_at
+       m.unreferenced_since, m.orphaned_at,
+       a.action, a.actor, a.at
 from sponsor s
-left join media_asset m on m.id = s.logo_media_id";
+left join media_asset m on m.id = s.logo_media_id
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'sponsor' and entity_id = s.id::text
+  order by id desc limit 1
+) a on true";
 
     private static ApiException NotFound(string message) =>
         new(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, message);
@@ -921,6 +934,15 @@ select key, value from app_setting where key in ('sponsor_linger_ms_per_dollar',
                 UnreferencedSince = reader.IsDBNull(27) ? null : reader.GetFieldValue<DateTimeOffset>(27),
                 OrphanedAt = reader.IsDBNull(28) ? null : reader.GetFieldValue<DateTimeOffset>(28),
                 Url = cdn + "/" + s3Key,
+            };
+        }
+        if (!reader.IsDBNull(29))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(29),
+                By = reader.GetString(30),
+                At = reader.GetFieldValue<DateTimeOffset>(31),
             };
         }
         return dto;

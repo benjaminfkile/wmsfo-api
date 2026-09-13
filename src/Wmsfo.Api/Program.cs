@@ -177,6 +177,12 @@ builder.Services.AddSingleton<IServerClock, SystemServerClock>();
 // A9: the [snapshot] frame that admin writes run through.
 builder.Services.AddSingleton<AdminSnapshotTransaction>();
 
+// A31: audit recording (api.md 5a). Scoped so each request has its own recorder
+// state (pending entity id, before, after) which the endpoint filter finalises.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuditRecorder>();
+builder.Services.AddSingleton<AuditEndpointFilter>();
+
 // A13: content kind registry, schema validator, and document builder. The
 // registry loads contracts/kinds.json plus every schema under contracts/schema/;
 // SchemaValidator derives the draft variants at construction time (once).
@@ -307,6 +313,8 @@ AdminInboxEndpoints.MapAll(app);
 AdminContentEndpoints.MapAll(app);
 // A26: /admin/api-keys list, mint, revoke - Cognito Admin only.
 AdminApiKeyEndpoints.MapAll(app);
+// A31: /admin/audit list + entity kinds (contracts 4.5 Audit).
+AdminAuditEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
