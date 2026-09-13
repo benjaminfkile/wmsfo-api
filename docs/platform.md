@@ -456,7 +456,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | Advanced security | Off (no plus tier features are used) |
 | Hosted UI domain | People pools `<cognito-prefix>-dev` and `<cognito-prefix>-prod`, admin pools `<cognito-prefix>-admin-dev` and `<cognito-prefix>-admin-prod`, under `auth.<region>.amazoncognito.com` |
 | Hosted UI version | Managed login (domain `ManagedLoginVersion = 2`) with a managed login style assigned to each app client, Cognito-provided values. Its pages carry labelled inputs and a "Change password" first-login step; the classic hosted UI is not used |
-| Groups | Admin pools only: `admin` (precedence 0, no role), `editor` (precedence 1, no role). The people pools have no groups and the API ignores any group claim on a people-pool token |
+| Groups | Admin pools only: `admin` (precedence 0, no role), `editor` (precedence 1, no role), `canvasser` (precedence 2, no role; QR codes and places only, contracts 4.5a). The people pools have no groups and the API ignores any group claim on a people-pool token |
 
 ### 4.2 App clients
 
@@ -775,7 +775,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Bucket object ownership enforced, ACLs off, Block Public Access fully on, read only by the distribution through origin access control.
 - Origin Shield on; CORS for reads from a CloudFront response headers policy allowing `*`; one bucket CORS rule for the admin panel's presigned `PUT`; nothing from the viewer request in the cache key.
 - Media lifecycle by object tag: `state=pending` expires after 1 day, `state=orphaned` after 7; nothing untagged expires.
-- Cognito groups `admin` and `editor`; the API decides what each may do.
+- Cognito groups `admin`, `editor`, and `canvasser`; the API decides what each may do.
 - The migration tool imports legacy logos as media assets rather than keeping legacy keys; the legacy bucket is retired.
 - Price class North America and Europe.
 - Cognito pool mail through Cognito's default sender; SES is used only by the API.
@@ -794,4 +794,4 @@ Nothing at the moment. Add here as it comes up.
 
 ## 18. Operator to-do
 
-- **Google Maps browser key.** The key currently used by the site (`VITE_GOOGLE_MAPS_KEY`) is unrestricted. Rotate it and restrict the new key to HTTP referrers: the production site origin, the dev site origin, and `http://localhost:5173`, with the Maps JavaScript API as the only allowed API. Until then the same key serves dev and prod.
+- **Google Maps browser key.** The admin panel now uses the same key for the places map, the pin drag, and Places Autocomplete (admin.md 6.24): enable the Places API on it and add the panel's origins (production, dev, `http://localhost:5174`) to its referrers. The key currently used by the site (`VITE_GOOGLE_MAPS_KEY`) is unrestricted. Rotate it and restrict the new key to HTTP referrers: the production site origin, the dev site origin, and `http://localhost:5173`, with the Maps JavaScript API as the only allowed API. Until then the same key serves dev and prod.
