@@ -378,15 +378,15 @@ on conflict (sponsor_id, event_year) do update set
 
     // POST /admin/sponsors/{id}/years/{eventYear}/copy-from/{sourceYear}
     // [snapshot when eventYear is the current event's year] per contracts 4.5,
-    // sql.md 8.4c. Copies the sponsor's sourceYear row to eventYear; returns
-    // the sponsor with the year list refreshed. 404 (sponsor, or no sourceYear
+    // sql.md 8.4c. Copies the sponsor's sourceYear row to eventYear and
+    // answers with the new SponsorYear row. 404 (sponsor, or no sourceYear
     // row) / 409 year_exists.
     private static void MapCopyFromYear(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/sponsors/{id:long}/years/{eventYear:int}/copy-from/{sourceYear:int}",
             async (long id, int eventYear, int sourceYear, HttpContext ctx,
                    AdminSnapshotTransaction snap, WmsfoConnectionStrings connections,
-                   WmsfoOptions options, CancellationToken ct) =>
+                   CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (eventYear < 2000 || eventYear > 2100)
@@ -412,12 +412,12 @@ on conflict (sponsor_id, event_year) do update set
                     if (r is not null && r is not DBNull) currentYear = Convert.ToInt32(r);
                 }
 
-                SponsorDto dto;
+                SponsorYearDto dto;
                 if (currentYear == eventYear)
                 {
-                    var (result, _) = await snap.RunAsync<SponsorDto>(async (conn, tx, token) =>
+                    var (result, _) = await snap.RunAsync<SponsorYearDto>(async (conn, tx, token) =>
                     {
-                        return await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, options, token);
+                        return await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, token);
                     }, ct);
                     dto = result;
                 }
@@ -426,14 +426,14 @@ on conflict (sponsor_id, event_year) do update set
                     await using var conn = new NpgsqlConnection(connections.App);
                     await conn.OpenAsync(ct);
                     await using var tx = await conn.BeginTransactionAsync(ct);
-                    dto = await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, options, ct);
+                    dto = await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, ct);
                     await tx.CommitAsync(ct);
                 }
 
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminSponsors")
-            .Produces<SponsorDto>(StatusCodes.Status201Created)
+            .Produces<SponsorYearDto>(StatusCodes.Status201Created)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
@@ -504,9 +504,10 @@ on conflict (sponsor_id, event_year) do update set
 
     // sql.md 8.4c: verify the sponsor and the source year row exist, then
     // insert into the target year. 23505 (unique) becomes 409 year_exists.
-    private static async Task<SponsorDto> CopySponsorYearAsync(
+    // Contracts 4.5: `201 SponsorYear` (the new row), not the whole Sponsor.
+    private static async Task<SponsorYearDto> CopySponsorYearAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, long sponsorId, int targetYear, int sourceYear,
-        WmsfoOptions options, CancellationToken ct)
+        CancellationToken ct)
     {
         await using (var check = new NpgsqlCommand(
             "select 1 from sponsor where id = $1;", conn, tx))
@@ -534,18 +535,23 @@ from sponsor_year where sponsor_id = $1 and event_year = $2 for update;", conn, 
             }
         }
         if (!found) throw NotFound($"no sponsor_year for sourceYear {sourceYear}");
+        DateTimeOffset registeredAt;
         try
         {
             await using var ins = new NpgsqlCommand(@"
 insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
-values ($1, $2, $3, $4, $5, $6);", conn, tx);
+values ($1, $2, $3, $4, $5, $6)
+returning registered_at;", conn, tx);
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = targetYear });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Numeric, Value = (object?)amount ?? DBNull.Value });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = active });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = canAdv });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = anon });
-            await ins.ExecuteNonQueryAsync(ct);
+            await using var reader = await ins.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+                throw new InvalidOperationException("insert returned no row");
+            registeredAt = reader.GetFieldValue<DateTimeOffset>(0);
         }
         catch (PostgresException ex) when (ex.SqlState == "23505" &&
             ex.ConstraintName == "sponsor_year_sponsor_id_event_year_key")
@@ -553,9 +559,19 @@ values ($1, $2, $3, $4, $5, $6);", conn, tx);
             throw new ApiException(StatusCodes.Status409Conflict,
                 "year_exists", "the sponsor already has that year");
         }
-        var dto = await ReadSponsorByIdAsync(conn, tx, sponsorId, options, ct);
-        if (dto is null) throw NotFound("sponsor not found");
-        return dto;
+        var (perDollar, minMs) = await ReadLingerSettingsAsync(conn, tx, ct);
+        return new SponsorYearDto
+        {
+            EventYear = targetYear,
+            AmountDonated = amount,
+            Active = active,
+            CanAdvertise = canAdv,
+            Anonymous = anon,
+            PinnedPosition = null,
+            LingerMsOverride = null,
+            LingerMs = ComputeLingerMs(amount, null, perDollar, minMs),
+            RegisteredAt = registeredAt,
+        };
     }
 
     private static async Task<SponsorImportResponse> RunImportAsync(

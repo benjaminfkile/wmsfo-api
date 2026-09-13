@@ -32,6 +32,9 @@ public sealed class SiteTheme
 {
     [JsonPropertyOrder(0)] public bool SnowDefault { get; set; }
     [JsonPropertyOrder(1)] public bool LightsDefault { get; set; }
+    // Default true so a published document without `ornaments` still means ornaments on
+    // (contracts 1.3a; introduced in contracts 15).
+    [JsonPropertyOrder(2)] public bool Ornaments { get; set; } = true;
 }
 
 public sealed class LinkValue

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using Wmsfo.Api.Objects;
@@ -9,26 +9,28 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Media;
 
 // api.md 11.3 step 5, contracts 1.3b: build the Deep Zoom pyramid for a raster
-// whose longest side is 2048 px or more. Tile size 254, overlap 1, JPEG quality
-// 82. Level n = ceil(log2(max(width, height))) is the full image; each lower
-// level halves both dimensions (rounding up) down to level 0 at 1 by 1. Tiles
-// land at media/{id}/dzi/poster_files/{level}/{col}_{row}.jpg with the
+// whose longest side is 2048 px or more. Tile size 254, overlap 1, lossless PNG
+// (ImageSharp `PngEncoder` with `PngColorType.Rgb` or `Rgba` as the source has
+// alpha, compression level 6; no chroma subsampling, no quantization: the top
+// level is the poster's own pixels). Lower levels are resized with Lanczos3.
+// Tiles land at media/{id}/dzi/poster_files/{level}/{col}_{row}.png with the
 // immutable header and the pending tag, PUT eight at a time with a 3 s timeout
 // each. The descriptor lands at media/{id}/dzi/poster.dzi with Content-Type
-// application/xml, the immutable header, and the pending tag. Any PUT failure
-// throws so the confirm handler answers 502 media_write_failed and the row
-// stays pending.
+// application/xml, the immutable header, and the pending tag; it names
+// `Format="png"`. Any PUT failure throws so the confirm handler answers
+// 502 media_write_failed and the row stays pending.
 public static class DeepZoomTiler
 {
     public const int TileSize = 254;
     public const int Overlap = 1;
-    public const int JpegQuality = 82;
     public const int Threshold = 2048;
     public const int MaxConcurrentPuts = 8;
     public static readonly TimeSpan PutTimeout = TimeSpan.FromSeconds(3);
-    public const string TileContentType = "image/jpeg";
+    public const string TileContentType = "image/png";
     public const string DescriptorContentType = "application/xml";
     public const string DeepZoomNamespace = "http://schemas.microsoft.com/deepzoom/2008";
+    public const string Format = "png";
+    public const string TileExtension = "png";
 
     public static bool ShouldTile(int width, int height) =>
         Math.Max(width, height) >= Threshold;
@@ -64,7 +66,7 @@ public static class DeepZoomTiler
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
             $"<Image TileSize=\"{TileSize.ToString(CultureInfo.InvariantCulture)}\"" +
             $" Overlap=\"{Overlap.ToString(CultureInfo.InvariantCulture)}\"" +
-            " Format=\"jpg\"" +
+            $" Format=\"{Format}\"" +
             $" xmlns=\"{DeepZoomNamespace}\">" +
             $"<Size Width=\"{width.ToString(CultureInfo.InvariantCulture)}\"" +
             $" Height=\"{height.ToString(CultureInfo.InvariantCulture)}\"/>" +
@@ -74,7 +76,7 @@ public static class DeepZoomTiler
 
     public static string TileKey(Guid mediaId, int level, int col, int row) =>
         $"media/{mediaId}/dzi/poster_files/{level.ToString(CultureInfo.InvariantCulture)}/" +
-        $"{col.ToString(CultureInfo.InvariantCulture)}_{row.ToString(CultureInfo.InvariantCulture)}.jpg";
+        $"{col.ToString(CultureInfo.InvariantCulture)}_{row.ToString(CultureInfo.InvariantCulture)}.{TileExtension}";
 
     public static string DescriptorKey(Guid mediaId) => $"media/{mediaId}/dzi/poster.dzi";
 
@@ -98,13 +100,20 @@ public static class DeepZoomTiler
         var width = image.Width;
         var height = image.Height;
         var top = MaxLevel(width, height);
+        var hasAlpha = image.PixelType.AlphaRepresentation is not (null or PixelAlphaRepresentation.None);
+        var encoder = new PngEncoder
+        {
+            ColorType = hasAlpha ? PngColorType.RgbWithAlpha : PngColorType.Rgb,
+            CompressionLevel = PngCompressionLevel.Level6,
+            BitDepth = PngBitDepth.Bit8,
+        };
 
         var tileKeys = new List<string>();
-        var jpegEncoder = new JpegEncoder { Quality = JpegQuality };
 
         // Level `top` is the source; each lower level halves both dimensions
-        // (rounding up). Downsampling from the previous level keeps the source
-        // decoded once and matches how OpenSeadragon renders the pyramid.
+        // (rounding up). Downsampling from the previous level with Lanczos3
+        // keeps the source decoded once and matches how OpenSeadragon renders
+        // the pyramid.
         using var levelImage = image.CloneAs<Rgba32>();
 
         for (var level = top; level >= 0; level--)
@@ -122,7 +131,7 @@ public static class DeepZoomTiler
                     var (x0, y0, tw, th) = TileBounds(col, row, lw, lh);
                     using var tile = levelImage.Clone(ctx => ctx.Crop(new Rectangle(x0, y0, tw, th)));
                     using var ms = new MemoryStream();
-                    tile.Save(ms, jpegEncoder);
+                    tile.Save(ms, encoder);
                     tasks.Add((TileKey(mediaId, level, col, row), ms.ToArray()));
                 }
             }
@@ -133,7 +142,7 @@ public static class DeepZoomTiler
             if (level > 0)
             {
                 var (nw, nh) = (Math.Max(1, (lw + 1) / 2), Math.Max(1, (lh + 1) / 2));
-                levelImage.Mutate(ctx => ctx.Resize(nw, nh));
+                levelImage.Mutate(ctx => ctx.Resize(nw, nh, KnownResamplers.Lanczos3));
             }
         }
 

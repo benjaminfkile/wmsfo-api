@@ -3,9 +3,9 @@ using System.Text;
 using System.Threading;
 using System.Xml.Linq;
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using Wmsfo.Api.Media;
 using Wmsfo.Api.Objects;
 
@@ -57,16 +57,16 @@ public sealed class DeepZoomTilerTests
         Assert.Equal("http://schemas.microsoft.com/deepzoom/2008", image.Name.NamespaceName);
         Assert.Equal("254", image.Attribute("TileSize")!.Value);
         Assert.Equal("1", image.Attribute("Overlap")!.Value);
-        Assert.Equal("jpg", image.Attribute("Format")!.Value);
+        Assert.Equal("png", image.Attribute("Format")!.Value);
         var size = image.Elements().Single();
         Assert.Equal("Size", size.Name.LocalName);
         Assert.Equal("3000", size.Attribute("Width")!.Value);
         Assert.Equal("2000", size.Attribute("Height")!.Value);
     }
 
-    // Any tile is a JPEG (magic bytes FF D8 FF).
+    // Every tile is a PNG (magic bytes 89 50 4E 47 0D 0A 1A 0A).
     [Fact]
-    public async Task Tile_bytes_are_jpeg()
+    public async Task Tile_bytes_are_png()
     {
         var mediaId = Guid.NewGuid();
         var store = new InMemoryStore();
@@ -75,15 +75,82 @@ public sealed class DeepZoomTilerTests
             img, mediaId, store, "public, max-age=31536000, immutable", "state=pending", CancellationToken.None);
         var tileKey = result.TileKeys.First();
         var bytes = store.Bodies[tileKey];
-        Assert.Equal("image/jpeg", store.ContentTypes[tileKey]);
-        Assert.True(bytes.Length >= 3);
-        Assert.Equal(0xFF, bytes[0]);
-        Assert.Equal(0xD8, bytes[1]);
-        Assert.Equal(0xFF, bytes[2]);
+        Assert.Equal("image/png", store.ContentTypes[tileKey]);
+        Assert.EndsWith(".png", tileKey, StringComparison.Ordinal);
+        Assert.True(bytes.Length >= 8);
+        var pngMagic = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        Assert.Equal(pngMagic, bytes.Take(8).ToArray());
         // Every object carries the immutable header and the pending tag.
         Assert.Equal("public, max-age=31536000, immutable", store.CacheControls[tileKey]);
         Assert.Equal("state=pending", store.Tags[tileKey]);
         Assert.Equal("state=pending", store.Tags[result.DescriptorKey]);
+    }
+
+    // Lossless: decode a top-level tile and assert pixel-for-pixel equality
+    // against the source crop for the same tile bounds. The top level is the
+    // source's own pixels; no resampling, no chroma subsampling, no
+    // quantization, so the round-trip must be identical.
+    [Fact]
+    public async Task Top_level_tile_is_pixel_identical_to_the_source_crop()
+    {
+        var mediaId = Guid.NewGuid();
+        var store = new InMemoryStore();
+
+        // A varied gradient with a range of colours so any quantization would
+        // change the decoded pixels away from the source.
+        using var source = new Image<Rgba32>(2100, 1000);
+        source.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    row[x] = new Rgba32(
+                        (byte)(x & 0xFF),
+                        (byte)(y & 0xFF),
+                        (byte)((x + y) & 0xFF),
+                        255);
+                }
+            }
+        });
+
+        var result = await DeepZoomTiler.RunAsync(
+            source, mediaId, store, "public, max-age=31536000, immutable", "state=pending", CancellationToken.None);
+
+        var top = DeepZoomTiler.MaxLevel(source.Width, source.Height);
+        var (cols, rows) = DeepZoomTiler.TileGrid(source.Width, source.Height);
+
+        // Check the first tile and an interior tile so overlap logic is
+        // exercised too.
+        foreach (var (col, row) in new[] { (0, 0), (1, 0), (cols - 1, rows - 1) })
+        {
+            var tileKey = DeepZoomTiler.TileKey(mediaId, top, col, row);
+            var bytes = store.Bodies[tileKey];
+            using var decoded = Image.Load<Rgba32>(bytes);
+            var (x0, y0, tw, th) = DeepZoomTiler.TileBounds(col, row, source.Width, source.Height);
+            Assert.Equal(tw, decoded.Width);
+            Assert.Equal(th, decoded.Height);
+            AssertPixelsEqual(source, x0, y0, decoded);
+        }
+    }
+
+    private static void AssertPixelsEqual(Image<Rgba32> source, int x0, int y0, Image<Rgba32> tile)
+    {
+        for (var y = 0; y < tile.Height; y++)
+        {
+            for (var x = 0; x < tile.Width; x++)
+            {
+                var expected = source[x0 + x, y0 + y];
+                var actual = tile[x, y];
+                if (!expected.Equals(actual))
+                {
+                    Assert.Fail(
+                        $"pixel mismatch at tile ({x},{y}) / source ({x0 + x},{y0 + y}): " +
+                        $"expected {expected} got {actual}");
+                }
+            }
+        }
     }
 
     // Sub-2048 sources: no pyramid needed.
