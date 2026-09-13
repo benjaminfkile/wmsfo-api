@@ -81,6 +81,10 @@ public sealed class AlertSender
                 var message = BuildMessage(row);
                 var messageId = await _sender.SendAsync(message, ct).ConfigureAwait(false);
                 await MarkSuccessAsync(row.Id, messageId, conn, ct).ConfigureAwait(false);
+                // sql.md 9.3: bump event_status_history.sent_count for alert
+                // topics; a message_posted row has no history link and is a
+                // no-op for the update.
+                await BumpHistorySentCountAsync(row.OutboxId, conn, ct).ConfigureAwait(false);
                 sent++;
             }
             catch (Exception ex)
@@ -99,6 +103,14 @@ public sealed class AlertSender
         return sent;
     }
 
+    private static async Task BumpHistorySentCountAsync(long outboxId, NpgsqlConnection conn, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "update event_status_history set sent_count = sent_count + 1 where outbox_id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
     private SesMessage BuildMessage(DeliveryRow row)
     {
         using var payload = JsonDocument.Parse(row.Payload);
@@ -108,6 +120,7 @@ public sealed class AlertSender
         return row.Topic switch
         {
             "event.status_changed" => BuildStatusChanged(row, payload.RootElement, unsubscribeUrl, apiUnsubscribe),
+            "event.status_notified" => BuildStatusNotified(row, payload.RootElement, unsubscribeUrl, apiUnsubscribe),
             "event.message_posted" => BuildMessagePosted(row, payload.RootElement, unsubscribeUrl, apiUnsubscribe),
             _ => throw new InvalidOperationException($"Unsupported alert topic: {row.Topic}"),
         };
@@ -117,13 +130,29 @@ public sealed class AlertSender
     {
         int toStatus = payload.GetProperty("toStatusId").GetInt32();
         long eventId = payload.GetProperty("eventId").GetInt64();
+        var customMessage = TryReadStringProperty(payload, "message");
+        return BuildEventStatusMessage(row, eventId, toStatus, customMessage, unsubscribeUrl, apiUnsubscribe);
+    }
+
+    private SesMessage BuildStatusNotified(DeliveryRow row, JsonElement payload, string unsubscribeUrl, string apiUnsubscribe)
+    {
+        int statusId = payload.GetProperty("statusId").GetInt32();
+        long eventId = payload.GetProperty("eventId").GetInt64();
+        var customMessage = TryReadStringProperty(payload, "message");
+        return BuildEventStatusMessage(row, eventId, statusId, customMessage, unsubscribeUrl, apiUnsubscribe);
+    }
+
+    private SesMessage BuildEventStatusMessage(
+        DeliveryRow row, long eventId, int statusId, string? customMessage,
+        string unsubscribeUrl, string apiUnsubscribe)
+    {
         var eventName = LookupEventName(eventId);
         var scheduledAt = LookupEventScheduledAt(eventId);
-        var template = toStatus == 3 ? EmailTemplates.EventLive : EmailTemplates.EventScheduled;
+        var template = EmailTemplates.TemplateForStatus(statusId);
+        var body = customMessage ?? EmailTemplates.StockParagraph(statusId, eventName, scheduledAt);
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["eventName"] = eventName,
-            ["scheduledAt"] = scheduledAt is null ? "" : EmailTemplates.FormatMountainTime(scheduledAt.Value),
+            ["customMessage"] = body,
             ["siteUrl"] = _options.SiteBaseUrl,
             ["unsubscribeUrl"] = unsubscribeUrl,
         };
@@ -132,6 +161,12 @@ public sealed class AlertSender
             ToAddress: row.Address,
             Values: values,
             UnsubscribeUrl: apiUnsubscribe);
+    }
+
+    private static string? TryReadStringProperty(JsonElement payload, string name)
+    {
+        if (!payload.TryGetProperty(name, out var p)) return null;
+        return p.ValueKind == JsonValueKind.String ? p.GetString() : null;
     }
 
     private SesMessage BuildMessagePosted(DeliveryRow row, JsonElement payload, string unsubscribeUrl, string apiUnsubscribe)

@@ -176,6 +176,10 @@ public static class EndpointStubs
             .WithTags("Me")
             .Produces(StatusCodes.Status204NoContent);
 
+        app.MapGet("/me/alerts", NotImplemented)
+            .WithTags("Me")
+            .Produces<ItemsResponse<AlertItemDto>>(StatusCodes.Status200OK);
+
         app.MapGet("/me/cookies", NotImplemented)
             .WithTags("Me")
             .Produces<MyCookiesResponse>(StatusCodes.Status200OK);
@@ -218,6 +222,16 @@ public static class EndpointStubs
             .WithTags("AdminEvents")
             .Accepts<ChangeEventStatusRequest>("application/json")
             .Produces<EventDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/events/{id:long}/notify", NotImplemented)
+            .WithTags("AdminEvents")
+            .Accepts<NotifyStatusRequest>("application/json")
+            .Produces<EventDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/events/{id:long}/clone", NotImplemented)
+            .WithTags("AdminEvents")
+            .Accepts<CloneEventRequest>("application/json")
+            .Produces<EventDto>(StatusCodes.Status201Created);
 
         app.MapGet("/admin/events/{id:long}/status-history", NotImplemented)
             .WithTags("AdminEvents")
@@ -348,6 +362,15 @@ public static class EndpointStubs
         app.MapDelete("/admin/sponsors/{id:long}/years/{eventYear:int}", NotImplemented)
             .WithTags("AdminSponsors")
             .Produces(StatusCodes.Status204NoContent);
+
+        app.MapPost("/admin/sponsors/{id:long}/years/{eventYear:int}/copy-from/{sourceYear:int}", NotImplemented)
+            .WithTags("AdminSponsors")
+            .Produces<SponsorDto>(StatusCodes.Status201Created);
+
+        app.MapPost("/admin/sponsors/import", NotImplemented)
+            .WithTags("AdminSponsors")
+            .Accepts<SponsorImportRequest>("application/json")
+            .Produces<SponsorImportResponse>(StatusCodes.Status200OK);
 
         app.MapGet("/admin/sponsors/order/{eventYear:int}", NotImplemented)
             .WithTags("AdminSponsors")

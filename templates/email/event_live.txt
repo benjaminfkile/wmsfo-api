@@ -1,4 +1,4 @@
-{{eventName}} is live.
+{{customMessage}}
 
 Watch the tracker at:
 {{siteUrl}}

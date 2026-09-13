@@ -38,6 +38,7 @@ public sealed class Event
     public long? RouteId { get; set; }
     public Guid? RouteImageMediaId { get; set; }
     public JsonDocument? FinalCookieTally { get; set; }
+    public DateTimeOffset? StatusNotifiedAt { get; set; }
     public long NextSeq { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
@@ -52,6 +53,10 @@ public sealed class EventStatusHistory
     public short ToStatusId { get; set; }
     public string ChangedBy { get; set; } = "";
     public DateTimeOffset ChangedAt { get; set; }
+    public bool Notify { get; set; }
+    public string? Message { get; set; }
+    public long? OutboxId { get; set; }
+    public int SentCount { get; set; }
 }
 
 public sealed class EventMessage

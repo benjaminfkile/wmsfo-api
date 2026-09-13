@@ -17,6 +17,7 @@ public sealed class EventDto
     public DateTimeOffset? ScheduledAt { get; set; }
     public DateTimeOffset? WentLiveAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
+    public DateTimeOffset? StatusNotifiedAt { get; set; }
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
     public string? RouteUrl { get; set; }
@@ -46,6 +47,23 @@ public sealed class StatusHistoryDto
     public int ToStatusId { get; set; }
     public string ChangedBy { get; set; } = "";
     public DateTimeOffset ChangedAt { get; set; }
+    public bool Notify { get; set; }
+    public string? Message { get; set; }
+    public int SentCount { get; set; }
+}
+
+public sealed class AlertItemDto
+{
+    public long Id { get; set; }
+    public long SubscriptionId { get; set; }
+    public string Address { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public long EventId { get; set; }
+    public string EventName { get; set; } = "";
+    public int? StatusId { get; set; }
+    public long? MessageId { get; set; }
+    public string Subject { get; set; } = "";
+    public DateTimeOffset SentAt { get; set; }
 }
 
 public sealed class RouteDto

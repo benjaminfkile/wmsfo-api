@@ -84,6 +84,9 @@ public sealed class OutboxPublisher
             case "event.status_changed":
                 await HandleStatusChangedAsync(row, payload.RootElement, conn, ct).ConfigureAwait(false);
                 break;
+            case "event.status_notified":
+                await HandleStatusNotifiedAsync(row, conn, ct).ConfigureAwait(false);
+                break;
             case "event.message_posted":
                 await HandleMessagePostedAsync(row, payload.RootElement, conn, ct).ConfigureAwait(false);
                 break;
@@ -104,16 +107,21 @@ public sealed class OutboxPublisher
         ClaimedRow row, JsonElement payload, NpgsqlConnection conn, CancellationToken ct)
     {
         var notify = payload.TryGetProperty("notify", out var n) && n.ValueKind == JsonValueKind.True;
-        int? toStatus = null;
-        if (payload.TryGetProperty("toStatusId", out var toEl) && toEl.ValueKind == JsonValueKind.Number)
-            toStatus = toEl.GetInt32();
-
-        if (!notify || (toStatus != 2 && toStatus != 3))
+        if (!notify)
         {
             await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
             return;
         }
 
+        // contracts 7.7: every toStatusId fans out when notify is true.
+        await FanOutAsync(row.Id, conn, ct).ConfigureAwait(false);
+        await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
+    }
+
+    // contracts 7.7 / sql.md 8.4a: exactly the processing of
+    // event.status_changed with notify true.
+    private async Task HandleStatusNotifiedAsync(ClaimedRow row, NpgsqlConnection conn, CancellationToken ct)
+    {
         await FanOutAsync(row.Id, conn, ct).ConfigureAwait(false);
         await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
     }

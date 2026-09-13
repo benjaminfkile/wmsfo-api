@@ -38,3 +38,17 @@ public sealed class UpsertSponsorYearRequest
     public int? PinnedPosition { get; set; }
     public int? LingerMsOverride { get; set; }
 }
+
+// POST /admin/sponsors/import (contracts 4.5 Sponsors, sql.md 8.4c).
+public sealed class SponsorImportRequest
+{
+    public int FromYear { get; set; }
+    public int ToYear { get; set; }
+    public IList<long> SponsorIds { get; set; } = new List<long>();
+}
+
+public sealed class SponsorImportResponse
+{
+    public int Created { get; set; }
+    public int Skipped { get; set; }
+}

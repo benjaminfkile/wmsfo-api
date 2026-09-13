@@ -31,6 +31,30 @@ public sealed class ChangeEventStatusRequest
 {
     public int StatusId { get; set; }
     public bool Notify { get; set; }
+    // Optional 1..1000 custom paragraph riding in the alert email. Ignored when
+    // notify is false; the outbox row and history row still carry it.
+    public string? Message { get; set; }
+}
+
+// POST /admin/events/{id}/notify - re-announce the current status now.
+public sealed class NotifyStatusRequest
+{
+    public string? Message { get; set; }
+}
+
+// POST /admin/events/{id}/clone.
+public sealed class CloneEventRequest
+{
+    public int Year { get; set; }
+    public string Name { get; set; } = "";
+    public CloneEventCopy? Copy { get; set; }
+}
+
+public sealed class CloneEventCopy
+{
+    public bool Sponsors { get; set; }
+    public bool Route { get; set; }
+    public bool Poster { get; set; }
 }
 
 // POST /admin/events/{id}/messages.
