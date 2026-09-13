@@ -89,7 +89,7 @@ public static class AdminSponsorEndpoints
     {
         app.MapPost("/admin/sponsors",
             async (CreateSponsorRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   WmsfoOptions options, CancellationToken ct) =>
+                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 ValidateName(body.Name, v);
@@ -116,6 +116,10 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                     }
                     var dto = await ReadSponsorByIdAsync(conn, tx, newId, options, token);
                     if (dto is null) throw NotFound("sponsor not found");
+                    var stamp = await audit.RecordAsync(conn, tx, "create", "sponsor",
+                        newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before: null, after: dto, token);
+                    dto.Audit = stamp;
                     return dto;
                 }, ct);
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
@@ -225,9 +229,10 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
 
                     var updated = await ReadSponsorByIdAsync(conn, tx, id, options, token);
                     if (updated is null) throw NotFound("sponsor not found");
-                    await audit.RecordAsync(conn, tx, "update", "sponsor",
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "sponsor",
                         id.ToString(System.Globalization.CultureInfo.InvariantCulture),
                         before, updated, token);
+                    updated.Audit = stamp;
                     return updated;
                 }, ct);
                 return Results.Ok(dto);

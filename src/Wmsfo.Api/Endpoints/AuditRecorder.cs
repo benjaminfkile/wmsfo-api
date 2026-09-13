@@ -6,6 +6,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Endpoints;
@@ -76,8 +77,11 @@ public sealed class AuditRecorder
     // Write the row inside the caller's transaction. `entityId` is the row id
     // as text (the year for a sponsor order, the setting key for settings).
     // `before` and `after` are serialized with the canonical wire options so the
-    // log reads like the API answers (api.md 5a).
-    public async Task RecordAsync(
+    // log reads like the API answers (api.md 5a). Returns the AuditStamp shape
+    // (action, by, at) of the row just written so the endpoint's response DTO
+    // can carry the stamp of the row this write inserted (contracts 4.5 Audit:
+    // `audit` is the newest row for the entity).
+    public async Task<AuditStampDto> RecordAsync(
         NpgsqlConnection conn,
         NpgsqlTransaction tx,
         string action,
@@ -93,7 +97,8 @@ public sealed class AuditRecorder
         var afterJson = SerializeOrNull(after);
         await using var cmd = new NpgsqlCommand(@"
 insert into audit_log (actor, action, entity, entity_id, before, after, request_id)
-values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7);", conn, tx);
+values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7)
+returning at;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = actor });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = action });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = entity });
@@ -101,8 +106,15 @@ values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7);", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)beforeJson ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)afterJson ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)requestId ?? DBNull.Value });
-        await cmd.ExecuteNonQueryAsync(ct);
+        DateTimeOffset at;
+        await using (var reader = await cmd.ExecuteReaderAsync(ct))
+        {
+            if (!await reader.ReadAsync(ct))
+                throw new InvalidOperationException("audit_log insert returned no row");
+            at = reader.GetFieldValue<DateTimeOffset>(0);
+        }
         Recorded = true;
+        return new AuditStampDto { Action = action, By = actor, At = at };
     }
 
     // Convenience wrapper for the endpoint filter's fallback path: opens a new
