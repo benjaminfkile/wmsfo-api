@@ -2716,6 +2716,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -2772,6 +2782,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           },
           "key": {
             "type": "string"
@@ -2935,6 +2955,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -3160,6 +3190,16 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -3338,6 +3378,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -3437,6 +3487,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -3944,6 +4004,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -3986,6 +4056,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -4774,6 +4854,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -5250,6 +5340,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -5752,6 +5852,16 @@
           "lastSeenAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -5784,6 +5894,16 @@
               "string"
             ],
             "format": "int32"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -5842,6 +5962,16 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -5996,6 +6126,16 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -6092,6 +6232,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -6140,6 +6290,16 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -6180,6 +6340,16 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },
@@ -6626,6 +6796,16 @@
           },
           "personEmail": {
             "type": "string"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
           }
         }
       },

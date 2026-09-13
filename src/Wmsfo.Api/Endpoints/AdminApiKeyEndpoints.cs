@@ -40,7 +40,7 @@ public static class AdminApiKeyEndpoints
                 await conn.OpenAsync(ct);
                 var items = new List<ApiKeyDto>();
                 await using var cmd = new NpgsqlCommand(
-                    ApiKeySelect + " order by id desc;", conn);
+                    ApiKeySelect + " order by k.id desc;", conn);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) items.Add(ReadRow(reader));
                 return Results.Ok(new ItemsResponse<ApiKeyDto> { Items = items });
@@ -56,7 +56,8 @@ public static class AdminApiKeyEndpoints
     private static void MapMint(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/api-keys",
-            async (CreateApiKeyRequest body, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (CreateApiKeyRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 var normalized = Validate(body);
@@ -73,6 +74,8 @@ public static class AdminApiKeyEndpoints
                     throw NameTaken();
                 }
                 long id;
+                ApiKeyDto after;
+                AuditStampDto stamp;
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
                     if (await NameTakenAsync(conn, tx, normalized.Name, ct))
@@ -106,25 +109,29 @@ returning id;", conn, tx);
                     {
                         throw NameTaken();
                     }
+                    after = await ReadByIdAsync(conn, tx, id, ct)
+                        ?? throw new ApiException(StatusCodes.Status500InternalServerError,
+                            ApiErrorCodes.InternalError, "api key vanished after insert");
+                    stamp = await audit.RecordAsync(conn, tx, "create", "api_key",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before: null, after: after, ct);
                     await tx.CommitAsync(ct);
                 }
-
-                var dto = await ReadByIdAsync(conn, null, id, ct)
-                    ?? throw new ApiException(StatusCodes.Status500InternalServerError,
-                        ApiErrorCodes.InternalError, "api key vanished after insert");
+                after.Audit = stamp;
 
                 return Results.Json(new ApiKeyMintedDto
                 {
-                    Id = dto.Id,
-                    Name = dto.Name,
-                    KeyPrefix = dto.KeyPrefix,
-                    AllCapabilities = dto.AllCapabilities,
-                    Capabilities = dto.Capabilities,
-                    ExpiresAt = dto.ExpiresAt,
-                    CreatedBy = dto.CreatedBy,
-                    CreatedAt = dto.CreatedAt,
-                    LastUsedAt = dto.LastUsedAt,
-                    RevokedAt = dto.RevokedAt,
+                    Id = after.Id,
+                    Name = after.Name,
+                    KeyPrefix = after.KeyPrefix,
+                    AllCapabilities = after.AllCapabilities,
+                    Capabilities = after.Capabilities,
+                    ExpiresAt = after.ExpiresAt,
+                    CreatedBy = after.CreatedBy,
+                    CreatedAt = after.CreatedAt,
+                    LastUsedAt = after.LastUsedAt,
+                    RevokedAt = after.RevokedAt,
+                    Audit = after.Audit,
                     Key = minted.Token,
                 }, statusCode: StatusCodes.Status201Created);
             })
@@ -141,25 +148,30 @@ returning id;", conn, tx);
     private static void MapRevoke(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/api-keys/{id:long}/revoke",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                int rows;
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                var before = await ReadByIdAsync(conn, tx, id, ct);
+                if (before is null)
+                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "api key not found");
                 await using (var upd = new NpgsqlCommand(
-                    "update api_key set revoked_at = coalesce(revoked_at, now()) where id = $1;", conn))
+                    "update api_key set revoked_at = coalesce(revoked_at, now()) where id = $1;", conn, tx))
                 {
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    rows = await upd.ExecuteNonQueryAsync(ct);
+                    await upd.ExecuteNonQueryAsync(ct);
                 }
-                if (rows == 0)
-                {
-                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "api key not found");
-                }
-                var dto = await ReadByIdAsync(conn, null, id, ct)
+                var after = await ReadByIdAsync(conn, tx, id, ct)
                     ?? throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "api key not found");
-                return Results.Ok(dto);
+                var stamp = await audit.RecordAsync(conn, tx, "revoke", "api_key",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, after, ct);
+                after.Audit = stamp;
+                await tx.CommitAsync(ct);
+                return Results.Ok(after);
             })
             .WithTags("AdminApiKeys")
             .Produces<ApiKeyDto>(StatusCodes.Status200OK)
@@ -239,13 +251,19 @@ returning id;", conn, tx);
     }
 
     private const string ApiKeySelect = @"
-select id, name, key_prefix, all_capabilities, capabilities, expires_at,
-       created_by, created_at, last_used_at, revoked_at
-from api_key";
+select k.id, k.name, k.key_prefix, k.all_capabilities, k.capabilities, k.expires_at,
+       k.created_by, k.created_at, k.last_used_at, k.revoked_at,
+       a.action, a.actor, a.at
+from api_key k
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'api_key' and entity_id = k.id::text
+  order by id desc limit 1
+) a on true";
 
     private static async Task<ApiKeyDto?> ReadByIdAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)
     {
-        await using var cmd = new NpgsqlCommand(ApiKeySelect + " where id = $1;", conn, tx);
+        await using var cmd = new NpgsqlCommand(ApiKeySelect + " where k.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -255,7 +273,7 @@ from api_key";
     private static ApiKeyDto ReadRow(NpgsqlDataReader r)
     {
         var caps = r.IsDBNull(4) ? Array.Empty<string>() : r.GetFieldValue<string[]>(4);
-        return new ApiKeyDto
+        var dto = new ApiKeyDto
         {
             Id = r.GetInt64(0),
             Name = r.GetString(1),
@@ -268,6 +286,16 @@ from api_key";
             LastUsedAt = r.IsDBNull(8) ? null : r.GetFieldValue<DateTimeOffset>(8),
             RevokedAt = r.IsDBNull(9) ? null : r.GetFieldValue<DateTimeOffset>(9),
         };
+        if (!r.IsDBNull(10))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = r.GetString(10),
+                By = r.GetString(11),
+                At = r.GetFieldValue<DateTimeOffset>(12),
+            };
+        }
+        return dto;
     }
 
     private static ApiException NameTaken() =>

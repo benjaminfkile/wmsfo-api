@@ -77,37 +77,43 @@ public static class AdminMediaEndpoints
                 await conn.OpenAsync(ct);
                 var items = new List<MediaAssetDto>();
                 var sql = new System.Text.StringBuilder(@"
-select id, filename, content_type, kind, state, s3_key, size_bytes, width, height, sha256,
-       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at, dzi_key
-from media_asset
+select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
+       m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
+       a.action, a.actor, a.at
+from media_asset m
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'media_asset' and entity_id = m.id::text
+  order by id desc limit 1
+) a on true
 where 1 = 1");
                 var parameters = new List<NpgsqlParameter>();
                 var next = 1;
                 if (!string.IsNullOrEmpty(kindFilter))
                 {
-                    sql.Append($" and kind = ${next++}");
+                    sql.Append($" and m.kind = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = kindFilter });
                 }
                 if (!string.IsNullOrEmpty(stateFilter))
                 {
-                    sql.Append($" and state = ${next++}");
+                    sql.Append($" and m.state = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = stateFilter });
                 }
                 if (!string.IsNullOrEmpty(q))
                 {
-                    sql.Append($" and (filename ilike ${next} or title ilike ${next} or alt ilike ${next})");
+                    sql.Append($" and (m.filename ilike ${next} or m.title ilike ${next} or m.alt ilike ${next})");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = "%" + q + "%" });
                     next++;
                 }
                 if (cursor is not null)
                 {
-                    sql.Append($@" and (created_at, id) < (
+                    sql.Append($@" and (m.created_at, m.id) < (
   select created_at, id from media_asset where id = ${next}
 )");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = cursor.Value });
                     next++;
                 }
-                sql.Append(" order by created_at desc, id desc");
+                sql.Append(" order by m.created_at desc, m.id desc");
                 sql.Append($" limit ${next};");
                 parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = limit + 1 });
 
@@ -140,7 +146,8 @@ where 1 = 1");
     private static void MapUploadUrl(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/media/upload-url",
-            async (MediaUploadUrlRequest body, HttpContext ctx, WmsfoConnectionStrings connections,
+            async (MediaUploadUrlRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections,
                    IObjectStore store, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
@@ -170,26 +177,34 @@ where 1 = 1");
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using (var ins = new NpgsqlCommand(@"
-insert into media_asset (id, filename, content_type, kind, state, s3_key, size_bytes, alt, title, uploaded_by)
-values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
+                MediaAssetDto media;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = sanitized! });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.ContentType });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = kind });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.SizeBytes });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Alt });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Title });
-                    ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                    await ins.ExecuteNonQueryAsync(ct);
+                    await using (var ins = new NpgsqlCommand(@"
+insert into media_asset (id, filename, content_type, kind, state, s3_key, size_bytes, alt, title, uploaded_by)
+values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn, tx))
+                    {
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = sanitized! });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.ContentType });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = kind });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.SizeBytes });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Alt });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Title });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        await ins.ExecuteNonQueryAsync(ct);
+                    }
+                    media = await ReadByIdAsync(conn, tx, id, options, ct)
+                        ?? throw new InvalidOperationException("failed to reload created media row");
+                    var stamp = await audit.RecordAsync(conn, tx, "create", "media_asset",
+                        id.ToString(),
+                        before: null, after: media, ct);
+                    media.Audit = stamp;
+                    await tx.CommitAsync(ct);
                 }
 
                 var uploadUrl = store.PresignPut(key, body.ContentType, ObjectTags.Pending);
-
-                var media = await ReadByIdAsync(conn, null, id, options, ct)
-                    ?? throw new InvalidOperationException("failed to reload created media row");
                 return Results.Json(new UploadTicketDto
                 {
                     Media = media,
@@ -216,7 +231,7 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
     private static void MapConfirm(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/media/{id}/confirm",
-            async (string id, HttpContext ctx, WmsfoConnectionStrings connections,
+            async (string id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections,
                    IObjectStore store, WmsfoOptions options, ILoggerFactory loggerFactory, CancellationToken ct) =>
             {
                 var logger = loggerFactory.CreateLogger("Wmsfo.Api.Media.Confirm");
@@ -408,7 +423,11 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
 
                 // 6. Update the row to ready.
                 var variantsJson = JsonSerializer.Serialize(variantMap, CanonicalJson.Options);
-                await using (var upd = new NpgsqlCommand(@"
+                MediaAssetDto dto;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    var before = await ReadByIdAsync(conn, tx, mediaId, options, ct);
+                    await using (var upd = new NpgsqlCommand(@"
 update media_asset
 set state = 'ready',
     size_bytes = $1,
@@ -418,28 +437,33 @@ set state = 'ready',
     variants = $5::jsonb,
     dzi_key = $6,
     confirmed_at = now()
-where id = $7 and state = 'pending';", conn))
-                {
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (long)head.ContentLength });
-                    upd.Parameters.Add(width.HasValue
-                        ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = width.Value }
-                        : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
-                    upd.Parameters.Add(height.HasValue
-                        ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = height.Value }
-                        : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = variantsJson });
-                    upd.Parameters.Add(dziKey is not null
-                        ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = dziKey }
-                        : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DBNull.Value });
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                    var rows = await upd.ExecuteNonQueryAsync(ct);
-                    if (rows == 0)
-                        throw new ApiException(StatusCodes.Status409Conflict, "media_not_pending", "media asset is not pending");
+where id = $7 and state = 'pending';", conn, tx))
+                    {
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (long)head.ContentLength });
+                        upd.Parameters.Add(width.HasValue
+                            ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = width.Value }
+                            : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
+                        upd.Parameters.Add(height.HasValue
+                            ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = height.Value }
+                            : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = variantsJson });
+                        upd.Parameters.Add(dziKey is not null
+                            ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = dziKey }
+                            : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DBNull.Value });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
+                        var rows = await upd.ExecuteNonQueryAsync(ct);
+                        if (rows == 0)
+                            throw new ApiException(StatusCodes.Status409Conflict, "media_not_pending", "media asset is not pending");
+                    }
+                    dto = await ReadByIdAsync(conn, tx, mediaId, options, ct)
+                        ?? throw new InvalidOperationException("failed to reload media row after confirm");
+                    var stamp = await audit.RecordAsync(conn, tx, "confirm", "media_asset",
+                        mediaId.ToString(),
+                        before, dto, ct);
+                    dto.Audit = stamp;
+                    await tx.CommitAsync(ct);
                 }
-
-                var dto = await ReadByIdAsync(conn, null, mediaId, options, ct)
-                    ?? throw new InvalidOperationException("failed to reload media row after confirm");
                 return Results.Ok(dto);
             })
             .WithTags("AdminMedia")
@@ -502,7 +526,7 @@ where id = $7 and state = 'pending';", conn))
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/media/{id}",
-            async (string id, MediaPatchRequest body, HttpContext ctx,
+            async (string id, MediaPatchRequest body, HttpContext ctx, AuditRecorder audit,
                    AdminSnapshotTransaction snapshotTx,
                    WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
@@ -518,6 +542,9 @@ where id = $7 and state = 'pending';", conn))
 
                 var (result, _) = await snapshotTx.RunAsync(async (conn, tx, token) =>
                 {
+                    var before = await ReadByIdAsync(conn, tx, mediaId, options, token);
+                    if (before is null)
+                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
                     var sets = new List<string>();
                     var parameters = new List<NpgsqlParameter>();
                     var next = 1;
@@ -542,17 +569,12 @@ where id = $7 and state = 'pending';", conn))
                         if (rows == 0)
                             throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
                     }
-                    else
-                    {
-                        // No-op patch - still confirm the row exists.
-                        await using var check = new NpgsqlCommand("select 1 from media_asset where id = $1;", conn, tx);
-                        check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                        var r = await check.ExecuteScalarAsync(token);
-                        if (r is null || r is DBNull)
-                            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
-                    }
                     var reread = await ReadByIdAsync(conn, tx, mediaId, options, token)
                         ?? throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "media_asset",
+                        mediaId.ToString(),
+                        before, reread, token);
+                    reread.Audit = stamp;
                     return reread;
                 }, ct);
 
@@ -572,7 +594,8 @@ where id = $7 and state = 'pending';", conn))
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/media/{id}",
-            async (string id, HttpContext ctx, WmsfoConnectionStrings connections, IObjectStore store,
+            async (string id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoOptions options, WmsfoConnectionStrings connections, IObjectStore store,
                    ILoggerFactory loggerFactory, CancellationToken ct) =>
             {
                 if (!Guid.TryParse(id, out var mediaId))
@@ -581,13 +604,9 @@ where id = $7 and state = 'pending';", conn))
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using (var check = new NpgsqlCommand("select 1 from media_asset where id = $1;", conn))
-                {
-                    check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                    var r = await check.ExecuteScalarAsync(ct);
-                    if (r is null || r is DBNull)
-                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
-                }
+                var before = await ReadByIdAsync(conn, null, mediaId, options, ct);
+                if (before is null)
+                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
 
                 var usage = await MediaUsage.ForAsync(conn, mediaId, ct);
                 if (MediaUsage.IsInUse(usage))
@@ -609,10 +628,16 @@ where id = $7 and state = 'pending';", conn))
                     }
                 }
 
-                await using (var del = new NpgsqlCommand("delete from media_asset where id = $1;", conn))
+                await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
-                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                    await del.ExecuteNonQueryAsync(ct);
+                    await using (var del = new NpgsqlCommand("delete from media_asset where id = $1;", conn, tx))
+                    {
+                        del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
+                        await del.ExecuteNonQueryAsync(ct);
+                    }
+                    await audit.RecordAsync(conn, tx, "delete", "media_asset",
+                        mediaId.ToString(), before, null, ct);
+                    await tx.CommitAsync(ct);
                 }
                 return Results.NoContent();
             })
@@ -641,9 +666,16 @@ where id = $7 and state = 'pending';", conn))
     public static async Task<MediaAssetDto?> ReadByIdAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, Guid id, WmsfoOptions options, CancellationToken ct)
     {
         await using var cmd = new NpgsqlCommand(@"
-select id, filename, content_type, kind, state, s3_key, size_bytes, width, height, sha256,
-       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at, dzi_key
-from media_asset where id = $1;", conn, tx);
+select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
+       m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
+       a.action, a.actor, a.at
+from media_asset m
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'media_asset' and entity_id = m.id::text
+  order by id desc limit 1
+) a on true
+where m.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -665,7 +697,7 @@ from media_asset where id = $1;", conn, tx);
             }
         }
         var dziKey = reader.IsDBNull(18) ? null : reader.GetString(18);
-        return new MediaAssetDto
+        var dto = new MediaAssetDto
         {
             Id = reader.GetGuid(0).ToString(),
             Filename = reader.GetString(1),
@@ -687,6 +719,16 @@ from media_asset where id = $1;", conn, tx);
             UnreferencedSince = reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
             OrphanedAt = reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
         };
+        if (reader.FieldCount > 19 && !reader.IsDBNull(19))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(19),
+                By = reader.GetString(20),
+                At = reader.GetFieldValue<DateTimeOffset>(21),
+            };
+        }
+        return dto;
     }
 
     private static async Task DeletePendingRowAsync(NpgsqlConnection conn, Guid id, CancellationToken ct)

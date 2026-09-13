@@ -77,7 +77,8 @@ public static class AdminContentEndpoints
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPost("/admin/pages",
-            async (CreatePageRequest body, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (CreatePageRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 ValidatePageBody(body.Slug, body.Title, body.NavLabel, isCreate: true);
@@ -118,9 +119,14 @@ returning id;", conn, tx);
                     throw new ApiException(StatusCodes.Status409Conflict, ApiErrorCodes.SlugTaken,
                         $"slug `{body.Slug}` is already used");
                 }
+                var pageDto = await ReadPageByIdAsync(conn, tx, id, ct);
+                if (pageDto is null) throw NotFound("page not found");
+                var stamp = await audit.RecordAsync(conn, tx, "create", "page",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: pageDto, ct);
+                pageDto.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var page = await ReadPageByIdAsync(conn, null, id, ct);
-                return Results.Json(page, statusCode: StatusCodes.Status201Created);
+                return Results.Json(pageDto, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminPages")
             .Accepts<CreatePageRequest>("application/json")
@@ -157,7 +163,7 @@ returning id;", conn, tx);
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPatch("/admin/pages/{id:long}",
-            async (long id, PatchPageRequest body, HttpContext ctx,
+            async (long id, PatchPageRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -194,6 +200,7 @@ returning id;", conn, tx);
                     if (r is null || r is DBNull) throw NotFound("page not found");
                     role = (string)r;
                 }
+                var pageBefore = await ReadPageByIdAsync(conn, tx, id, ct);
                 // Role pages: navLabel must stay null, isHidden false.
                 if (!string.Equals(role, "none", StringComparison.Ordinal))
                 {
@@ -238,9 +245,14 @@ returning id;", conn, tx);
                     throw new ApiException(StatusCodes.Status409Conflict, ApiErrorCodes.SlugTaken,
                         $"slug `{body.Slug}` is already used");
                 }
+                var pageAfter = await ReadPageByIdAsync(conn, tx, id, ct);
+                if (pageAfter is null) throw NotFound("page not found");
+                var stamp = await audit.RecordAsync(conn, tx, "update", "page",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    pageBefore, pageAfter, ct);
+                pageAfter.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var page = await ReadPageByIdAsync(conn, null, id, ct);
-                return Results.Ok(page);
+                return Results.Ok(pageAfter);
             })
             .WithTags("AdminPages")
             .Accepts<PatchPageRequest>("application/json")
@@ -251,14 +263,16 @@ returning id;", conn, tx);
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapDelete("/admin/pages/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
+                await using var tx = await conn.BeginTransactionAsync(ct);
                 string? role = null;
                 await using (var check = new NpgsqlCommand(
-                    "select role from page where id = $1;", conn))
+                    "select role from page where id = $1 for update;", conn, tx))
                 {
                     check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var r = await check.ExecuteScalarAsync(ct);
@@ -270,9 +284,16 @@ returning id;", conn, tx);
                     throw new ApiException(StatusCodes.Status409Conflict, ApiErrorCodes.PageHasRole,
                         "role pages cannot be deleted");
                 }
-                await using var del = new NpgsqlCommand("delete from page where id = $1;", conn);
-                del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                await del.ExecuteNonQueryAsync(ct);
+                var before = await ReadPageByIdAsync(conn, tx, id, ct);
+                await using (var del = new NpgsqlCommand("delete from page where id = $1;", conn, tx))
+                {
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+                await audit.RecordAsync(conn, tx, "delete", "page",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
+                await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
             .WithTags("AdminPages")
@@ -282,7 +303,7 @@ returning id;", conn, tx);
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPut("/admin/pages/order",
-            async (PageOrderRequest body, HttpContext ctx,
+            async (PageOrderRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
@@ -306,6 +327,7 @@ returning id;", conn, tx);
                 {
                     RequestValidation.Throw("ids", "must be exactly the set of `none` page ids");
                 }
+                var before = await ReadAllPagesAsync(conn, tx, ct);
                 for (var i = 0; i < body.Ids!.Count; i++)
                 {
                     await using var upd = new NpgsqlCommand(
@@ -314,9 +336,18 @@ returning id;", conn, tx);
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.Ids[i] });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
+                var after = await ReadAllPagesAsync(conn, tx, ct);
+                // The `order` action stamps every reordered `none` page.
+                foreach (var id in body.Ids!)
+                {
+                    await audit.RecordAsync(conn, tx, "order", "page",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before.FirstOrDefault(p => p.Id == id),
+                        after.FirstOrDefault(p => p.Id == id),
+                        ct);
+                }
                 await tx.CommitAsync(ct);
-                var pages = await ReadAllPagesAsync(conn, null, ct);
-                return Results.Ok(new ItemsResponse<PageAdminDto> { Items = pages });
+                return Results.Ok(new ItemsResponse<PageAdminDto> { Items = after });
             })
             .WithTags("AdminPages")
             .Accepts<PageOrderRequest>("application/json")
@@ -333,7 +364,7 @@ returning id;", conn, tx);
     {
         // POST /admin/pages/{id}/sections
         app.MapPost("/admin/pages/{id:long}/sections",
-            async (long id, CreateSectionRequest body, HttpContext ctx,
+            async (long id, CreateSectionRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -416,8 +447,13 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
                     ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                     newId = Convert.ToInt64(await ins.ExecuteScalarAsync(ct) ?? 0L);
                 }
+                var section = await ReadSectionByIdAsync(conn, tx, newId, validator, ct);
+                if (section is null) throw NotFound("section not found");
+                var stamp = await audit.RecordAsync(conn, tx, "create", "section",
+                    newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: section, ct);
+                section.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var section = await ReadSectionByIdAsync(conn, null, newId, validator, ct);
                 return Results.Json(section, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminSections")
@@ -430,7 +466,7 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
 
         // PATCH /admin/sections/{id}
         app.MapPatch("/admin/sections/{id:long}",
-            async (long id, PatchSectionRequest body, HttpContext ctx,
+            async (long id, PatchSectionRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -447,6 +483,7 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
                     if (r is null || r is DBNull) throw NotFound("section not found");
                     kind = (string)r;
                 }
+                var sectionBefore = await ReadSectionByIdAsync(conn, tx, id, validator, ct);
                 JsonNode? dataNode = null;
                 if (body.Data is JsonElement de && de.ValueKind != JsonValueKind.Undefined)
                 {
@@ -490,8 +527,13 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
+                var section = await ReadSectionByIdAsync(conn, tx, id, validator, ct);
+                if (section is null) throw NotFound("section not found");
+                var stamp = await audit.RecordAsync(conn, tx, "update", "section",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    sectionBefore, section, ct);
+                section.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var section = await ReadSectionByIdAsync(conn, null, id, validator, ct);
                 return Results.Ok(section);
             })
             .WithTags("AdminSections")
@@ -504,13 +546,16 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
 
         // DELETE /admin/sections/{id}
         app.MapDelete("/admin/sections/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, SchemaValidator validator, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
-                long? pageId;
+                var before = await ReadSectionByIdAsync(conn, tx, id, validator, ct);
+                if (before is null) throw NotFound("section not found");
+                long pageId;
                 await using (var del = new NpgsqlCommand(
                     "delete from section where id = $1 returning page_id;", conn, tx))
                 {
@@ -519,7 +564,10 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
                     if (r is null || r is DBNull) throw NotFound("section not found");
                     pageId = Convert.ToInt64(r);
                 }
-                await CompactSectionsAsync(conn, tx, pageId.Value, ct);
+                await CompactSectionsAsync(conn, tx, pageId, ct);
+                await audit.RecordAsync(conn, tx, "delete", "section",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
@@ -531,7 +579,8 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
 
         // POST /admin/sections/{id}/duplicate
         app.MapPost("/admin/sections/{id:long}/duplicate",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections,
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections,
                    SchemaValidator validator, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -577,8 +626,13 @@ select $2, position, is_hidden, data, $3 from section_item where section_id = $1
                     dupItems.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                     await dupItems.ExecuteNonQueryAsync(ct);
                 }
+                var section = await ReadSectionByIdAsync(conn, tx, newId, validator, ct);
+                if (section is null) throw NotFound("section not found");
+                var stamp = await audit.RecordAsync(conn, tx, "duplicate", "section",
+                    newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: section, ct);
+                section.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var section = await ReadSectionByIdAsync(conn, null, newId, validator, ct);
                 return Results.Json(section, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminSections")
@@ -589,7 +643,7 @@ select $2, position, is_hidden, data, $3 from section_item where section_id = $1
 
         // POST /admin/sections/{id}/move
         app.MapPost("/admin/sections/{id:long}/move",
-            async (long id, MoveSectionRequest body, HttpContext ctx,
+            async (long id, MoveSectionRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -609,6 +663,7 @@ select $2, position, is_hidden, data, $3 from section_item where section_id = $1
                     fromPage = reader.GetInt64(0);
                     kind = reader.GetString(1);
                 }
+                var moveBefore = await ReadSectionByIdAsync(conn, tx, id, validator, ct);
                 string targetRole;
                 await using (var targetCheck = new NpgsqlCommand(
                     "select role from page where id = $1 for update;", conn, tx))
@@ -645,8 +700,13 @@ where id = $4;", conn, tx))
                 }
                 await CompactSectionsAsync(conn, tx, fromPage, ct);
                 if (fromPage != body.PageId) await CompactSectionsAsync(conn, tx, body.PageId, ct);
+                var section = await ReadSectionByIdAsync(conn, tx, id, validator, ct);
+                if (section is null) throw NotFound("section not found");
+                var stamp = await audit.RecordAsync(conn, tx, "move", "section",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    moveBefore, section, ct);
+                section.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var section = await ReadSectionByIdAsync(conn, null, id, validator, ct);
                 return Results.Ok(section);
             })
             .WithTags("AdminSections")
@@ -659,7 +719,7 @@ where id = $4;", conn, tx))
 
         // PUT /admin/pages/{id}/sections/order
         app.MapPut("/admin/pages/{id:long}/sections/order",
-            async (long id, SectionOrderRequest body, HttpContext ctx,
+            async (long id, SectionOrderRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -707,6 +767,13 @@ where id = $4;", conn, tx))
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
+                foreach (var sid in body.Ids!)
+                {
+                    var s = await ReadSectionByIdAsync(conn, tx, sid, validator, ct);
+                    await audit.RecordAsync(conn, tx, "order", "section",
+                        sid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        s, s, ct);
+                }
                 await tx.CommitAsync(ct);
                 var page = await ReadPageByIdAsync(conn, null, id, ct);
                 if (page is null) throw NotFound("page not found");
@@ -737,7 +804,7 @@ where id = $4;", conn, tx))
     {
         // POST /admin/sections/{id}/items
         app.MapPost("/admin/sections/{id:long}/items",
-            async (long id, CreateSectionItemRequest body, HttpContext ctx,
+            async (long id, CreateSectionItemRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -798,8 +865,13 @@ values ($1, $2, $3::jsonb, $4) returning id;", conn, tx))
                     ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                     newId = Convert.ToInt64(await ins.ExecuteScalarAsync(ct) ?? 0L);
                 }
+                var item = await ReadItemByIdAsync(conn, tx, newId, kind, validator, ct);
+                if (item is null) throw NotFound("item not found");
+                var stamp = await audit.RecordAsync(conn, tx, "create", "section_item",
+                    newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: item, ct);
+                item.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var item = await ReadItemByIdAsync(conn, null, newId, kind, validator, ct);
                 return Results.Json(item, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminSections")
@@ -812,7 +884,7 @@ values ($1, $2, $3::jsonb, $4) returning id;", conn, tx))
 
         // PATCH /admin/items/{id}
         app.MapPatch("/admin/items/{id:long}",
-            async (long id, PatchSectionItemRequest body, HttpContext ctx,
+            async (long id, PatchSectionItemRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -830,6 +902,7 @@ where i.id = $1 for update;", conn, tx))
                     if (r is null || r is DBNull) throw NotFound("item not found");
                     kind = (string)r;
                 }
+                var itemBefore = await ReadItemByIdAsync(conn, tx, id, kind, validator, ct);
                 JsonNode? dataNode = null;
                 if (body.Data is JsonElement de && de.ValueKind != JsonValueKind.Undefined)
                 {
@@ -861,8 +934,13 @@ where i.id = $1 for update;", conn, tx))
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
+                var item = await ReadItemByIdAsync(conn, tx, id, kind, validator, ct);
+                if (item is null) throw NotFound("item not found");
+                var stamp = await audit.RecordAsync(conn, tx, "update", "section_item",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    itemBefore, item, ct);
+                item.Audit = stamp;
                 await tx.CommitAsync(ct);
-                var item = await ReadItemByIdAsync(conn, null, id, kind, validator, ct);
                 return Results.Ok(item);
             })
             .WithTags("AdminSections")
@@ -875,13 +953,25 @@ where i.id = $1 for update;", conn, tx))
 
         // DELETE /admin/items/{id}
         app.MapDelete("/admin/items/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, SchemaValidator validator, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
-                long? sectionId;
+                string kind;
+                await using (var check = new NpgsqlCommand(@"
+select s.kind from section_item i join section s on s.id = i.section_id
+where i.id = $1 for update;", conn, tx))
+                {
+                    check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var r = await check.ExecuteScalarAsync(ct);
+                    if (r is null || r is DBNull) throw NotFound("item not found");
+                    kind = (string)r;
+                }
+                var before = await ReadItemByIdAsync(conn, tx, id, kind, validator, ct);
+                long sectionId;
                 await using (var del = new NpgsqlCommand(
                     "delete from section_item where id = $1 returning section_id;", conn, tx))
                 {
@@ -890,7 +980,10 @@ where i.id = $1 for update;", conn, tx))
                     if (r is null || r is DBNull) throw NotFound("item not found");
                     sectionId = Convert.ToInt64(r);
                 }
-                await CompactItemsAsync(conn, tx, sectionId.Value, ct);
+                await CompactItemsAsync(conn, tx, sectionId, ct);
+                await audit.RecordAsync(conn, tx, "delete", "section_item",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
@@ -902,7 +995,7 @@ where i.id = $1 for update;", conn, tx))
 
         // PUT /admin/sections/{id}/items/order
         app.MapPut("/admin/sections/{id:long}/items/order",
-            async (long id, ItemOrderRequest body, HttpContext ctx,
+            async (long id, ItemOrderRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, KindRegistry registry,
                    SchemaValidator validator, CancellationToken ct) =>
             {
@@ -948,6 +1041,13 @@ where i.id = $1 for update;", conn, tx))
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
+                foreach (var iid in body.Ids!)
+                {
+                    var it = await ReadItemByIdAsync(conn, tx, iid, kind, validator, ct);
+                    await audit.RecordAsync(conn, tx, "order", "section_item",
+                        iid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        it, it, ct);
+                }
                 await tx.CommitAsync(ct);
                 var section = await ReadSectionByIdAsync(conn, null, id, validator, ct);
                 return Results.Ok(section);
@@ -980,7 +1080,7 @@ where i.id = $1 for update;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPut("/admin/site-settings",
-            async (SiteSettingsUpdateRequest body, HttpContext ctx,
+            async (SiteSettingsUpdateRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, SchemaValidator validator, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -991,12 +1091,20 @@ where i.id = $1 for update;", conn, tx))
                 if (problems.Count > 0) throw ValidationDraftFailed(problems);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(@"
-update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = now() where id = 1;", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = node?.ToJsonString() ?? "{}" });
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                await cmd.ExecuteNonQueryAsync(ct);
-                var dto = await ReadSiteSettingsAsync(conn, null, validator, ct);
+                SiteSettingsDraftDto dto;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    var before = await ReadSiteSettingsAsync(conn, tx, validator, ct);
+                    await using var cmd = new NpgsqlCommand(@"
+update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = now() where id = 1;", conn, tx);
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = node?.ToJsonString() ?? "{}" });
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                    await cmd.ExecuteNonQueryAsync(ct);
+                    dto = await ReadSiteSettingsAsync(conn, tx, validator, ct);
+                    await audit.RecordAsync(conn, tx, "update", "site_settings",
+                        "", before, dto, ct);
+                    await tx.CommitAsync(ct);
+                }
                 return Results.Ok(dto);
             })
             .WithTags("AdminSiteSettings")
@@ -1103,7 +1211,8 @@ order by cv.id desc limit 1;", conn))
     {
         // POST /admin/content/publish (contracts 4.5 Content, api.md 11a.3).
         app.MapPost("/admin/content/publish",
-            async (PublishContentRequest? body, HttpContext ctx, Publisher publisher, CancellationToken ct) =>
+            async (PublishContentRequest? body, HttpContext ctx, Publisher publisher,
+                   AuditRecorder audit, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 var label = body?.Label;
@@ -1116,7 +1225,7 @@ order by cv.id desc limit 1;", conn))
                         RequestValidation.Throw("label", "must be null or 1 to 200 characters");
                     }
                 }
-                var result = await publisher.PublishAsync(email, label, ct);
+                var result = await publisher.PublishAsync(email, label, audit, ct);
                 return Results.Json(result.Version, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminContent")
@@ -1199,13 +1308,13 @@ from content_version where id = $1;", conn);
 
         // POST /admin/content/versions/{id}/restore (sql.md 8.20).
         app.MapPost("/admin/content/versions/{id:long}/restore",
-            async (long id, HttpContext ctx, Restorer restorer,
+            async (long id, HttpContext ctx, Restorer restorer, AuditRecorder audit,
                    WmsfoConnectionStrings connections, WmsfoOptions options,
                    DocumentBuilder builder, IconLibrary? iconLibrary,
                    SchemaValidator validator, KindRegistry registry, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
-                await restorer.RestoreAsync(id, email, ct);
+                await restorer.RestoreAsync(id, email, audit, ct);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 var load = await builder.LoadAsync(conn, null, includeHidden: false, ct);
@@ -1257,27 +1366,46 @@ from content_version order by id desc limit 1;", conn))
     private static void MapPreviewToken(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/content/preview-token",
-            async (HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options,
-                   CancellationToken ct) =>
+            async (HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections,
+                   WmsfoOptions options, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 var minted = Keys.MintPreviewToken();
                 var expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(@"
+                long previewId;
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                await using (var cmd = new NpgsqlCommand(@"
 insert into preview_token (token_hash, created_by, expires_at)
-values ($1, $2, $3);", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = expiresAt });
-                await cmd.ExecuteNonQueryAsync(ct);
+values ($1, $2, $3) returning id;", conn, tx))
+                {
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = minted.Hash });
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = expiresAt });
+                    previewId = (long)(await cmd.ExecuteScalarAsync(ct) ?? 0L);
+                }
                 var dto = new PreviewTokenDto
                 {
                     Token = minted.Token,
                     Url = options.PublicApiBaseUrl.TrimEnd('/') + "/preview/document?token=" + minted.Token,
                     ExpiresAt = expiresAt,
                 };
+                // Audit the create; the token itself is not part of the DTO
+                // captured on the audit_log row for the same reason it is
+                // hashed at rest (sql.md 3.27) - we record the id, not the
+                // secret. Serialize a redacted variant.
+                var audited = new PreviewTokenDto
+                {
+                    Token = "",
+                    Url = dto.Url,
+                    ExpiresAt = dto.ExpiresAt,
+                };
+                var stamp = await audit.RecordAsync(conn, tx, "create", "preview_token",
+                    previewId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: audited, ct);
+                dto.Audit = stamp;
+                await tx.CommitAsync(ct);
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminContent")

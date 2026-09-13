@@ -207,6 +207,143 @@ public sealed class A31AuditLogTests : IClassFixture<PostgresFixture>, IAsyncLif
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("after").ValueKind);
     }
 
+    // A35 acceptance: every recorded row carries `before` or `after` (delete
+    // has before-only, create after-only, everything else both) and the action
+    // is drawn from the allowed set the contracts name.
+    [Fact]
+    public async Task Every_recorded_row_carries_a_dto_and_an_allowed_action()
+    {
+        // Drive several writes across entity families so the audit_log has a
+        // representative mix of actions.
+        var created = await SendEditorAsync(HttpMethod.Post, "/admin/sponsors",
+            "{\"name\":\"Alpine Bakeries\"}");
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdDto = await ReadJsonAsync(created);
+        var sponsorId = createdDto.RootElement.GetProperty("id").GetInt64();
+        var patched = await SendEditorAsync(HttpMethod.Patch, $"/admin/sponsors/{sponsorId}",
+            "{\"name\":\"Alpine Bakeries LLC\"}");
+        Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
+        var cookieCreated = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types",
+            "{\"name\":\"Snickerdoodle\",\"sort\":10,\"active\":true}");
+        Assert.Equal(HttpStatusCode.Created, cookieCreated.StatusCode);
+        var cookieId = (await ReadJsonAsync(cookieCreated)).RootElement.GetProperty("id").GetInt64();
+        var cookieDeleted = await SendAdminAsync(HttpMethod.Delete, $"/admin/cookie-types/{cookieId}", null);
+        Assert.Equal(HttpStatusCode.NoContent, cookieDeleted.StatusCode);
+
+        var allowed = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "create", "update", "delete",
+            "status", "notify", "current", "clone",
+            "activate", "deactivate", "revoke", "rotate",
+            "order", "copy", "import", "confirm",
+            "publish", "restore", "move", "duplicate", "enroll",
+        };
+
+        // Read every audit_log row and inspect it.
+        await using var conn = new Npgsql.NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand(
+            "select action, before, after from audit_log;", conn);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        var rowCount = 0;
+        while (await reader.ReadAsync())
+        {
+            rowCount++;
+            var action = reader.GetString(0);
+            Assert.True(allowed.Contains(action), $"unexpected action `{action}`");
+            var beforeNull = reader.IsDBNull(1);
+            var afterNull = reader.IsDBNull(2);
+            Assert.True(!(beforeNull && afterNull),
+                $"audit row for action `{action}` has neither before nor after");
+            if (string.Equals(action, "delete", StringComparison.Ordinal))
+            {
+                Assert.False(beforeNull, "delete must record before");
+            }
+            else if (string.Equals(action, "create", StringComparison.Ordinal))
+            {
+                Assert.False(afterNull, "create must record after");
+            }
+        }
+        Assert.True(rowCount >= 4, $"expected at least 4 audit rows, saw {rowCount}");
+    }
+
+    // A35 acceptance: the write's response DTO carries the audit stamp of the
+    // row this write just inserted, and the following list read carries the
+    // same stamp (contracts 4.5 Audit: `audit` is the newest row for the
+    // entity). Covers each of the entity families the recorder writes to.
+    [Theory]
+    [InlineData("event")]
+    [InlineData("sponsor")]
+    [InlineData("cookie_type")]
+    [InlineData("api_key")]
+    public async Task Write_response_and_list_carry_audit_stamp(string family)
+    {
+        HttpResponseMessage created;
+        HttpResponseMessage list;
+        string action;
+        string listItemsProp = "items";
+
+        switch (family)
+        {
+            case "event":
+                created = await SendAdminAsync(HttpMethod.Post, "/admin/events",
+                    "{\"year\":2099,\"name\":\"Test Event\",\"fundsPercent\":100,\"inheritRoute\":false}");
+                Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+                list = await SendAdminAsync(HttpMethod.Get, "/admin/events", null);
+                action = "create";
+                break;
+            case "sponsor":
+                created = await SendEditorAsync(HttpMethod.Post, "/admin/sponsors",
+                    "{\"name\":\"Wildflour Bakery\"}");
+                Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+                list = await SendEditorAsync(HttpMethod.Get, "/admin/sponsors", null);
+                action = "create";
+                break;
+            case "cookie_type":
+                created = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types",
+                    "{\"name\":\"Peanut Butter\",\"sort\":10,\"active\":true}");
+                Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+                list = await SendAdminAsync(HttpMethod.Get, "/admin/cookie-types", null);
+                action = "create";
+                break;
+            case "api_key":
+                created = await SendAdminAsync(HttpMethod.Post, "/admin/api-keys",
+                    "{\"name\":\"test-key\",\"allCapabilities\":true,\"capabilities\":[]}");
+                Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+                list = await SendAdminAsync(HttpMethod.Get, "/admin/api-keys", null);
+                action = "create";
+                break;
+            default:
+                throw new InvalidOperationException($"unknown family {family}");
+        }
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+
+        var createdDto = await ReadJsonAsync(created);
+        Assert.True(createdDto.RootElement.TryGetProperty("audit", out var writeAudit));
+        Assert.Equal(JsonValueKind.Object, writeAudit.ValueKind);
+        Assert.Equal(action, writeAudit.GetProperty("action").GetString());
+        Assert.StartsWith("person:", writeAudit.GetProperty("by").GetString());
+
+        var createdId = createdDto.RootElement.GetProperty("id");
+        var page = await ReadJsonAsync(list);
+        var matchingItem = default(JsonElement);
+        var found = false;
+        foreach (var item in page.RootElement.GetProperty(listItemsProp).EnumerateArray())
+        {
+            if (item.GetProperty("id").ToString() == createdId.ToString())
+            {
+                matchingItem = item;
+                found = true;
+                break;
+            }
+        }
+        Assert.True(found, $"created {family} not in list response");
+        Assert.True(matchingItem.TryGetProperty("audit", out var listAudit));
+        Assert.Equal(JsonValueKind.Object, listAudit.ValueKind);
+        Assert.Equal(action, listAudit.GetProperty("action").GetString());
+        Assert.Equal(writeAudit.GetProperty("by").GetString(), listAudit.GetProperty("by").GetString());
+    }
+
     [Fact]
     public async Task Audit_entities_lists_the_seen_kinds()
     {

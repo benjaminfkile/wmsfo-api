@@ -948,7 +948,7 @@ type ContentVersionInfo = { id: number; sha256: string; label: string | null; pu
 type ProblemRef = Problem & { pageId: number | null; sectionId: number | null; itemId: number | null };   // all null: site settings
 type ContentStatus = { published: ContentVersionInfo | null; draftSha256: string; hasUnpublishedChanges: boolean; problems: ProblemRef[]; draftUpdatedAt: string | null };
 type ContentBundle = { content: ContentDocument; media: { [id: string]: MediaEntry }; icons: { [id: string]: string } };
-type PreviewToken = { token: string; url: string; expiresAt: string };
+type PreviewToken = { token: string; url: string; expiresAt: string; audit: AuditStamp | null };
 ```
 
 List endpoints that page use `?limit=` (default 50, max 500) and `?cursor=` (opaque, from `nextCursor`). Lists without `nextCursor` in their response are unpaged.

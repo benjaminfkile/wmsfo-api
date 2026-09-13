@@ -58,12 +58,15 @@ public sealed class Publisher
     }
 
     // POST /admin/content/publish. Runs the full publish transaction and returns
-    // the persisted content_version row info + the new snapshot version.
-    public async Task<PublishResult> PublishAsync(string publishedBy, string? label, CancellationToken ct)
+    // the persisted content_version row info + the new snapshot version. The
+    // AuditRecorder is scoped, so the endpoint hands it in per request; the
+    // first-boot seed publish passes null (no HttpContext to derive an actor).
+    public async Task<PublishResult> PublishAsync(string publishedBy, string? label,
+        Wmsfo.Api.Endpoints.AuditRecorder? audit, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connections.App);
         await conn.OpenAsync(ct).ConfigureAwait(false);
-        return await RunPublishAsync(conn, publishedBy, label, buildSnapshot: true, ct).ConfigureAwait(false);
+        return await RunPublishAsync(conn, publishedBy, label, buildSnapshot: true, audit, ct).ConfigureAwait(false);
     }
 
     // sql.md 8.16 step 3: first boot publish. When content_version has no rows
@@ -83,14 +86,15 @@ public sealed class Publisher
         if (existingId > 0) return null;
 
         return await RunPublishAsync(conn, publishedBy: "seed", label: "Starter content",
-            buildSnapshot: false, ct).ConfigureAwait(false);
+            buildSnapshot: false, audit: null, ct).ConfigureAwait(false);
     }
 
     // Publish transaction body. sql.md 8.19 minus the snapshot rebuild when
     // buildSnapshot is false (first-boot step 3). The snapshot row lock is only
     // taken when we intend to rebuild.
     private async Task<PublishResult> RunPublishAsync(NpgsqlConnection conn,
-        string publishedBy, string? label, bool buildSnapshot, CancellationToken ct)
+        string publishedBy, string? label, bool buildSnapshot,
+        Wmsfo.Api.Endpoints.AuditRecorder? audit, CancellationToken ct)
     {
         await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
         if (buildSnapshot)
@@ -229,6 +233,32 @@ where id not in (select id from content_version order by id desc limit $1);", co
             snapshotUrl = built.Url;
         }
 
+        // Count pages/sections from the built document.
+        var (pageCount, sectionCount) = CountPagesAndSections(load.Document);
+
+        var info = new ContentVersionInfoDto
+        {
+            Id = newVersionId,
+            Sha256 = sha,
+            Label = string.IsNullOrEmpty(label) ? null : label,
+            PublishedBy = publishedBy,
+            PublishedAt = publishedAt,
+            PageCount = pageCount,
+            SectionCount = sectionCount,
+        };
+        // api.md 5a Audit: record inside the write transaction so the row is
+        // committed atomically with the new content_version. The first-boot
+        // seed publish (buildSnapshot=false) passes a null recorder - there is
+        // no HttpContext to derive an actor from and the audit_log's own
+        // constraints exclude that write.
+        if (buildSnapshot && audit is not null)
+        {
+            var stamp = await audit.RecordAsync(conn, tx, "publish", "content_version",
+                newVersionId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                before: null, after: info, ct).ConfigureAwait(false);
+            info.Audit = stamp;
+        }
+
         await tx.CommitAsync(ct).ConfigureAwait(false);
 
         // api.md 16: `wmsfo_content_published` at Information with the version id
@@ -250,20 +280,6 @@ where id not in (select id from content_version order by id desc limit $1);", co
                 _ = _liveObjectWriter.WriteFromStateAsync("admin", CancellationToken.None);
             }
         }
-
-        // Count pages/sections from the built document.
-        var (pageCount, sectionCount) = CountPagesAndSections(load.Document);
-
-        var info = new ContentVersionInfoDto
-        {
-            Id = newVersionId,
-            Sha256 = sha,
-            Label = string.IsNullOrEmpty(label) ? null : label,
-            PublishedBy = publishedBy,
-            PublishedAt = publishedAt,
-            PageCount = pageCount,
-            SectionCount = sectionCount,
-        };
         return new PublishResult(info, snapshotVersion, snapshotKey, snapshotUrl);
     }
 

@@ -243,23 +243,28 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Sponsors)
-            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson)
-            .WithAudit("update", "sponsor");
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
     // DELETE /admin/sponsors/{id} [snapshot]. Cascades years; logo asset stays in the library.
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/sponsors/{id:long}",
-            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap,
+                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
                 {
+                    var before = await ReadSponsorByIdAsync(conn, tx, id, options, token);
+                    if (before is null) throw NotFound("sponsor not found");
                     await using var del = new NpgsqlCommand("delete from sponsor where id = $1;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var rows = await del.ExecuteNonQueryAsync(token);
                     if (rows == 0) throw NotFound("sponsor not found");
+                    await audit.RecordAsync(conn, tx, "delete", "sponsor",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -279,7 +284,8 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
     {
         app.MapPut("/admin/sponsors/{id:long}/years/{eventYear:int}",
             async (long id, int eventYear, UpsertSponsorYearRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit,
+                   WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (eventYear < 2000 || eventYear > 2100)
@@ -307,6 +313,9 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound("sponsor not found");
                     }
+                    // Capture the sponsor_year row (or null) before the write so
+                    // the audit row carries the before-state.
+                    var before = await ReadSponsorYearAsync(conn, tx, id, eventYear, token);
                     try
                     {
                         await using var ins = new NpgsqlCommand(@"
@@ -334,6 +343,12 @@ on conflict (sponsor_id, event_year) do update set
                         throw new ApiException(StatusCodes.Status409Conflict,
                             "pinned_position_taken", "another sponsor holds that position for that year");
                     }
+                    var after = await ReadSponsorYearAsync(conn, tx, id, eventYear, token);
+                    var action = before is null ? "create" : "update";
+                    await audit.RecordAsync(conn, tx, action, "sponsor_year",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                        eventYear.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, after, token);
                     var dto = await ReadSponsorByIdAsync(conn, tx, id, options, token);
                     if (dto is null) throw NotFound("sponsor not found");
                     return dto;
@@ -353,7 +368,8 @@ on conflict (sponsor_id, event_year) do update set
     private static void MapDeleteYear(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/sponsors/{id:long}/years/{eventYear:int}",
-            async (long id, int eventYear, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, int eventYear, HttpContext ctx, AdminSnapshotTransaction snap,
+                   AuditRecorder audit, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
@@ -365,11 +381,19 @@ on conflict (sponsor_id, event_year) do update set
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound("sponsor not found");
                     }
+                    var before = await ReadSponsorYearAsync(conn, tx, id, eventYear, token);
                     await using var del = new NpgsqlCommand(
                         "delete from sponsor_year where sponsor_id = $1 and event_year = $2;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
                     await del.ExecuteNonQueryAsync(token);
+                    if (before is not null)
+                    {
+                        await audit.RecordAsync(conn, tx, "delete", "sponsor_year",
+                            id.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                            eventYear.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            before, null, token);
+                    }
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -390,7 +414,8 @@ on conflict (sponsor_id, event_year) do update set
     {
         app.MapPost("/admin/sponsors/{id:long}/years/{eventYear:int}/copy-from/{sourceYear:int}",
             async (long id, int eventYear, int sourceYear, HttpContext ctx,
-                   AdminSnapshotTransaction snap, WmsfoConnectionStrings connections,
+                   AdminSnapshotTransaction snap, AuditRecorder audit,
+                   WmsfoConnectionStrings connections,
                    CancellationToken ct) =>
             {
                 var v = new RequestValidation();
@@ -422,7 +447,7 @@ on conflict (sponsor_id, event_year) do update set
                 {
                     var (result, _) = await snap.RunAsync<SponsorYearDto>(async (conn, tx, token) =>
                     {
-                        return await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, token);
+                        return await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, audit, token);
                     }, ct);
                     dto = result;
                 }
@@ -431,7 +456,7 @@ on conflict (sponsor_id, event_year) do update set
                     await using var conn = new NpgsqlConnection(connections.App);
                     await conn.OpenAsync(ct);
                     await using var tx = await conn.BeginTransactionAsync(ct);
-                    dto = await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, ct);
+                    dto = await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, audit, ct);
                     await tx.CommitAsync(ct);
                 }
 
@@ -451,7 +476,7 @@ on conflict (sponsor_id, event_year) do update set
     {
         app.MapPost("/admin/sponsors/import",
             async (SponsorImportRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+                   AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.FromYear < 2000 || body.FromYear > 2100)
@@ -483,7 +508,7 @@ on conflict (sponsor_id, event_year) do update set
                 {
                     var (rs, _) = await snap.RunAsync<SponsorImportResponse>(async (conn, tx, token) =>
                     {
-                        return await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), token);
+                        return await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), audit, token);
                     }, ct);
                     result = rs;
                 }
@@ -492,7 +517,7 @@ on conflict (sponsor_id, event_year) do update set
                     await using var conn = new NpgsqlConnection(connections.App);
                     await conn.OpenAsync(ct);
                     await using var tx = await conn.BeginTransactionAsync(ct);
-                    result = await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), ct);
+                    result = await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), audit, ct);
                     await tx.CommitAsync(ct);
                 }
 
@@ -512,7 +537,7 @@ on conflict (sponsor_id, event_year) do update set
     // Contracts 4.5: `201 SponsorYear` (the new row), not the whole Sponsor.
     private static async Task<SponsorYearDto> CopySponsorYearAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, long sponsorId, int targetYear, int sourceYear,
-        CancellationToken ct)
+        AuditRecorder audit, CancellationToken ct)
     {
         await using (var check = new NpgsqlCommand(
             "select 1 from sponsor where id = $1;", conn, tx))
@@ -565,7 +590,7 @@ returning registered_at;", conn, tx);
                 "year_exists", "the sponsor already has that year");
         }
         var (perDollar, minMs) = await ReadLingerSettingsAsync(conn, tx, ct);
-        return new SponsorYearDto
+        var dto = new SponsorYearDto
         {
             EventYear = targetYear,
             AmountDonated = amount,
@@ -577,11 +602,16 @@ returning registered_at;", conn, tx);
             LingerMs = ComputeLingerMs(amount, null, perDollar, minMs),
             RegisteredAt = registeredAt,
         };
+        await audit.RecordAsync(conn, tx, "copy", "sponsor_year",
+            sponsorId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+            targetYear.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            before: null, after: dto, ct);
+        return dto;
     }
 
     private static async Task<SponsorImportResponse> RunImportAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, int fromYear, int toYear, long[] sponsorIds,
-        CancellationToken ct)
+        AuditRecorder audit, CancellationToken ct)
     {
         // Every listed sponsor must have a fromYear row.
         var haveFrom = new HashSet<long>();
@@ -615,7 +645,15 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = toYear });
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = fromYear });
             var rows = await ins.ExecuteNonQueryAsync(ct);
-            if (rows > 0) created++;
+            if (rows > 0)
+            {
+                created++;
+                var after = await ReadSponsorYearAsync(conn, tx, sponsorId, toYear, ct);
+                await audit.RecordAsync(conn, tx, "import", "sponsor_year",
+                    sponsorId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":" +
+                    toYear.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before: null, after: after, ct);
+            }
             else skipped++;
         }
         return new SponsorImportResponse { Created = created, Skipped = skipped };
@@ -657,7 +695,7 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
     {
         app.MapPut("/admin/sponsors/order/{eventYear:int}",
             async (int eventYear, SponsorOrderRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (eventYear < 2000 || eventYear > 2100)
@@ -672,6 +710,7 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
 
                 var (items, _) = await snap.RunAsync<IList<SponsorOrderRow>>(async (conn, tx, token) =>
                 {
+                    var before = await ReadSponsorOrderAsync(conn, tx, eventYear, token);
                     // Every id must have a sponsor_year row for that year.
                     if (ids.Count > 0)
                     {
@@ -719,7 +758,11 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
                         await upd.ExecuteNonQueryAsync(token);
                     }
 
-                    return await ReadSponsorOrderAsync(conn, tx, eventYear, token);
+                    var after = await ReadSponsorOrderAsync(conn, tx, eventYear, token);
+                    await audit.RecordAsync(conn, tx, "order", "sponsor_order",
+                        eventYear.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, after, token);
+                    return after;
                 }, ct);
                 return Results.Ok(new ItemsResponse<SponsorOrderRow> { Items = items });
             })
@@ -730,6 +773,38 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // Reads one sponsor_year row as a SponsorYearDto (or null if it does not
+    // exist). Used to capture the audit before/after for the year endpoints.
+    private static async Task<SponsorYearDto?> ReadSponsorYearAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, long sponsorId, int eventYear,
+        CancellationToken ct)
+    {
+        var (perDollar, minMs) = await ReadLingerSettingsAsync(conn, tx, ct);
+        await using var cmd = new NpgsqlCommand(@"
+select event_year, amount_donated, active, can_advertise, anonymous,
+       pinned_position, linger_ms_override, registered_at
+from sponsor_year
+where sponsor_id = $1 and event_year = $2;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = eventYear });
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        var amount = reader.IsDBNull(1) ? (decimal?)null : reader.GetDecimal(1);
+        var lingerOverride = reader.IsDBNull(6) ? (int?)null : reader.GetInt32(6);
+        return new SponsorYearDto
+        {
+            EventYear = reader.GetInt32(0),
+            AmountDonated = amount,
+            Active = reader.GetBoolean(2),
+            CanAdvertise = reader.GetBoolean(3),
+            Anonymous = reader.GetBoolean(4),
+            PinnedPosition = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+            LingerMsOverride = lingerOverride,
+            LingerMs = ComputeLingerMs(amount, lingerOverride, perDollar, minMs),
+            RegisteredAt = reader.GetFieldValue<DateTimeOffset>(7),
+        };
     }
 
     private static async Task<IList<SponsorOrderRow>> ReadSponsorOrderAsync(
