@@ -42,11 +42,19 @@ public static class AdminInboxEndpoints
 
                 var conditions = new List<string>();
                 var next = 1;
-                if (cursor is not null) conditions.Add($"id < ${next++}");
+                if (cursor is not null) conditions.Add($"m.id < ${next++}");
                 var limitIdx = next;
-                var sql = "select id, name, email, body, client_ip, created_at from contact_message"
+                var sql = @"
+select m.id, m.name, m.email, m.body, m.client_ip, m.created_at,
+       a.action, a.actor, a.at
+from contact_message m
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'contact_message' and entity_id = m.id::text
+  order by id desc limit 1
+) a on true"
                     + (conditions.Count > 0 ? " where " + string.Join(" and ", conditions) : "")
-                    + " order by id desc limit $" + limitIdx + ";";
+                    + " order by m.id desc limit $" + limitIdx + ";";
                 await using var cmd = new NpgsqlCommand(sql, conn);
                 if (cursor is not null) cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = cursor.Value });
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = limit + 1 });
@@ -54,7 +62,7 @@ public static class AdminInboxEndpoints
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    items.Add(new ContactMessageDto
+                    var dto = new ContactMessageDto
                     {
                         Id = reader.GetInt64(0),
                         Name = reader.GetString(1),
@@ -62,7 +70,17 @@ public static class AdminInboxEndpoints
                         Body = reader.GetString(3),
                         ClientIp = reader.GetString(4),
                         CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-                    });
+                    };
+                    if (!reader.IsDBNull(6))
+                    {
+                        dto.Audit = new AuditStampDto
+                        {
+                            Action = reader.GetString(6),
+                            By = reader.GetString(7),
+                            At = reader.GetFieldValue<DateTimeOffset>(8),
+                        };
+                    }
+                    items.Add(dto);
                 }
                 string? nextCursor = null;
                 if (items.Count > limit)
@@ -82,17 +100,43 @@ public static class AdminInboxEndpoints
     private static void MapDeleteContactMessage(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/contact-messages/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(
-                    "delete from contact_message where id = $1 returning id;", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                var r = await cmd.ExecuteScalarAsync(ct);
-                if (r is null || r is DBNull)
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                ContactMessageDto? before = null;
+                await using (var read = new NpgsqlCommand(
+                    "select id, name, email, body, client_ip, created_at from contact_message where id = $1 for update;", conn, tx))
+                {
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await using var reader = await read.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct))
+                    {
+                        before = new ContactMessageDto
+                        {
+                            Id = reader.GetInt64(0),
+                            Name = reader.GetString(1),
+                            Email = reader.GetString(2),
+                            Body = reader.GetString(3),
+                            ClientIp = reader.GetString(4),
+                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                        };
+                    }
+                }
+                if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "contact message not found");
+                await using (var del = new NpgsqlCommand(
+                    "delete from contact_message where id = $1;", conn, tx))
+                {
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+                await audit.RecordAsync(conn, tx, "delete", "contact_message",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
+                await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
             .WithTags("AdminInbox")
@@ -141,9 +185,15 @@ public static class AdminInboxEndpoints
                 var limitIdx = next;
                 var sql = @"
 select s.id, s.channel, s.address, s.verified_at, s.unsubscribed_at, s.created_at,
-       s.person_id, coalesce(p.email, '')
+       s.person_id, coalesce(p.email, ''),
+       a.action, a.actor, a.at
 from subscriber s
-left join person p on p.id = s.person_id"
+left join person p on p.id = s.person_id
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'subscriber' and entity_id = s.id::text
+  order by id desc limit 1
+) a on true"
                     + (conditions.Count > 0 ? " where " + string.Join(" and ", conditions) : "")
                     + " order by s.id desc limit $" + limitIdx + ";";
                 await using var cmd = new NpgsqlCommand(sql, conn);
@@ -153,7 +203,7 @@ left join person p on p.id = s.person_id"
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    items.Add(new SubscriberAdminDto
+                    var dto = new SubscriberAdminDto
                     {
                         Id = reader.GetInt64(0),
                         Channel = reader.GetString(1),
@@ -163,7 +213,17 @@ left join person p on p.id = s.person_id"
                         CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
                         PersonId = reader.GetInt64(6),
                         PersonEmail = reader.GetString(7),
-                    });
+                    };
+                    if (!reader.IsDBNull(8))
+                    {
+                        dto.Audit = new AuditStampDto
+                        {
+                            Action = reader.GetString(8),
+                            By = reader.GetString(9),
+                            At = reader.GetFieldValue<DateTimeOffset>(10),
+                        };
+                    }
+                    items.Add(dto);
                 }
                 string? nextCursor = null;
                 if (items.Count > limit)
@@ -218,17 +278,58 @@ from subscriber;", conn);
     private static void MapDeleteSubscriber(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/subscribers/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(
-                    "delete from subscriber where id = $1 returning id;", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                var r = await cmd.ExecuteScalarAsync(ct);
-                if (r is null || r is DBNull)
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                // Lock the subscriber row first; FOR UPDATE cannot be applied
+                // to the nullable side of the left join to `person`.
+                await using (var lockCmd = new NpgsqlCommand(
+                    "select 1 from subscriber where id = $1 for update;", conn, tx))
+                {
+                    lockCmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var lockR = await lockCmd.ExecuteScalarAsync(ct);
+                    if (lockR is null || lockR is DBNull)
+                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "subscriber not found");
+                }
+                SubscriberAdminDto? before = null;
+                await using (var read = new NpgsqlCommand(@"
+select s.id, s.channel, s.address, s.verified_at, s.unsubscribed_at, s.created_at,
+       s.person_id, coalesce(p.email, '')
+from subscriber s left join person p on p.id = s.person_id
+where s.id = $1;", conn, tx))
+                {
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await using var reader = await read.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct))
+                    {
+                        before = new SubscriberAdminDto
+                        {
+                            Id = reader.GetInt64(0),
+                            Channel = reader.GetString(1),
+                            Address = reader.GetString(2),
+                            VerifiedAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+                            UnsubscribedAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                            PersonId = reader.GetInt64(6),
+                            PersonEmail = reader.GetString(7),
+                        };
+                    }
+                }
+                if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "subscriber not found");
+                await using (var del = new NpgsqlCommand(
+                    "delete from subscriber where id = $1;", conn, tx))
+                {
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+                await audit.RecordAsync(conn, tx, "delete", "subscriber",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
+                await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
             .WithTags("AdminInbox")
@@ -255,8 +356,14 @@ from subscriber;", conn);
                 var limitIdx = next;
                 var sql = @"
 select p.id, p.email, p.created_at, p.last_seen_at,
-       coalesce((select count(*) from cookie c where c.person_id = p.id), 0)
-from person p"
+       coalesce((select count(*) from cookie c where c.person_id = p.id), 0),
+       a.action, a.actor, a.at
+from person p
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'person' and entity_id = p.id::text
+  order by id desc limit 1
+) a on true"
                     + (conditions.Count > 0 ? " where " + string.Join(" and ", conditions) : "")
                     + " order by p.id desc limit $" + limitIdx + ";";
                 await using var cmd = new NpgsqlCommand(sql, conn);
@@ -266,14 +373,24 @@ from person p"
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    items.Add(new PersonWithCookieCountDto
+                    var dto = new PersonWithCookieCountDto
                     {
                         Id = reader.GetInt64(0),
                         Email = reader.GetString(1),
                         CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
                         LastSeenAt = reader.GetFieldValue<DateTimeOffset>(3),
                         CookieCount = (int)reader.GetInt64(4),
-                    });
+                    };
+                    if (!reader.IsDBNull(5))
+                    {
+                        dto.Audit = new AuditStampDto
+                        {
+                            Action = reader.GetString(5),
+                            By = reader.GetString(6),
+                            At = reader.GetFieldValue<DateTimeOffset>(7),
+                        };
+                    }
+                    items.Add(dto);
                 }
                 string? nextCursor = null;
                 if (items.Count > limit)
@@ -293,17 +410,41 @@ from person p"
     private static void MapDeletePerson(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/people/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(
-                    "delete from person where id = $1 returning id;", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                var r = await cmd.ExecuteScalarAsync(ct);
-                if (r is null || r is DBNull)
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                PersonDto? before = null;
+                await using (var read = new NpgsqlCommand(
+                    "select id, email, created_at, last_seen_at from person where id = $1 for update;", conn, tx))
+                {
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await using var reader = await read.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct))
+                    {
+                        before = new PersonDto
+                        {
+                            Id = reader.GetInt64(0),
+                            Email = reader.GetString(1),
+                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
+                            LastSeenAt = reader.GetFieldValue<DateTimeOffset>(3),
+                        };
+                    }
+                }
+                if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "person not found");
+                await using (var del = new NpgsqlCommand(
+                    "delete from person where id = $1;", conn, tx))
+                {
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+                await audit.RecordAsync(conn, tx, "delete", "person",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
+                await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
             .WithTags("AdminInbox")

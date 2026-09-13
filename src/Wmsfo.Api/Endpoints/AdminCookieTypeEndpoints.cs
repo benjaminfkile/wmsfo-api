@@ -38,10 +38,16 @@ public static class AdminCookieTypeEndpoints
                 await conn.OpenAsync(ct);
                 var items = new List<CookieTypeDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select t.id, t.name, t.icon, t.sort, t.active, coalesce(c.n, 0), t.created_at, t.updated_at
+select t.id, t.name, t.icon, t.sort, t.active, coalesce(c.n, 0), t.created_at, t.updated_at,
+       a.action, a.actor, a.at
 from cookie_type t
 left join (select cookie_type_id, count(*)::int as n from cookie group by cookie_type_id) c
   on c.cookie_type_id = t.id
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'cookie_type' and entity_id = t.id::text
+  order by id desc limit 1
+) a on true
 order by t.sort, t.id;", conn);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) items.Add(ReadRow(reader));
@@ -61,7 +67,7 @@ order by t.sort, t.id;", conn);
     {
         app.MapPost("/admin/cookie-types",
             async (CreateCookieTypeRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   IconLibrary icons, CancellationToken ct) =>
+                   AuditRecorder audit, IconLibrary icons, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 100)
@@ -91,8 +97,13 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                         });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
                     }
-                    return await ReadByIdAsync(conn, tx, newId, token)
+                    var after = await ReadByIdAsync(conn, tx, newId, token)
                         ?? throw NotFound("cookie type not found");
+                    var stamp = await audit.RecordAsync(conn, tx, "create", "cookie_type",
+                        newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before: null, after: after, token);
+                    after.Audit = stamp;
+                    return after;
                 }, ct);
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
             })
@@ -110,7 +121,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
     {
         app.MapPatch("/admin/cookie-types/{id:long}",
             async (long id, PatchCookieTypeRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   IconLibrary icons, CancellationToken ct) =>
+                   AuditRecorder audit, IconLibrary icons, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Name is not null && (body.Name.Length < 1 || body.Name.Length > 100))
@@ -124,6 +135,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                 var (dto, _) = await snap.RunAsync<CookieTypeDto>(async (conn, tx, token) =>
                 {
                     await GuardNoLiveEventAsync(conn, tx, token);
+                    CookieTypeDto? before = null;
                     await using (var check = new NpgsqlCommand(
                         "select 1 from cookie_type where id = $1 for update;", conn, tx))
                     {
@@ -131,6 +143,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound("cookie type not found");
                     }
+                    before = await ReadByIdAsync(conn, tx, id, token);
                     if (body.Icon is not null) await CheckIconAsync(conn, tx, body.Icon, icons, token);
 
                     var sets = new List<string>();
@@ -144,22 +157,25 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                         sets.Add($"icon = ${next++}::jsonb");
                         parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = IconToJson(body.Icon)! });
                     }
-                    if (sets.Count == 0)
+                    if (sets.Count > 0)
                     {
-                        return await ReadByIdAsync(conn, tx, id, token)
-                            ?? throw NotFound("cookie type not found");
+                        sets.Add("updated_at = now()");
+                        var whereIdx = next;
+                        var sql = $"update cookie_type set {string.Join(", ", sets)} where id = ${whereIdx};";
+                        await using (var upd = new NpgsqlCommand(sql, conn, tx))
+                        {
+                            foreach (var p in parameters) upd.Parameters.Add(p);
+                            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                            await upd.ExecuteNonQueryAsync(token);
+                        }
                     }
-                    sets.Add("updated_at = now()");
-                    var whereIdx = next;
-                    var sql = $"update cookie_type set {string.Join(", ", sets)} where id = ${whereIdx};";
-                    await using (var upd = new NpgsqlCommand(sql, conn, tx))
-                    {
-                        foreach (var p in parameters) upd.Parameters.Add(p);
-                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        await upd.ExecuteNonQueryAsync(token);
-                    }
-                    return await ReadByIdAsync(conn, tx, id, token)
+                    var after = await ReadByIdAsync(conn, tx, id, token)
                         ?? throw NotFound("cookie type not found");
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "cookie_type",
+                        id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        before, after, token);
+                    after.Audit = stamp;
+                    return after;
                 }, ct);
                 return Results.Ok(dto);
             })
@@ -213,8 +229,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.CookieTypes)
-            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson)
-            .WithAudit("delete", "cookie_type");
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
     private sealed record CookieTypeInUseDetails(
@@ -294,8 +309,15 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
         await using var cmd = new NpgsqlCommand(@"
 select t.id, t.name, t.icon, t.sort, t.active,
        coalesce((select count(*)::int from cookie where cookie_type_id = t.id), 0),
-       t.created_at, t.updated_at
-from cookie_type t where t.id = $1;", conn, tx);
+       t.created_at, t.updated_at,
+       a.action, a.actor, a.at
+from cookie_type t
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'cookie_type' and entity_id = t.id::text
+  order by id desc limit 1
+) a on true
+where t.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -317,7 +339,7 @@ from cookie_type t where t.id = $1;", conn, tx);
                     icon = new IconValue { Source = source, Id = id };
             }
         }
-        return new CookieTypeDto
+        var dto = new CookieTypeDto
         {
             Id = reader.GetInt64(0),
             Name = reader.GetString(1),
@@ -328,5 +350,15 @@ from cookie_type t where t.id = $1;", conn, tx);
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(6),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(7),
         };
+        if (!reader.IsDBNull(8))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(8),
+                By = reader.GetString(9),
+                At = reader.GetFieldValue<DateTimeOffset>(10),
+            };
+        }
+        return dto;
     }
 }

@@ -26,6 +26,7 @@ public sealed class EventDto
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class EventMessageDto
@@ -37,6 +38,7 @@ public sealed class EventMessageDto
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class StatusHistoryDto
@@ -76,6 +78,7 @@ public sealed class RouteDto
     public int PointCount { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class BeaconDto
@@ -96,6 +99,7 @@ public sealed class BeaconDto
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class EnrollmentDto
@@ -176,6 +180,7 @@ public sealed class ApiKeyDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class ApiKeyMintedDto
@@ -190,6 +195,7 @@ public sealed class ApiKeyMintedDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
     // The plaintext key. Appears in this response and nowhere else.
     public string Key { get; set; } = "";
 }
@@ -212,6 +218,7 @@ public sealed class CookieTypeDto
     public int CookieCount { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SubscriptionDto
@@ -234,6 +241,7 @@ public sealed class SubscriberAdminDto
     public DateTimeOffset CreatedAt { get; set; }
     public long PersonId { get; set; }
     public string PersonEmail { get; set; } = "";
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class PersonDto
@@ -242,6 +250,7 @@ public sealed class PersonDto
     public string Email { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class PersonWithCookieCountDto
@@ -251,6 +260,7 @@ public sealed class PersonWithCookieCountDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
     public int CookieCount { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class ContactMessageDto
@@ -261,6 +271,7 @@ public sealed class ContactMessageDto
     public string Body { get; set; } = "";
     public string ClientIp { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SettingDto
@@ -269,6 +280,7 @@ public sealed class SettingDto
     public JsonElement Value { get; set; }
     public string? UpdatedBy { get; set; }
     public DateTimeOffset? UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SnapshotInfoDto
@@ -346,6 +358,7 @@ public sealed class PageAdminDto
     public DateTimeOffset CreatedAt { get; set; }
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SectionItemAdminDto
@@ -358,6 +371,7 @@ public sealed class SectionItemAdminDto
     public IList<ProblemDto> Problems { get; set; } = new List<ProblemDto>();
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class SectionAdminDto
@@ -373,6 +387,7 @@ public sealed class SectionAdminDto
     public IList<ProblemDto> Problems { get; set; } = new List<ProblemDto>();
     public string UpdatedBy { get; set; } = "";
     public DateTimeOffset UpdatedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class PageDetailDto
@@ -444,6 +459,7 @@ public sealed class MediaAssetDto
     public DateTimeOffset? ConfirmedAt { get; set; }
     public DateTimeOffset? UnreferencedSince { get; set; }
     public DateTimeOffset? OrphanedAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class UploadTicketDto
@@ -477,6 +493,7 @@ public sealed class ContentVersionInfoDto
     public DateTimeOffset PublishedAt { get; set; }
     public int PageCount { get; set; }
     public int SectionCount { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class ContentVersionDetailDto
@@ -512,6 +529,7 @@ public sealed class PreviewTokenDto
     public string Token { get; set; } = "";
     public string Url { get; set; } = "";
     public DateTimeOffset ExpiresAt { get; set; }
+    public AuditStampDto? Audit { get; set; }
 }
 
 public sealed class ErrorResponse

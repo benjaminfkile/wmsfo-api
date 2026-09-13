@@ -50,44 +50,78 @@ public static class AdminSettingsEndpoints
             {
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                var rows = new Dictionary<string, (JsonElement value, string? by, DateTimeOffset? at)>(StringComparer.Ordinal);
-                await using (var cmd = new NpgsqlCommand(
-                    "select key, value, updated_by, updated_at from app_setting;", conn))
-                await using (var reader = await cmd.ExecuteReaderAsync(ct))
+                // api.md 5a: one lateral subquery per list read for the audit
+                // stamp. The full set of keys comes from `Kinds` so a setting
+                // that has never been written still surfaces its audit row (a
+                // delete recorded against the key, for instance) when one exists.
+                var rows = new Dictionary<string, (JsonElement value, string? by, DateTimeOffset? at, AuditStampDto? audit)>(StringComparer.Ordinal);
+                await using (var cmd = new NpgsqlCommand(@"
+select k.entity_id,
+       s.value, s.updated_by, s.updated_at,
+       a.action, a.actor, a.at
+from unnest($1::text[]) as k(entity_id)
+left join app_setting s on s.key = k.entity_id
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'setting' and entity_id = k.entity_id
+  order by id desc limit 1
+) a on true;", conn))
                 {
+                    cmd.Parameters.Add(new NpgsqlParameter
+                    {
+                        NpgsqlDbType = NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text,
+                        Value = Kinds.Select(k => k.Key).ToArray(),
+                    });
+                    await using var reader = await cmd.ExecuteReaderAsync(ct);
                     while (await reader.ReadAsync(ct))
                     {
                         var key = reader.GetString(0);
-                        var raw = reader.GetString(1);
-                        using var doc = JsonDocument.Parse(raw);
-                        var el = doc.RootElement.Clone();
-                        rows[key] = (el, reader.GetString(2), reader.GetFieldValue<DateTimeOffset>(3));
+                        JsonElement? value = null;
+                        string? updatedBy = null;
+                        DateTimeOffset? updatedAt = null;
+                        if (!reader.IsDBNull(1))
+                        {
+                            var raw = reader.GetString(1);
+                            using var doc = JsonDocument.Parse(raw);
+                            value = doc.RootElement.Clone();
+                            updatedBy = reader.GetString(2);
+                            updatedAt = reader.GetFieldValue<DateTimeOffset>(3);
+                        }
+                        AuditStampDto? audit = null;
+                        if (!reader.IsDBNull(4))
+                        {
+                            audit = new AuditStampDto
+                            {
+                                Action = reader.GetString(4),
+                                By = reader.GetString(5),
+                                At = reader.GetFieldValue<DateTimeOffset>(6),
+                            };
+                        }
+                        rows[key] = (value ?? default, updatedBy, updatedAt, audit);
                     }
                 }
                 var items = new List<SettingDto>(Kinds.Count);
                 foreach (var kind in Kinds)
                 {
-                    if (rows.TryGetValue(kind.Key, out var row))
+                    rows.TryGetValue(kind.Key, out var row);
+                    JsonElement value;
+                    if (row.value.ValueKind == JsonValueKind.Undefined)
                     {
-                        items.Add(new SettingDto
-                        {
-                            Key = kind.Key,
-                            Value = row.value,
-                            UpdatedBy = row.by,
-                            UpdatedAt = row.at,
-                        });
+                        using var doc = JsonDocument.Parse(kind.DefaultValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        value = doc.RootElement.Clone();
                     }
                     else
                     {
-                        using var doc = JsonDocument.Parse(kind.DefaultValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        items.Add(new SettingDto
-                        {
-                            Key = kind.Key,
-                            Value = doc.RootElement.Clone(),
-                            UpdatedBy = null,
-                            UpdatedAt = null,
-                        });
+                        value = row.value;
                     }
+                    items.Add(new SettingDto
+                    {
+                        Key = kind.Key,
+                        Value = value,
+                        UpdatedBy = row.by,
+                        UpdatedAt = row.at,
+                        Audit = row.audit,
+                    });
                 }
                 return Results.Ok(new ItemsResponse<SettingDto> { Items = items });
             })
@@ -104,7 +138,7 @@ public static class AdminSettingsEndpoints
     {
         app.MapPut("/admin/settings/{key}",
             async (string key, SettingUpdateRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 if (!ByKey.TryGetValue(key, out var kind))
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "unknown setting");
@@ -124,6 +158,25 @@ public static class AdminSettingsEndpoints
 
                 var (dto, _) = await snap.RunAsync<SettingDto>(async (conn, tx, token) =>
                 {
+                    // Capture the before-state for the audit row (contracts 4.5).
+                    SettingDto? before = null;
+                    await using (var read = new NpgsqlCommand(
+                        "select value, updated_by, updated_at from app_setting where key = $1 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = kind.Key });
+                        await using var reader = await read.ExecuteReaderAsync(token);
+                        if (await reader.ReadAsync(token))
+                        {
+                            using var beforeDoc = JsonDocument.Parse(reader.GetString(0));
+                            before = new SettingDto
+                            {
+                                Key = kind.Key,
+                                Value = beforeDoc.RootElement.Clone(),
+                                UpdatedBy = reader.IsDBNull(1) ? null : reader.GetString(1),
+                                UpdatedAt = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+                            };
+                        }
+                    }
                     var valueJson = parsed.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     string? updatedBy = null;
                     DateTimeOffset updatedAt = default;
@@ -141,14 +194,18 @@ returning updated_by, updated_at;", conn, tx))
                         updatedBy = reader.GetString(0);
                         updatedAt = reader.GetFieldValue<DateTimeOffset>(1);
                     }
-                    using var doc = JsonDocument.Parse(valueJson);
-                    return new SettingDto
+                    using var afterDoc = JsonDocument.Parse(valueJson);
+                    var after = new SettingDto
                     {
                         Key = kind.Key,
-                        Value = doc.RootElement.Clone(),
+                        Value = afterDoc.RootElement.Clone(),
                         UpdatedBy = updatedBy,
                         UpdatedAt = updatedAt,
                     };
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "setting",
+                        kind.Key, before, after, token);
+                    after.Audit = stamp;
+                    return after;
                 }, ct);
                 return Results.Ok(dto);
             })

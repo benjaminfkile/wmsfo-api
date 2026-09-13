@@ -46,7 +46,7 @@ public static class AdminBeaconEndpoints
                 await conn.OpenAsync(ct);
                 var rows = new List<(BeaconDto Dto, int KeyVersion)>();
                 await using (var cmd = new NpgsqlCommand(BeaconSelect + @"
-order by name asc, id asc;", conn))
+order by b.name asc, b.id asc;", conn))
                 {
                     await using var reader = await cmd.ExecuteReaderAsync(ct);
                     while (await reader.ReadAsync(ct)) rows.Add(ReadBeaconRow(reader));
@@ -104,7 +104,8 @@ order by name asc, id asc;", conn))
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons",
-            async (CreateBeaconRequest body, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            async (CreateBeaconRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 100)
@@ -115,7 +116,7 @@ order by name asc, id asc;", conn))
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
                 var (dto, key, enrollment) = await CreateOrRotateAsync(
-                    connections, options,
+                    connections, options, audit,
                     createNewBeacon: true,
                     beaconId: null,
                     name: body.Name.Trim(),
@@ -144,7 +145,8 @@ order by name asc, id asc;", conn))
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/beacons/{id:long}",
-            async (long id, PatchBeaconRequest body, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, PatchBeaconRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Name is not null && (body.Name.Length < 1 || body.Name.Length > 100))
@@ -156,6 +158,10 @@ order by name asc, id asc;", conn))
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
+                await using var tx = await conn.BeginTransactionAsync(ct);
+
+                var before = await ReadBeaconByIdAsync(conn, tx, id, ct);
+                if (before is null) throw NotFound();
 
                 var sets = new List<string>();
                 var parameters = new List<NpgsqlParameter>();
@@ -170,24 +176,23 @@ order by name asc, id asc;", conn))
                     sets.Add($"notes = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Notes });
                 }
-                if (sets.Count == 0)
+                if (sets.Count > 0)
                 {
-                    var dto = await ReadBeaconByIdAsync(conn, null, id, ct);
-                    if (dto is null) throw NotFound();
-                    return Results.Ok(dto);
-                }
-                sets.Add("updated_at = now()");
-                var whereIdx = next;
-                var sql = $"update beacon set {string.Join(", ", sets)} where id = ${whereIdx};";
-                await using (var upd = new NpgsqlCommand(sql, conn))
-                {
+                    sets.Add("updated_at = now()");
+                    var whereIdx = next;
+                    var sql = $"update beacon set {string.Join(", ", sets)} where id = ${whereIdx};";
+                    await using var upd = new NpgsqlCommand(sql, conn, tx);
                     foreach (var p in parameters) upd.Parameters.Add(p);
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    var rows = await upd.ExecuteNonQueryAsync(ct);
-                    if (rows == 0) throw NotFound();
+                    await upd.ExecuteNonQueryAsync(ct);
                 }
-                var updated = await ReadBeaconByIdAsync(conn, null, id, ct);
+                var updated = await ReadBeaconByIdAsync(conn, tx, id, ct);
                 if (updated is null) throw NotFound();
+                var stamp = await audit.RecordAsync(conn, tx, "update", "beacon",
+                    id.ToString(CultureInfo.InvariantCulture),
+                    before, updated, ct);
+                updated.Audit = stamp;
+                await tx.CommitAsync(ct);
                 return Results.Ok(updated);
             })
             .WithTags("AdminBeacons")
@@ -207,10 +212,11 @@ order by name asc, id asc;", conn))
     private static void MapActivate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons/{id:long}/activate",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
-                var dto = await RunActivateAsync(connections, id, ct);
+                var dto = await RunActivateAsync(connections, audit, id, ct);
                 return Results.Ok(dto);
             })
             .WithTags("AdminBeacons")
@@ -220,14 +226,14 @@ order by name asc, id asc;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    private static async Task<BeaconDto> RunActivateAsync(WmsfoConnectionStrings connections, long id, CancellationToken ct)
+    private static async Task<BeaconDto> RunActivateAsync(WmsfoConnectionStrings connections, AuditRecorder audit, long id, CancellationToken ct)
     {
         // sql.md 4.3: on 23505 on beacon_one_active retry the transaction once.
         for (var attempt = 0; ; attempt++)
         {
             try
             {
-                return await RunActivateOnceAsync(connections, id, ct);
+                return await RunActivateOnceAsync(connections, audit, id, ct);
             }
             catch (PostgresException ex)
                 when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.BeaconOneActive && attempt < 1)
@@ -238,11 +244,14 @@ order by name asc, id asc;", conn))
         }
     }
 
-    private static async Task<BeaconDto> RunActivateOnceAsync(WmsfoConnectionStrings connections, long id, CancellationToken ct)
+    private static async Task<BeaconDto> RunActivateOnceAsync(WmsfoConnectionStrings connections, AuditRecorder audit, long id, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(connections.App);
         await conn.OpenAsync(ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
+
+        var before = await ReadBeaconByIdAsync(conn, tx, id, ct);
+        if (before is null) throw NotFound();
 
         DateTimeOffset? revokedAt = null;
         bool found;
@@ -275,10 +284,13 @@ order by name asc, id asc;", conn))
             set.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
             await set.ExecuteNonQueryAsync(ct);
         }
-        await tx.CommitAsync(ct);
-
-        var dto = await ReadBeaconByIdAsync(conn, null, id, ct);
+        var dto = await ReadBeaconByIdAsync(conn, tx, id, ct);
         if (dto is null) throw NotFound();
+        var stamp = await audit.RecordAsync(conn, tx, "activate", "beacon",
+            id.ToString(CultureInfo.InvariantCulture),
+            before, dto, ct);
+        dto.Audit = stamp;
+        await tx.CommitAsync(ct);
         return dto;
     }
 
@@ -286,25 +298,28 @@ order by name asc, id asc;", conn))
     private static void MapDeactivate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons/{id:long}/deactivate",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using (var check = new NpgsqlCommand("select 1 from beacon where id = $1;", conn))
-                {
-                    check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    var r = await check.ExecuteScalarAsync(ct);
-                    if (r is null || r is DBNull) throw NotFound();
-                }
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                var before = await ReadBeaconByIdAsync(conn, tx, id, ct);
+                if (before is null) throw NotFound();
                 await using (var upd = new NpgsqlCommand(
-                    "update beacon set is_active = false, updated_at = now() where id = $1;", conn))
+                    "update beacon set is_active = false, updated_at = now() where id = $1;", conn, tx))
                 {
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await upd.ExecuteNonQueryAsync(ct);
                 }
-                var dto = await ReadBeaconByIdAsync(conn, null, id, ct);
+                var dto = await ReadBeaconByIdAsync(conn, tx, id, ct);
                 if (dto is null) throw NotFound();
+                var stamp = await audit.RecordAsync(conn, tx, "deactivate", "beacon",
+                    id.ToString(CultureInfo.InvariantCulture),
+                    before, dto, ct);
+                dto.Audit = stamp;
+                await tx.CommitAsync(ct);
                 return Results.Ok(dto);
             })
             .WithTags("AdminBeacons")
@@ -323,11 +338,12 @@ order by name asc, id asc;", conn))
     private static void MapRotate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons/{id:long}/rotate",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 var (dto, key, enrollment) = await CreateOrRotateAsync(
-                    connections, options,
+                    connections, options, audit,
                     createNewBeacon: false,
                     beaconId: id,
                     name: null,
@@ -355,13 +371,15 @@ order by name asc, id asc;", conn))
     private static void MapRevoke(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/beacons/{id:long}/revoke",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
-                int rows;
+                var before = await ReadBeaconByIdAsync(conn, tx, id, ct);
+                if (before is null) throw NotFound();
                 await using (var upd = new NpgsqlCommand(@"
 update beacon
 set revoked_at = coalesce(revoked_at, now()),
@@ -370,19 +388,21 @@ set revoked_at = coalesce(revoked_at, now()),
 where id = $1;", conn, tx))
                 {
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    rows = await upd.ExecuteNonQueryAsync(ct);
+                    await upd.ExecuteNonQueryAsync(ct);
                 }
-                if (rows == 0) throw NotFound();
                 await using (var del = new NpgsqlCommand(
                     "delete from beacon_enrollment_token where beacon_id = $1 and consumed_at is null;", conn, tx))
                 {
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await del.ExecuteNonQueryAsync(ct);
                 }
-                await tx.CommitAsync(ct);
-
-                var dto = await ReadBeaconByIdAsync(conn, null, id, ct);
+                var dto = await ReadBeaconByIdAsync(conn, tx, id, ct);
                 if (dto is null) throw NotFound();
+                var stamp = await audit.RecordAsync(conn, tx, "revoke", "beacon",
+                    id.ToString(CultureInfo.InvariantCulture),
+                    before, dto, ct);
+                dto.Audit = stamp;
+                await tx.CommitAsync(ct);
                 return Results.Ok(dto);
             })
             .WithTags("AdminBeacons")
@@ -463,6 +483,7 @@ order by received_at desc, id desc;", conn);
     private static async Task<(BeaconDto Beacon, string Key, EnrollmentDto Enrollment)> CreateOrRotateAsync(
         WmsfoConnectionStrings connections,
         WmsfoOptions options,
+        AuditRecorder audit,
         bool createNewBeacon,
         long? beaconId,
         string? name,
@@ -477,11 +498,14 @@ order by received_at desc, id desc;", conn);
 
         long id;
         DateTimeOffset expiresAt;
+        BeaconDto dto;
+        AuditStampDto stamp;
 
         await using var conn = new NpgsqlConnection(connections.App);
         await conn.OpenAsync(ct);
         await using (var tx = await conn.BeginTransactionAsync(ct))
         {
+            BeaconDto? before = null;
             if (createNewBeacon)
             {
                 await using var insert = new NpgsqlCommand(@"
@@ -498,6 +522,8 @@ returning id;", conn, tx);
             else
             {
                 id = beaconId ?? throw new InvalidOperationException("beaconId required for rotate");
+
+                before = await ReadBeaconByIdAsync(conn, tx, id, ct);
 
                 DateTimeOffset? revokedAt = null;
                 bool found;
@@ -550,11 +576,15 @@ returning expires_at;", conn, tx))
                 expiresAt = ((DateTime)scalar!).ToUniversalTime();
             }
 
+            dto = await ReadBeaconByIdAsync(conn, tx, id, ct)
+                ?? throw NotFound();
+            var action = createNewBeacon ? "enroll" : "rotate";
+            stamp = await audit.RecordAsync(conn, tx, action, "beacon",
+                id.ToString(CultureInfo.InvariantCulture),
+                before, dto, ct);
             await tx.CommitAsync(ct);
         }
-
-        var dto = await ReadBeaconByIdAsync(conn, null, id, ct);
-        if (dto is null) throw NotFound();
+        dto.Audit = stamp;
 
         var url = "rednose://enroll?api=" + Uri.EscapeDataString(options.PublicApiBaseUrl)
             + "&token=" + enrollment.Token;
@@ -572,10 +602,16 @@ returning expires_at;", conn, tx))
     // --- helpers ---
 
     private const string BeaconSelect = @"
-select id, name, notes, key_prefix, key_version, is_active, revoked_at,
-       last_seen_at, last_location_at, last_heartbeat_at, stale_since,
-       telemetry, created_by, created_at, updated_at
-from beacon";
+select b.id, b.name, b.notes, b.key_prefix, b.key_version, b.is_active, b.revoked_at,
+       b.last_seen_at, b.last_location_at, b.last_heartbeat_at, b.stale_since,
+       b.telemetry, b.created_by, b.created_at, b.updated_at,
+       a.action, a.actor, a.at
+from beacon b
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'beacon' and entity_id = b.id::text
+  order by id desc limit 1
+) a on true";
 
     // Read the row without the key_version - used by writes that only need
     // the shape they will respond with, once no hubConnected resolution is
@@ -588,7 +624,7 @@ from beacon";
 
     private static async Task<(BeaconDto Dto, int KeyVersion)?> ReadBeaconRowByIdAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)
     {
-        await using var cmd = new NpgsqlCommand(BeaconSelect + " where id = $1;", conn, tx);
+        await using var cmd = new NpgsqlCommand(BeaconSelect + " where b.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
@@ -631,6 +667,15 @@ from beacon";
             Healthy = revokedAt is null && staleSince is null && lastSeenAt is not null,
         };
         var keyVersion = reader.GetInt32(4);
+        if (!reader.IsDBNull(15))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(15),
+                By = reader.GetString(16),
+                At = reader.GetFieldValue<DateTimeOffset>(17),
+            };
+        }
         return (dto, keyVersion);
     }
 

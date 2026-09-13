@@ -39,10 +39,7 @@ public static class AdminRouteEndpoints
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 var items = new List<RouteDto>();
-                await using var cmd = new NpgsqlCommand(@"
-select id, name, url, s3_key, sha256, point_count, uploaded_by, created_at
-from route
-order by id desc;", conn);
+                await using var cmd = new NpgsqlCommand(RouteSelect + " order by r.id desc;", conn);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) items.Add(ReadRoute(reader));
                 return Results.Ok(new ItemsResponse<RouteDto> { Items = items });
@@ -61,9 +58,7 @@ order by id desc;", conn);
             {
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(@"
-select id, name, url, s3_key, sha256, point_count, uploaded_by, created_at
-from route where id = $1;", conn);
+                await using var cmd = new NpgsqlCommand(RouteSelect + " where r.id = $1;", conn);
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct))
@@ -83,13 +78,13 @@ from route where id = $1;", conn);
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/routes",
-            async (UploadRouteRequest body, HttpContext ctx, WmsfoConnectionStrings connections,
-                   IObjectStore store, WmsfoOptions options, CancellationToken ct) =>
+            async (UploadRouteRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, IObjectStore store, WmsfoOptions options, CancellationToken ct) =>
             {
                 ValidateUpload(body);
                 var email = AdminHelpers.RequireAdminEmail(ctx);
                 var obj = BuildRouteObject(body);
-                return await StoreRouteAsync(obj, email, connections, store, options, ct);
+                return await StoreRouteAsync(obj, email, audit, connections, store, options, ct);
             })
             .WithTags("AdminRoutes")
             .Accepts<UploadRouteRequest>("application/json")
@@ -106,7 +101,7 @@ from route where id = $1;", conn);
     private static void MapFromEvent(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/routes/from-event/{eventId:long}",
-            async (long eventId, RouteFromEventRequest body, HttpContext ctx,
+            async (long eventId, RouteFromEventRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, IObjectStore store, WmsfoOptions options,
                    CancellationToken ct) =>
             {
@@ -157,7 +152,7 @@ order by seq;", conn))
                     Name = body.Name.Trim(),
                     Points = points,
                 };
-                return await StoreRouteAsync(obj, email, connections, store, options, ct);
+                return await StoreRouteAsync(obj, email, audit, connections, store, options, ct);
             })
             .WithTags("AdminRoutes")
             .Accepts<RouteFromEventRequest>("application/json")
@@ -174,42 +169,58 @@ order by seq;", conn))
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/routes/{id:long}",
-            async (long id, HttpContext ctx, WmsfoConnectionStrings connections, IObjectStore store,
+            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, IObjectStore store,
                    ILoggerFactory loggerFactory, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                string? s3Key = null;
-                await using (var read = new NpgsqlCommand("select s3_key from route where id = $1;", conn))
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                // Lock the route row first (FOR UPDATE cannot be applied across
+                // the audit_log lateral outer join), then read the shape with
+                // audit stamp on a separate SELECT.
+                await using (var lockCmd = new NpgsqlCommand(
+                    "select 1 from route where id = $1 for update;", conn, tx))
+                {
+                    lockCmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var lockR = await lockCmd.ExecuteScalarAsync(ct);
+                    if (lockR is null || lockR is DBNull)
+                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
+                }
+                RouteDto? before = null;
+                await using (var read = new NpgsqlCommand(RouteSelect + " where r.id = $1;", conn, tx))
                 {
                     read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    var r = await read.ExecuteScalarAsync(ct);
-                    if (r is null || r is DBNull)
-                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
-                    s3Key = (string)r;
+                    await using var reader = await read.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct)) before = ReadRoute(reader);
                 }
+                if (before is null)
+                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
                 await using (var refs = new NpgsqlCommand(
-                    "select 1 from event where route_id = $1 limit 1;", conn))
+                    "select 1 from event where route_id = $1 limit 1;", conn, tx))
                 {
                     refs.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var r = await refs.ExecuteScalarAsync(ct);
                     if (r is not null && r is not DBNull)
                         throw new ApiException(StatusCodes.Status409Conflict, "route_in_use", "route referenced by an event");
                 }
-                await using (var del = new NpgsqlCommand("delete from route where id = $1;", conn))
+                await using (var del = new NpgsqlCommand("delete from route where id = $1;", conn, tx))
                 {
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await del.ExecuteNonQueryAsync(ct);
                 }
+                await audit.RecordAsync(conn, tx, "delete", "route",
+                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    before, null, ct);
+                await tx.CommitAsync(ct);
                 try
                 {
-                    await store.DeleteObjectAsync(s3Key!, ct);
+                    await store.DeleteObjectAsync(before.S3Key, ct);
                 }
                 catch (Exception ex)
                 {
                     loggerFactory.CreateLogger("Wmsfo.Api.Endpoints.AdminRoutes")
-                        .LogWarning(ex, "route object delete failed; key={Key}", s3Key);
+                        .LogWarning(ex, "route object delete failed; key={Key}", before.S3Key);
                 }
                 return Results.NoContent();
             })
@@ -225,6 +236,7 @@ order by seq;", conn))
     private static async Task<IResult> StoreRouteAsync(
         RouteObject obj,
         string email,
+        AuditRecorder audit,
         WmsfoConnectionStrings connections,
         IObjectStore store,
         WmsfoOptions options,
@@ -239,9 +251,7 @@ order by seq;", conn))
         await conn.OpenAsync(ct);
 
         // Existing-row check - return the row without a PUT.
-        await using (var lookup = new NpgsqlCommand(@"
-select id, name, url, s3_key, sha256, point_count, uploaded_by, created_at
-from route where s3_key = $1;", conn))
+        await using (var lookup = new NpgsqlCommand(RouteSelect + " where r.s3_key = $1;", conn))
         {
             lookup.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
             await using var reader = await lookup.ExecuteReaderAsync(ct);
@@ -265,26 +275,40 @@ from route where s3_key = $1;", conn))
 
         try
         {
-            await using var ins = new NpgsqlCommand(@"
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            long newId;
+            await using (var ins = new NpgsqlCommand(@"
 insert into route (name, s3_key, url, sha256, point_count, uploaded_by)
 values ($1, $2, $3, $4, $5, $6)
-returning id, name, url, s3_key, sha256, point_count, uploaded_by, created_at;", conn);
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = obj.Name });
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = url });
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = obj.Points.Count });
-            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-            await using var reader = await ins.ExecuteReaderAsync(ct);
-            await reader.ReadAsync(ct);
-            return Results.Json(ReadRoute(reader), statusCode: StatusCodes.Status201Created);
+returning id;", conn, tx))
+            {
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = obj.Name });
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = url });
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = obj.Points.Count });
+                ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                newId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
+            }
+            RouteDto dto;
+            await using (var read = new NpgsqlCommand(RouteSelect + " where r.id = $1;", conn, tx))
+            {
+                read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = newId });
+                await using var reader = await read.ExecuteReaderAsync(ct);
+                await reader.ReadAsync(ct);
+                dto = ReadRoute(reader);
+            }
+            var stamp = await audit.RecordAsync(conn, tx, "create", "route",
+                newId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                before: null, after: dto, ct);
+            dto.Audit = stamp;
+            await tx.CommitAsync(ct);
+            return Results.Json(dto, statusCode: StatusCodes.Status201Created);
         }
         catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.RouteS3KeyKey)
         {
             // Concurrent identical upload: return the existing row.
-            await using var read2 = new NpgsqlCommand(@"
-select id, name, url, s3_key, sha256, point_count, uploaded_by, created_at
-from route where s3_key = $1;", conn);
+            await using var read2 = new NpgsqlCommand(RouteSelect + " where r.s3_key = $1;", conn);
             read2.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
             await using var reader = await read2.ExecuteReaderAsync(ct);
             if (await reader.ReadAsync(ct))
@@ -330,15 +354,38 @@ from route where s3_key = $1;", conn);
         }).ToList(),
     };
 
-    private static RouteDto ReadRoute(NpgsqlDataReader reader) => new()
+    private const string RouteSelect = @"
+select r.id, r.name, r.url, r.s3_key, r.sha256, r.point_count, r.uploaded_by, r.created_at,
+       a.action, a.actor, a.at
+from route r
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'route' and entity_id = r.id::text
+  order by id desc limit 1
+) a on true";
+
+    private static RouteDto ReadRoute(NpgsqlDataReader reader)
     {
-        Id = reader.GetInt64(0),
-        Name = reader.GetString(1),
-        Url = reader.GetString(2),
-        S3Key = reader.GetString(3),
-        Sha256 = reader.GetString(4).Trim(),
-        PointCount = reader.GetInt32(5),
-        UploadedBy = reader.GetString(6),
-        CreatedAt = reader.GetFieldValue<DateTimeOffset>(7),
-    };
+        var dto = new RouteDto
+        {
+            Id = reader.GetInt64(0),
+            Name = reader.GetString(1),
+            Url = reader.GetString(2),
+            S3Key = reader.GetString(3),
+            Sha256 = reader.GetString(4).Trim(),
+            PointCount = reader.GetInt32(5),
+            UploadedBy = reader.GetString(6),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(7),
+        };
+        if (!reader.IsDBNull(8))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(8),
+                By = reader.GetString(9),
+                At = reader.GetFieldValue<DateTimeOffset>(10),
+            };
+        }
+        return dto;
+    }
 }

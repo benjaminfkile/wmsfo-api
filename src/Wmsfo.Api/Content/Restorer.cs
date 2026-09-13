@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Contracts.Dtos;
+using Wmsfo.Api.Endpoints;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Objects;
 
@@ -26,25 +28,36 @@ public sealed class Restorer
     }
 
     // Restores the version with the given id. Throws 404 if the version does
-    // not exist. Returns the version info that was restored.
-    public async Task RestoreAsync(long versionId, string restoredBy, CancellationToken ct)
+    // not exist. Records one audit_log row against `content_version` inside the
+    // same transaction (api.md 5a): action `restore`, before is null, after is
+    // the version info that was restored.
+    public async Task<ContentVersionInfoDto> RestoreAsync(long versionId, string restoredBy,
+        AuditRecorder audit, CancellationToken ct)
     {
         await using var conn = new NpgsqlConnection(_connections.App);
         await conn.OpenAsync(ct).ConfigureAwait(false);
         await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         string? documentJson = null;
+        string sha = "";
+        string? label = null;
+        string publishedBy = "";
+        DateTimeOffset publishedAt = default;
         await using (var read = new NpgsqlCommand(
-            "select document from content_version where id = $1;", conn, tx))
+            "select document, sha256, label, published_by, published_at from content_version where id = $1;", conn, tx))
         {
             read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = versionId });
-            var r = await read.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            if (r is null || r is DBNull)
+            await using var reader = await read.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            if (!await reader.ReadAsync(ct).ConfigureAwait(false))
             {
                 throw new ApiException(StatusCodes.Status404NotFound,
                     ApiErrorCodes.NotFound, $"content version `{versionId}` not found");
             }
-            documentJson = (string)r;
+            documentJson = reader.GetString(0);
+            sha = reader.GetString(1).Trim();
+            label = reader.IsDBNull(2) ? null : reader.GetString(2);
+            publishedBy = reader.GetString(3);
+            publishedAt = reader.GetFieldValue<DateTimeOffset>(4);
         }
 
         ContentDocument document;
@@ -138,7 +151,35 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
             await upd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
+        var (pageCount, sectionCount) = CountPagesAndSections(document);
+        var info = new ContentVersionInfoDto
+        {
+            Id = versionId,
+            Sha256 = sha,
+            Label = label,
+            PublishedBy = publishedBy,
+            PublishedAt = publishedAt,
+            PageCount = pageCount,
+            SectionCount = sectionCount,
+        };
+        var stamp = await audit.RecordAsync(conn, tx, "restore", "content_version",
+            versionId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            before: null, after: info, ct).ConfigureAwait(false);
+        info.Audit = stamp;
+
         await tx.CommitAsync(ct).ConfigureAwait(false);
+        return info;
+    }
+
+    private static (int Pages, int Sections) CountPagesAndSections(ContentDocument doc)
+    {
+        var pages = doc.Pages?.Count ?? 0;
+        var sections = 0;
+        if (doc.Pages is not null)
+        {
+            foreach (var p in doc.Pages) sections += p.Sections?.Count ?? 0;
+        }
+        return (pages, sections);
     }
 
     private static readonly JsonSerializerOptions RestoreReadOptions = BuildReadOptions();

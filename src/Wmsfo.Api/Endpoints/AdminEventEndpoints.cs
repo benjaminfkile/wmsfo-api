@@ -68,7 +68,8 @@ public static class AdminEventEndpoints
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events",
-            async (CreateEventRequest body, HttpContext ctx, AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
+            async (CreateEventRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
+                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
@@ -114,6 +115,10 @@ returning id;", conn, tx))
                     }
                     var e = await ReadEventByIdAsync(conn, tx, newId, options, token);
                     if (e is null) throw NotFound();
+                    var stamp = await audit.RecordAsync(conn, tx, "create", "event",
+                        newId.ToString(CultureInfo.InvariantCulture),
+                        before: null, after: e, token);
+                    e.Audit = stamp;
                     return e;
                 }, ct);
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
@@ -155,7 +160,8 @@ returning id;", conn, tx))
     {
         app.MapPatch("/admin/events/{id:long}",
             async (long id, PatchEventRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit,
+                   WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year is int year && (year < 2000 || year > 2100)) v.Field("year", "must be between 2000 and 2100");
@@ -196,6 +202,8 @@ returning id;", conn, tx))
                         currentStatus = reader.GetInt16(0);
                         currentScheduled = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1);
                     }
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    if (before is null) throw NotFound();
 
                     // Route existence check.
                     if (body.RouteId is not null)
@@ -276,6 +284,10 @@ returning id;", conn, tx))
 
                     var updated = await ReadEventByIdAsync(conn, tx, id, options, token);
                     if (updated is null) throw NotFound();
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, updated, token);
+                    updated.Audit = stamp;
                     return updated;
                 }, ct);
                 return Results.Ok(dto);
@@ -295,7 +307,8 @@ returning id;", conn, tx))
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/events/{id:long}",
-            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap,
+                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
@@ -321,12 +334,16 @@ returning id;", conn, tx))
                             throw new ApiException(StatusCodes.Status409Conflict, "event_has_locations", "event has stored locations");
                     }
 
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
                     await using (var del = new NpgsqlCommand(
                         "delete from event where id = $1;", conn, tx))
                     {
                         del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await del.ExecuteNonQueryAsync(token);
                     }
+                    await audit.RecordAsync(conn, tx, "delete", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -343,7 +360,7 @@ returning id;", conn, tx))
     private static void MapCurrent(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/current",
-            async (long id, HttpContext ctx, AdminSnapshotTransaction snap,
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, AuditRecorder audit,
                    WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
@@ -378,6 +395,7 @@ returning id;", conn, tx))
                             return same;
                         }
                     }
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
 
                     // 409 current_event_live if any other event is current AND live.
                     await using (var guard = new NpgsqlCommand(
@@ -407,6 +425,10 @@ returning id;", conn, tx))
 
                     var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
                     if (dto is null) throw NotFound();
+                    var stamp = await audit.RecordAsync(conn, tx, "current", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, dto, token);
+                    dto.Audit = stamp;
                     return dto;
                 }, ct);
                 return Results.Ok(result);
@@ -426,7 +448,8 @@ returning id;", conn, tx))
     {
         app.MapPost("/admin/events/{id:long}/status",
             async (long id, ChangeEventStatusRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit,
+                   WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.StatusId < 1 || body.StatusId > 5) v.Field("statusId", "must be 1..5");
@@ -450,6 +473,7 @@ returning id;", conn, tx))
                         isCurrent = reader.GetBoolean(1);
                         scheduledAt = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2);
                     }
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
 
                     var to = (short)body.StatusId;
                     if (from == to)
@@ -623,6 +647,10 @@ update event set status_notified_at = case when $1 then now() else null end wher
 
                     var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
                     if (dto is null) throw NotFound();
+                    var stamp = await audit.RecordAsync(conn, tx, "status", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, dto, token);
+                    dto.Audit = stamp;
                     return dto;
                 }, ct);
                 return Results.Ok(dto);
@@ -683,7 +711,7 @@ order by changed_at desc, id desc;", conn);
     private static void MapNotify(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/notify",
-            async (long id, NotifyStatusRequest? body, HttpContext ctx,
+            async (long id, NotifyStatusRequest? body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 var message = body?.Message;
@@ -707,6 +735,7 @@ order by changed_at desc, id desc;", conn);
                         if (r is null || r is DBNull) throw NotFound();
                         status = Convert.ToInt16(r);
                     }
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, ct);
                     var payload = JsonSerializer.Serialize(new
                     {
                         eventId = id,
@@ -748,6 +777,10 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                     var read2 = await ReadEventByIdAsync(conn, tx, id, options, ct);
                     if (read2 is null) throw NotFound();
                     dto = read2;
+                    var stamp = await audit.RecordAsync(conn, tx, "notify", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, dto, ct);
+                    dto.Audit = stamp;
                     await tx.CommitAsync(ct);
                 }
                 return Results.Ok(dto);
@@ -770,7 +803,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     private static void MapClone(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/clone",
-            async (long id, CloneEventRequest body, HttpContext ctx,
+            async (long id, CloneEventRequest body, HttpContext ctx, AuditRecorder audit,
                    WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
@@ -836,6 +869,10 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
                     var read3 = await ReadEventByIdAsync(conn, tx, newId, options, ct);
                     if (read3 is null) throw NotFound();
                     dto = read3;
+                    var stamp = await audit.RecordAsync(conn, tx, "clone", "event",
+                        newId.ToString(CultureInfo.InvariantCulture),
+                        before: null, after: dto, ct);
+                    dto.Audit = stamp;
                     await tx.CommitAsync(ct);
                 }
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
@@ -859,10 +896,16 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
                 await conn.OpenAsync(ct);
                 var items = new List<EventMessageDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select id, event_id, body, event_time, created_by, created_at, updated_at
-from event_message
-where event_id = $1
-order by created_at desc, id desc;", conn);
+select em.id, em.event_id, em.body, em.event_time, em.created_by, em.created_at, em.updated_at,
+       a.action, a.actor, a.at
+from event_message em
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'event_message' and entity_id = em.id::text
+  order by id desc limit 1
+) a on true
+where em.event_id = $1
+order by em.created_at desc, em.id desc;", conn);
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) items.Add(ReadMessage(reader));
@@ -880,7 +923,8 @@ order by created_at desc, id desc;", conn);
     private static void MapCreateMessage(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/messages",
-            async (long id, CreateEventMessageRequest body, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, CreateEventMessageRequest body, HttpContext ctx,
+                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (string.IsNullOrWhiteSpace(body.Body) || body.Body.Length > 1000)
@@ -920,6 +964,10 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
                         outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
                         await outbox.ExecuteNonQueryAsync(token);
                     }
+                    var stamp = await audit.RecordAsync(conn, tx, "create", "event_message",
+                        msgId.ToString(CultureInfo.InvariantCulture),
+                        before: null, after: stored, token);
+                    stored.Audit = stamp;
                     return stored;
                 }, ct);
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
@@ -937,7 +985,8 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
     private static void MapPatchMessage(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/events/{id:long}/messages/{messageId:long}",
-            async (long id, long messageId, PatchEventMessageRequest body, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, long messageId, PatchEventMessageRequest body, HttpContext ctx,
+                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Body is not null && (body.Body.Length < 1 || body.Body.Length > 1000))
@@ -947,6 +996,17 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
 
                 var (dto, _) = await snap.RunAsync<EventMessageDto>(async (conn, tx, token) =>
                 {
+                    EventMessageDto? before = null;
+                    await using (var read = new NpgsqlCommand(
+                        "select id, event_id, body, event_time, created_by, created_at, updated_at from event_message where event_id = $1 and id = $2 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
+                        await using var reader = await read.ExecuteReaderAsync(token);
+                        if (await reader.ReadAsync(token)) before = ReadMessage(reader);
+                    }
+                    if (before is null) throw NotFound();
+
                     var sets = new List<string>();
                     var parameters = new List<NpgsqlParameter>();
                     var next = 1;
@@ -967,14 +1027,22 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
 update event_message set " + string.Join(", ", sets) + @"
 where event_id = $" + eventIdIdx + " and id = $" + msgIdIdx + @"
 returning id, event_id, body, event_time, created_by, created_at, updated_at;";
-                    await using var upd = new NpgsqlCommand(sql, conn, tx);
-                    foreach (var p in parameters) upd.Parameters.Add(p);
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
-                    await using var reader = await upd.ExecuteReaderAsync(token);
-                    if (!await reader.ReadAsync(token)) throw NotFound();
+                    EventMessageDto after;
+                    await using (var upd = new NpgsqlCommand(sql, conn, tx))
+                    {
+                        foreach (var p in parameters) upd.Parameters.Add(p);
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
+                        await using var reader = await upd.ExecuteReaderAsync(token);
+                        if (!await reader.ReadAsync(token)) throw NotFound();
+                        after = ReadMessage(reader);
+                    }
                     _ = email;
-                    return ReadMessage(reader);
+                    var stamp = await audit.RecordAsync(conn, tx, "update", "event_message",
+                        messageId.ToString(CultureInfo.InvariantCulture),
+                        before, after, token);
+                    after.Audit = stamp;
+                    return after;
                 }, ct);
                 return Results.Ok(dto);
             })
@@ -991,17 +1059,30 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
     private static void MapDeleteMessage(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/events/{id:long}/messages/{messageId:long}",
-            async (long id, long messageId, HttpContext ctx, AdminSnapshotTransaction snap, CancellationToken ct) =>
+            async (long id, long messageId, HttpContext ctx,
+                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
                 {
+                    EventMessageDto? before = null;
+                    await using (var read = new NpgsqlCommand(
+                        "select id, event_id, body, event_time, created_by, created_at, updated_at from event_message where event_id = $1 and id = $2 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
+                        await using var reader = await read.ExecuteReaderAsync(token);
+                        if (await reader.ReadAsync(token)) before = ReadMessage(reader);
+                    }
+                    if (before is null) throw NotFound();
                     await using var del = new NpgsqlCommand(
                         "delete from event_message where event_id = $1 and id = $2;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
-                    var rows = await del.ExecuteNonQueryAsync(token);
-                    if (rows == 0) throw NotFound();
+                    await del.ExecuteNonQueryAsync(token);
+                    await audit.RecordAsync(conn, tx, "delete", "event_message",
+                        messageId.ToString(CultureInfo.InvariantCulture),
+                        before, null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -1225,10 +1306,16 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.filename, m.content_type, m.kind, m.state, m.s3_key,
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
-       m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at
+       m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
+       a.action, a.actor, a.at
 from event e
 left join route r on r.id = e.route_id
-left join media_asset m on m.id = e.route_image_media_id";
+left join media_asset m on m.id = e.route_image_media_id
+left join lateral (
+  select action, actor, at from audit_log
+  where entity = 'event' and entity_id = e.id::text
+  order by id desc limit 1
+) a on true";
 
     private static async Task<EventDto?> ReadEventByIdAsync(
         NpgsqlConnection conn, NpgsqlTransaction? tx, long id, WmsfoOptions options, CancellationToken ct)
@@ -1261,6 +1348,15 @@ left join media_asset m on m.id = e.route_image_media_id";
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
         };
+        if (!reader.IsDBNull(34))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(34),
+                By = reader.GetString(35),
+                At = reader.GetFieldValue<DateTimeOffset>(36),
+            };
+        }
         if (!reader.IsDBNull(11))
         {
             var cdn = options.CdnBaseUrl.TrimEnd('/');
@@ -1301,14 +1397,29 @@ left join media_asset m on m.id = e.route_image_media_id";
         return dto;
     }
 
-    private static EventMessageDto ReadMessage(NpgsqlDataReader reader) => new()
+    private static EventMessageDto ReadMessage(NpgsqlDataReader reader)
     {
-        Id = reader.GetInt64(0),
-        EventId = reader.GetInt64(1),
-        Body = reader.GetString(2),
-        EventTime = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-        CreatedBy = reader.GetString(4),
-        CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
-    };
+        var dto = new EventMessageDto
+        {
+            Id = reader.GetInt64(0),
+            EventId = reader.GetInt64(1),
+            Body = reader.GetString(2),
+            EventTime = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+            CreatedBy = reader.GetString(4),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
+        };
+        // Optional audit columns follow when the caller's select includes them
+        // (list and single-row reads via ReadMessageWithAudit).
+        if (reader.FieldCount > 7 && !reader.IsDBNull(7))
+        {
+            dto.Audit = new AuditStampDto
+            {
+                Action = reader.GetString(7),
+                By = reader.GetString(8),
+                At = reader.GetFieldValue<DateTimeOffset>(9),
+            };
+        }
+        return dto;
+    }
 }
