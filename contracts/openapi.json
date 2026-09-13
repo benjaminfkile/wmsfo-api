@@ -1214,7 +1214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SponsorDto"
+                  "$ref": "#/components/schemas/SponsorYearDto"
                 }
               }
             }

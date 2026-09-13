@@ -33,6 +33,7 @@ public static class StarterContentBuilder
         {
             SnowDefault = true,
             LightsDefault = true,
+            Ornaments = true,
         },
         NavExtraLinks = new List<LinkValue>(),
         FooterLinks = new List<LinkValue>(),

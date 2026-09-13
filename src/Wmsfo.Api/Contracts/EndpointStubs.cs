@@ -365,7 +365,7 @@ public static class EndpointStubs
 
         app.MapPost("/admin/sponsors/{id:long}/years/{eventYear:int}/copy-from/{sourceYear:int}", NotImplemented)
             .WithTags("AdminSponsors")
-            .Produces<SponsorDto>(StatusCodes.Status201Created);
+            .Produces<SponsorYearDto>(StatusCodes.Status201Created);
 
         app.MapPost("/admin/sponsors/import", NotImplemented)
             .WithTags("AdminSponsors")

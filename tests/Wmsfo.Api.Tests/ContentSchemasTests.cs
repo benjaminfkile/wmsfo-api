@@ -103,6 +103,57 @@ public class ContentSchemasTests
             "content-document.json failed publish schema: " + string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
     }
 
+    // Contracts 15: theme.ornaments is a new boolean that defaults to true
+    // when absent, so every already-published document stays valid; a
+    // non-boolean is rejected.
+    [Fact]
+    public void Site_settings_accepts_a_theme_without_the_ornaments_field()
+    {
+        var settings = ValidSiteSettings();
+        var theme = (JsonObject)settings["theme"]!;
+        theme.Remove("ornaments");
+        var problems = Validator.ValidateSiteSettings(settings, ValidationLevel.Publish);
+        Assert.True(problems.Count == 0,
+            "site-settings publish rejected a document without theme.ornaments: " +
+            string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
+        var draftProblems = Validator.ValidateSiteSettings(settings, ValidationLevel.Draft);
+        Assert.True(draftProblems.Count == 0,
+            "site-settings draft rejected a document without theme.ornaments: " +
+            string.Join("; ", draftProblems.Select(p => $"{p.Path}: {p.Message}")));
+    }
+
+    [Fact]
+    public void Site_settings_rejects_a_non_boolean_ornaments()
+    {
+        var settings = ValidSiteSettings();
+        ((JsonObject)settings["theme"]!)["ornaments"] = "yes";
+        var problems = Validator.ValidateSiteSettings(settings, ValidationLevel.Publish);
+        Assert.True(problems.Count > 0, "site-settings publish accepted a non-boolean theme.ornaments");
+        var draftProblems = Validator.ValidateSiteSettings(settings, ValidationLevel.Draft);
+        Assert.True(draftProblems.Count > 0, "site-settings draft accepted a non-boolean theme.ornaments");
+    }
+
+    private static JsonObject ValidSiteSettings() => new()
+    {
+        ["siteName"] = "Test site",
+        ["tagline"] = null,
+        ["homeNavLabel"] = "Home",
+        ["logo"] = null,
+        ["favicon"] = null,
+        ["theme"] = new JsonObject
+        {
+            ["snowDefault"] = true,
+            ["lightsDefault"] = true,
+            ["ornaments"] = true,
+        },
+        ["navExtraLinks"] = new JsonArray(),
+        ["footerLinks"] = new JsonArray(),
+        ["footerText"] = null,
+        ["contactEmail"] = null,
+        ["donateUrl"] = null,
+        ["analyticsEnabled"] = false,
+    };
+
     [Fact]
     public void Draft_derivation_strips_exactly_the_four_keywords()
     {

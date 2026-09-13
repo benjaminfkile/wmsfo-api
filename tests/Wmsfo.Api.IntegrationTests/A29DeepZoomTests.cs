@@ -93,19 +93,19 @@ public sealed class A29DeepZoomTests : IClassFixture<PostgresFixture>, IAsyncLif
         // A sample of tile levels lands under poster_files/{level}/.
         Assert.True(Directory.Exists(Path.Combine(_host.StoreRoot, "media", id, "dzi", "poster_files", "12")));
         Assert.True(Directory.Exists(Path.Combine(_host.StoreRoot, "media", id, "dzi", "poster_files", "0")));
-        // Level 0 is always a single 1_0.jpg tile whose bytes are a JPEG.
-        var level0Tile = Path.Combine(_host.StoreRoot, "media", id, "dzi", "poster_files", "0", "0_0.jpg");
+        // Level 0 is always a single 0_0.png tile whose bytes are a PNG (contracts 15).
+        var level0Tile = Path.Combine(_host.StoreRoot, "media", id, "dzi", "poster_files", "0", "0_0.png");
         Assert.True(File.Exists(level0Tile));
         var head = await File.ReadAllBytesAsync(level0Tile);
-        Assert.True(head.Length > 3);
-        Assert.Equal(0xFF, head[0]);
-        Assert.Equal(0xD8, head[1]);
-        Assert.Equal(0xFF, head[2]);
+        Assert.True(head.Length >= 8);
+        var pngMagic = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        Assert.Equal(pngMagic, head.Take(8).ToArray());
+        Assert.Contains("Format=\"png\"", xml);
 
         // Total tile count matches api.md 11.3 (levels 0..12 for 3000x2000).
         var totalTiles = Directory.EnumerateFiles(
                 Path.Combine(_host.StoreRoot, "media", id, "dzi", "poster_files"),
-                "*.jpg", SearchOption.AllDirectories)
+                "*.png", SearchOption.AllDirectories)
             .Count();
         Assert.Equal(137, totalTiles);
 
