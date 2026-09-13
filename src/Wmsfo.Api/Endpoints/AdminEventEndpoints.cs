@@ -1022,7 +1022,7 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.filename, m.content_type, m.kind, m.state, m.s3_key,
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
-       m.unreferenced_since, m.orphaned_at
+       m.unreferenced_since, m.orphaned_at, m.dzi_key
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id";
@@ -1091,6 +1091,7 @@ left join media_asset m on m.id = e.route_image_media_id";
                 UnreferencedSince = reader.IsDBNull(30) ? null : reader.GetFieldValue<DateTimeOffset>(30),
                 OrphanedAt = reader.IsDBNull(31) ? null : reader.GetFieldValue<DateTimeOffset>(31),
                 Url = cdn + "/" + s3Key,
+                DziUrl = reader.IsDBNull(32) ? null : cdn + "/" + reader.GetString(32),
             };
         }
         return dto;
