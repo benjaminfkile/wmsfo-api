@@ -124,6 +124,38 @@ public sealed class A31AuditLogTests : IClassFixture<PostgresFixture>, IAsyncLif
         Assert.Equal("Alpine Bakeries LLC", after.GetProperty("name").GetString());
     }
 
+    // A34: a patch response carries the audit stamp of the row this write just
+    // inserted (contracts 4.5 Audit: `audit` is the newest row for the entity).
+    [Fact]
+    public async Task Sponsor_patch_response_carries_the_audit_stamp_of_the_write()
+    {
+        var created = await SendEditorAsync(HttpMethod.Post, "/admin/sponsors",
+            "{\"name\":\"Alpine Bakeries\"}");
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdDto = await ReadJsonAsync(created);
+        var sponsorId = createdDto.RootElement.GetProperty("id").GetInt64();
+
+        var patch = await SendEditorAsync(HttpMethod.Patch, $"/admin/sponsors/{sponsorId}",
+            "{\"name\":\"Alpine Bakeries LLC\"}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        var patchDto = await ReadJsonAsync(patch);
+        Assert.True(patchDto.RootElement.TryGetProperty("audit", out var audit));
+        Assert.Equal(JsonValueKind.Object, audit.ValueKind);
+        Assert.Equal("update", audit.GetProperty("action").GetString());
+        var patchAt = audit.GetProperty("at").GetDateTimeOffset();
+
+        // The `at` in the response matches the newest audit_log row for the
+        // sponsor entity (the row this write just inserted).
+        var list = await SendEditorAsync(HttpMethod.Get,
+            $"/admin/audit?entity=sponsor&entityId={sponsorId}&action=update", null);
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var page = await ReadJsonAsync(list);
+        var newest = page.RootElement.GetProperty("items")[0];
+        Assert.Equal("update", newest.GetProperty("action").GetString());
+        var logAt = newest.GetProperty("at").GetDateTimeOffset();
+        Assert.Equal(logAt, patchAt);
+    }
+
     [Fact]
     public async Task Sponsor_get_carries_audit_stamp_naming_the_editor()
     {
