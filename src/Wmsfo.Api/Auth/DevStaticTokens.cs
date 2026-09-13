@@ -15,16 +15,19 @@ public static class DevStaticTokens
     public const string PersonToken = "wmsfo-dev-person";
     public const string EditorToken = "wmsfo-dev-editor";
     public const string AdminToken = "wmsfo-dev-admin";
+    public const string CanvasserToken = "wmsfo-dev-canvasser";
 
     // Cognito subs are UUIDs; a stable fake per role keeps the person upsert
     // deterministic across test runs.
     public const string PersonSub = "00000000-0000-4000-8000-000000000001";
     public const string EditorSub = "00000000-0000-4000-8000-000000000002";
     public const string AdminSub = "00000000-0000-4000-8000-000000000003";
+    public const string CanvasserSub = "00000000-0000-4000-8000-000000000004";
 
     public const string PersonEmail = "person@wmsfo.test";
     public const string EditorEmail = "editor@wmsfo.test";
     public const string AdminEmail = "admin@wmsfo.test";
+    public const string CanvasserEmail = "canvasser@wmsfo.test";
 
     public static (string Sub, string Email, string[] Groups)? Resolve(string token, WmsfoOptions options)
     {
@@ -33,6 +36,7 @@ public static class DevStaticTokens
             PersonToken => (PersonSub, PersonEmail, Array.Empty<string>()),
             EditorToken => (EditorSub, EditorEmail, new[] { options.EditorGroup }),
             AdminToken => (AdminSub, AdminEmail, new[] { options.AdminGroup }),
+            CanvasserToken => (CanvasserSub, CanvasserEmail, new[] { options.CanvasserGroup }),
             _ => null,
         };
     }

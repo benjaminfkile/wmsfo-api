@@ -32,6 +32,10 @@ public static class SchemaExport
         yield return ("heartbeat", Build(typeof(HeartbeatBody)));
         yield return ("realtime-authorize", Build(typeof(RealtimeAuthorizeRequest)));
         yield return ("realtime-message", Build(typeof(RealtimeMessageRequest)));
+        yield return ("qr-code", Build(typeof(QrCodeDto)));
+        yield return ("qr-code-detail", Build(typeof(QrCodeDetailDto)));
+        yield return ("place", Build(typeof(PlaceDto)));
+        yield return ("place-pin", Build(typeof(PlacePinDto)));
     }
 
     public static void WriteAll(string outputDir)

@@ -53,6 +53,10 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<PreviewToken> PreviewToken => Set<PreviewToken>();
     public DbSet<IconLibraryState> IconLibraryState => Set<IconLibraryState>();
     public DbSet<AuditLog> AuditLog => Set<AuditLog>();
+    public DbSet<Place> Place => Set<Place>();
+    public DbSet<QrCode> QrCode => Set<QrCode>();
+    public DbSet<QrAttachment> QrAttachment => Set<QrAttachment>();
+    public DbSet<QrScan> QrScan => Set<QrScan>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -757,6 +761,121 @@ public sealed class WmsfoDbContext : DbContext
                 .IsDescending(false, false, true);
             e.HasIndex(x => new { x.Action, x.Id })
                 .HasDatabaseName("audit_log_action")
+                .IsDescending(false, true);
+        });
+
+        // A33 place, qr_code, qr_attachment, qr_scan (sql.md 3, contracts 4.5a).
+        mb.Entity<Place>(e =>
+        {
+            e.ToTable("place", t =>
+            {
+                t.HasComment("A place a printed QR code hangs in. Tree of friendly names with an optional pin and opens override; the snapshot resolves each active code through the tree.");
+                t.HasCheckConstraint("place_opens_check", "(opens_page_id is null) or (forward_url is null)");
+                t.HasCheckConstraint("place_pin_check", "((lat is null) = (lng is null)) and ((lat is null) = (pin_source is null))");
+                t.HasCheckConstraint("place_pin_source_check", "pin_source is null or pin_source in ('phone', 'search', 'drag')");
+            });
+            e.HasKey(x => x.Id).HasName("place_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.ParentId).HasColumnType("bigint");
+            e.Property(x => x.Name).HasColumnType("text").IsRequired();
+            e.Property(x => x.Description).HasColumnType("text").IsRequired().HasDefaultValue("");
+            e.Property(x => x.OpensPageId).HasColumnType("bigint");
+            e.Property(x => x.ForwardUrl).HasColumnType("text");
+            e.Property(x => x.Lat).HasColumnType("double precision");
+            e.Property(x => x.Lng).HasColumnType("double precision");
+            e.Property(x => x.AccuracyM).HasColumnType("double precision");
+            e.Property(x => x.PinSource).HasColumnName("pin_source").HasColumnType("text");
+            e.Property(x => x.PinnedBy).HasColumnType("text");
+            e.Property(x => x.PinnedAt).HasColumnType("timestamptz");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasOne<Place>().WithMany().HasForeignKey(x => x.ParentId)
+                .HasConstraintName("place_parent_id_fkey").OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Page>().WithMany().HasForeignKey(x => x.OpensPageId)
+                .HasConstraintName("place_opens_page_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            // place_sibling_name is a functional unique index on
+            // (coalesce(parent_id, 0), lower(name)); the migration installs it as
+            // raw SQL since EF Core cannot describe expression indexes here.
+        });
+
+        mb.Entity<QrCode>(e =>
+        {
+            e.ToTable("qr_code", t =>
+            {
+                t.HasComment("A printed sticker's permanent tag (qr-001, sequential). Its opens setting overrides the place it hangs in; the snapshot resolves it.");
+                t.HasCheckConstraint("qr_code_opens_check", "(opens_page_id is null) or (forward_url is null)");
+            });
+            e.HasKey(x => x.Id).HasName("qr_code_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Tag).HasColumnType("text").IsRequired();
+            e.Property(x => x.BatchNo).HasColumnType("integer").IsRequired();
+            e.Property(x => x.PrintedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.Active).HasColumnType("boolean").IsRequired().HasDefaultValue(true);
+            e.Property(x => x.Note).HasColumnType("text").IsRequired().HasDefaultValue("");
+            e.Property(x => x.OpensPageId).HasColumnType("bigint");
+            e.Property(x => x.ForwardUrl).HasColumnType("text");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasAlternateKey(x => x.Tag).HasName("qr_code_tag_key");
+            e.HasOne<Page>().WithMany().HasForeignKey(x => x.OpensPageId)
+                .HasConstraintName("qr_code_opens_page_id_fkey").OnDelete(DeleteBehavior.SetNull);
+        });
+
+        mb.Entity<QrAttachment>(e =>
+        {
+            e.ToTable("qr_attachment", t =>
+                t.HasComment("One row per stay of a code in a place. Open row (to_at is null) is unique per code; attach closes the open row and opens a new one."));
+            e.HasKey(x => x.Id).HasName("qr_attachment_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.QrCodeId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.PlaceId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.FromAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.ToAt).HasColumnType("timestamptz");
+            e.Property(x => x.AttachedBy).HasColumnType("text").IsRequired();
+            e.HasOne<QrCode>().WithMany().HasForeignKey(x => x.QrCodeId)
+                .HasConstraintName("qr_attachment_qr_code_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Place>().WithMany().HasForeignKey(x => x.PlaceId)
+                .HasConstraintName("qr_attachment_place_id_fkey").OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.QrCodeId)
+                .HasDatabaseName("qr_attachment_open")
+                .IsUnique()
+                .HasFilter("to_at is null");
+            e.HasIndex(x => new { x.PlaceId, x.FromAt })
+                .HasDatabaseName("qr_attachment_place")
+                .IsDescending(false, true);
+        });
+
+        mb.Entity<QrScan>(e =>
+        {
+            e.ToTable("qr_scan", t =>
+                t.HasComment("A public visit to a printed address. Salted IP hash and bot/repeat markers make the counts safe; unflagged rows are 'people'."));
+            e.HasKey(x => x.Id).HasName("qr_scan_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.QrCodeId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.AttachmentId).HasColumnType("bigint");
+            e.Property(x => x.EventId).HasColumnType("bigint");
+            e.Property(x => x.At).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UserAgent).HasColumnName("user_agent").HasColumnType("text");
+            e.Property(x => x.Referrer).HasColumnType("text");
+            e.Property(x => x.IpHash).HasColumnName("ip_hash").HasColumnType("char(64)").IsRequired();
+            e.Property(x => x.IsBot).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.IsRepeat).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.HasOne<QrCode>().WithMany().HasForeignKey(x => x.QrCodeId)
+                .HasConstraintName("qr_scan_qr_code_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<QrAttachment>().WithMany().HasForeignKey(x => x.AttachmentId)
+                .HasConstraintName("qr_scan_attachment_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
+                .HasConstraintName("qr_scan_event_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => new { x.QrCodeId, x.At })
+                .HasDatabaseName("qr_scan_code_at")
+                .IsDescending(false, true);
+            e.HasIndex(x => new { x.AttachmentId, x.At })
+                .HasDatabaseName("qr_scan_attachment")
+                .IsDescending(false, true);
+            e.HasIndex(x => new { x.EventId, x.At })
+                .HasDatabaseName("qr_scan_event")
                 .IsDescending(false, true);
         });
 

@@ -32,7 +32,8 @@ public static class EndpointStubs
         includeAdminSectionsStubs: true,
         includeAdminSiteSettingsStubs: true,
         includeAdminContentStubs: true,
-        includeAdminApiKeysStubs: true);
+        includeAdminApiKeysStubs: true,
+        includeQrPlacesStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -56,7 +57,8 @@ public static class EndpointStubs
         bool includeAdminSectionsStubs = true,
         bool includeAdminSiteSettingsStubs = true,
         bool includeAdminContentStubs = true,
-        bool includeAdminApiKeysStubs = true)
+        bool includeAdminApiKeysStubs = true,
+        bool includeQrPlacesStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -81,6 +83,69 @@ public static class EndpointStubs
         if (includeAdminApiKeysStubs) MapAdminApiKeys(app);
         // Diagnostics endpoints have real handlers now (Node.AdminDiagnosticsEndpoints).
         if (includeRealtimeStubs) MapRealtime(app);
+        if (includeQrPlacesStubs) MapQrAndPlaces(app);
+    }
+
+    // A33: QR codes, places, and the public scan beacon. Real handlers live in
+    // QrEndpoints / PlaceEndpoints. The stubs are removed once Program.cs wires
+    // the real handlers (like the other groups), but they are always installed
+    // for the OpenAPI export so the document keeps their shape.
+    private static void MapQrAndPlaces(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/qr-codes", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Produces<ItemsResponse<QrCodeDto>>(StatusCodes.Status200OK);
+        app.MapPost("/admin/qr-codes", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Accepts<MintQrCodesRequest>("application/json")
+            .Produces<ItemsResponse<QrCodeDto>>(StatusCodes.Status201Created);
+        app.MapGet("/admin/qr-codes/{id:long}", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Produces<QrCodeDetailDto>(StatusCodes.Status200OK);
+        app.MapPatch("/admin/qr-codes/{id:long}", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Accepts<PatchQrCodeRequest>("application/json")
+            .Produces<QrCodeDto>(StatusCodes.Status200OK);
+        app.MapPost("/admin/qr-codes/{id:long}/attach", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Accepts<AttachQrCodeRequest>("application/json")
+            .Produces<QrCodeDto>(StatusCodes.Status200OK);
+        app.MapPost("/admin/qr-codes/{id:long}/detach", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Produces<QrCodeDto>(StatusCodes.Status200OK);
+        app.MapDelete("/admin/qr-codes/{id:long}", NotImplemented)
+            .WithTags("AdminQrCodes")
+            .Produces(StatusCodes.Status204NoContent);
+
+        app.MapGet("/admin/places", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Produces<ItemsResponse<PlaceDto>>(StatusCodes.Status200OK);
+        app.MapPost("/admin/places", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Accepts<CreatePlaceRequest>("application/json")
+            .Produces<PlaceDto>(StatusCodes.Status201Created);
+        app.MapPatch("/admin/places/{id:long}", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Accepts<PatchPlaceRequest>("application/json")
+            .Produces<PlaceDto>(StatusCodes.Status200OK);
+        app.MapPut("/admin/places/{id:long}/location", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Accepts<PutPlaceLocationRequest>("application/json")
+            .Produces<PlaceDto>(StatusCodes.Status200OK);
+        app.MapDelete("/admin/places/{id:long}/location", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Produces<PlaceDto>(StatusCodes.Status200OK);
+        app.MapDelete("/admin/places/{id:long}", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Produces(StatusCodes.Status204NoContent);
+        app.MapGet("/admin/places/map", NotImplemented)
+            .WithTags("AdminPlaces")
+            .Produces<PlacePinsResponse>(StatusCodes.Status200OK);
+
+        app.MapPost("/qr-codes/{tag}/scans", NotImplemented)
+            .WithTags("Public")
+            .Accepts<QrScanRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent);
     }
 
     // The public group has both the preview endpoint (A14) and the three writes

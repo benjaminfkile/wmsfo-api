@@ -27,6 +27,7 @@ public static class AuthPolicies
     public const string Person = "Person";              // any valid ID token
     public const string Editor = "Editor";              // cognito:groups contains editor or admin
     public const string Admin = "Admin";                // cognito:groups contains admin
+    public const string Canvasser = "Canvasser";        // cognito:groups contains canvasser, editor, or admin (contracts 4.5a)
 }
 
 public static class BeaconClaims
@@ -79,12 +80,13 @@ public static class ApiKeyCapabilities
     public const string People = "people";
     public const string Diagnostics = "diagnostics";
     public const string Audit = "audit";
+    public const string Qr = "qr";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Events, Routes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
         Content, Media, Icons, Settings, ContactMessages, Subscribers, People,
-        Diagnostics, Audit,
+        Diagnostics, Audit, Qr,
     };
 
     public static bool IsKnown(string value) => All.Contains(value, StringComparer.Ordinal);

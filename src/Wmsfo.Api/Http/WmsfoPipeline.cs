@@ -92,6 +92,13 @@ public static class WmsfoPipeline
                 p.AddAuthenticationSchemes(AuthSchemes.CognitoOrApiKey);
                 p.RequireAuthenticatedUser();
                 p.AddRequirements(new CapabilityOrGroupRequirement(options.AdminGroup));
+            })
+            // 4.5a Canvasser admits admin, editor, or canvasser; API keys with `qr`.
+            .AddPolicy(AuthPolicies.Canvasser, p =>
+            {
+                p.AddAuthenticationSchemes(AuthSchemes.CognitoOrApiKey);
+                p.RequireAuthenticatedUser();
+                p.AddRequirements(new CapabilityOrGroupRequirement(options.CanvasserGroup, options.EditorGroup, options.AdminGroup));
             });
 
         // The forbidden-vs-mfa mapping: default authorization result handling is

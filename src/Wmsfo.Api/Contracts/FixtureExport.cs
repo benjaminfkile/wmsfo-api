@@ -14,6 +14,10 @@ public static class FixtureExport
         yield return ("location",         CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildLocation()));
         yield return ("heartbeat",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildHeartbeat()));
         yield return ("content-document", CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
+        yield return ("qr-code",          CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildQrCode()));
+        yield return ("qr-code-detail",   CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildQrCodeDetail()));
+        yield return ("place",            CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlace()));
+        yield return ("place-pin",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlacePin()));
     }
 
     public static void WriteAll(string outputDir)

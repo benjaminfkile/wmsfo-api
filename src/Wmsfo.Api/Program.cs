@@ -315,6 +315,9 @@ AdminContentEndpoints.MapAll(app);
 AdminApiKeyEndpoints.MapAll(app);
 // A31: /admin/audit list + entity kinds (contracts 4.5 Audit).
 AdminAuditEndpoints.MapAll(app);
+// A33: QR codes, places, and the public scan beacon (contracts 4.5a).
+QrEndpoints.MapAll(app);
+PlaceEndpoints.MapAll(app);
 EndpointStubs.MapAll(app,
     includeBeaconStubs: false,
     includeRealtimeStubs: false,
@@ -334,7 +337,8 @@ EndpointStubs.MapAll(app,
     includeAdminSectionsStubs: false,
     includeAdminSiteSettingsStubs: false,
     includeAdminContentStubs: false,
-    includeAdminApiKeysStubs: false);
+    includeAdminApiKeysStubs: false,
+    includeQrPlacesStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

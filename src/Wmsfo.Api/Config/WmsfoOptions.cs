@@ -39,6 +39,8 @@ public sealed class WmsfoOptions
     public string CognitoAdminUserPoolId { get; set; } = "";
     public string AdminGroup { get; set; } = "admin";
     public string EditorGroup { get; set; } = "editor";
+    public string CanvasserGroup { get; set; } = "canvasser";
+    public string ScanSalt { get; set; } = "";
     public string SesFromAddress { get; set; } = "";
     public string SesConfigurationSet { get; set; } = "";
     public string ContactNotifyEmail { get; set; } = "";
@@ -77,6 +79,8 @@ public sealed class WmsfoOptions
         public const string CognitoAdminUserPoolId = "WMSFO_COGNITO_ADMIN_USER_POOL_ID";
         public const string AdminGroup = "WMSFO_ADMIN_GROUP";
         public const string EditorGroup = "WMSFO_EDITOR_GROUP";
+        public const string CanvasserGroup = "WMSFO_CANVASSER_GROUP";
+        public const string ScanSalt = "WMSFO_SCAN_SALT";
         public const string SesFromAddress = "WMSFO_SES_FROM_ADDRESS";
         public const string SesConfigurationSet = "WMSFO_SES_CONFIGURATION_SET";
         public const string ContactNotifyEmail = "WMSFO_CONTACT_NOTIFY_EMAIL";
@@ -153,6 +157,8 @@ public sealed class WmsfoOptions
             CognitoAdminUserPoolId = Get(Keys.CognitoAdminUserPoolId),
             AdminGroup = string.IsNullOrEmpty(Get(Keys.AdminGroup)) ? "admin" : Get(Keys.AdminGroup),
             EditorGroup = string.IsNullOrEmpty(Get(Keys.EditorGroup)) ? "editor" : Get(Keys.EditorGroup),
+            CanvasserGroup = string.IsNullOrEmpty(Get(Keys.CanvasserGroup)) ? "canvasser" : Get(Keys.CanvasserGroup),
+            ScanSalt = Get(Keys.ScanSalt),
             SesFromAddress = Get(Keys.SesFromAddress),
             SesConfigurationSet = Get(Keys.SesConfigurationSet),
             ContactNotifyEmail = Get(Keys.ContactNotifyEmail),
@@ -209,6 +215,10 @@ public sealed class WmsfoOptionsValidator : IValidateOptions<WmsfoOptions>
             Require(WmsfoOptions.Keys.CognitoAdminClientIds, o.EffectiveAdminClientIdList().Count > 0);
             Require(WmsfoOptions.Keys.CognitoAdminUserPoolId, !string.IsNullOrWhiteSpace(o.CognitoAdminUserPoolId));
         }
+        // WMSFO_CANVASSER_GROUP is optional (defaulted to "canvasser") but must be a slug.
+        Require(WmsfoOptions.Keys.CanvasserGroup, IsSlug(o.CanvasserGroup));
+        // WMSFO_SCAN_SALT: any non-empty string; the API hashes it with the client IP.
+        Require(WmsfoOptions.Keys.ScanSalt, !string.IsNullOrWhiteSpace(o.ScanSalt));
         Require(WmsfoOptions.Keys.SesFromAddress, IsMailbox(o.SesFromAddress));
         Require(WmsfoOptions.Keys.ContactNotifyEmail, IsEmail(o.ContactNotifyEmail));
         Require(WmsfoOptions.Keys.AlertSendPerSec, o.AlertSendPerSec is >= 1 and <= 50);
