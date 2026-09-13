@@ -1754,7 +1754,7 @@ from section_item where id = $1;", conn, tx);
         if (ids.Length == 0) return map;
         var cdn = options.CdnBaseUrl.TrimEnd('/');
         await using var cmd = new NpgsqlCommand(@"
-select id, s3_key, kind, width, height, alt, variants
+select id, s3_key, kind, width, height, alt, variants, dzi_key
 from media_asset where id = any($1) order by id;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter
         {
@@ -1776,6 +1776,7 @@ from media_asset where id = any($1) order by id;", conn, tx);
             {
                 variants[e.Name] = cdn + "/" + e.Value.GetString();
             }
+            var dziKey = reader.IsDBNull(7) ? null : reader.GetString(7);
             map[id.ToString()] = new MediaEntry
             {
                 Url = cdn + "/" + key,
@@ -1784,6 +1785,7 @@ from media_asset where id = any($1) order by id;", conn, tx);
                 Height = h,
                 Alt = alt,
                 Variants = variants,
+                Dzi = dziKey is null ? null : cdn + "/" + dziKey,
             };
         }
         return map;

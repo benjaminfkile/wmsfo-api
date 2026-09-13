@@ -232,6 +232,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "dzi": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false

@@ -419,6 +419,7 @@ public sealed class MediaAssetDto
     public string Title { get; set; } = "";
     public string Url { get; set; } = "";
     public IDictionary<string, string> Variants { get; set; } = new SortedDictionary<string, string>(StringComparer.Ordinal);
+    public string? DziUrl { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ConfirmedAt { get; set; }

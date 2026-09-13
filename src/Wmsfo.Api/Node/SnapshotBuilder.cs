@@ -366,7 +366,7 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
         if (mediaIds.Count > 0)
         {
             await using var cmd = new NpgsqlCommand(@"
-select id, s3_key, kind, width, height, alt, variants
+select id, s3_key, kind, width, height, alt, variants, dzi_key
 from media_asset
 where id = any($1) and state = 'ready'
 order by id;", conn, tx);
@@ -377,6 +377,7 @@ order by id;", conn, tx);
                 Value = idsArray,
             });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            var cdn = _options.CdnBaseUrl.TrimEnd('/');
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
                 var id = reader.GetGuid(0);
@@ -386,22 +387,24 @@ order by id;", conn, tx);
                 int? height = reader.IsDBNull(4) ? null : reader.GetInt32(4);
                 var alt = reader.GetString(5);
                 var variantsJson = reader.GetString(6);
+                var dziKey = reader.IsDBNull(7) ? null : reader.GetString(7);
                 var variants = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 using (var doc = JsonDocument.Parse(variantsJson))
                 {
                     foreach (var e in doc.RootElement.EnumerateObject())
                     {
-                        variants[e.Name] = _options.CdnBaseUrl.TrimEnd('/') + "/" + e.Value.GetString();
+                        variants[e.Name] = cdn + "/" + e.Value.GetString();
                     }
                 }
                 media[id.ToString()] = new MediaEntry
                 {
-                    Url = _options.CdnBaseUrl.TrimEnd('/') + "/" + key,
+                    Url = cdn + "/" + key,
                     Kind = kind,
                     Width = width,
                     Height = height,
                     Alt = alt,
                     Variants = variants,
+                    Dzi = dziKey is null ? null : cdn + "/" + dziKey,
                 };
             }
         }

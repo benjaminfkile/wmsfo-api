@@ -315,6 +315,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Sha256).HasColumnType("char(64)");
             e.Property(x => x.Variants).HasColumnType("jsonb").IsRequired().HasDefaultValueSql("'{}'")
                 .HasComment("{ \"480\": \"media/{id}/w480.webp\", \"960\": ..., \"1600\": ... }: the WebP width variants that exist (raster only, widths below the source width).");
+            e.Property(x => x.DziKey).HasColumnName("dzi_key").HasColumnType("text")
+                .HasComment("media/<id>/dzi/poster.dzi when a Deep Zoom tile pyramid exists (contracts 1.3b): a raster whose longest side is 2048 px or more.");
             e.Property(x => x.Alt).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.Title).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired();
