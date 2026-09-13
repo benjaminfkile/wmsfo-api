@@ -4370,6 +4370,12 @@
               "type": "string"
             }
           },
+          "dziUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -4435,6 +4441,12 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "dzi": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

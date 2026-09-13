@@ -148,7 +148,7 @@ public sealed class LocalObjectStoreTests : IDisposable
     public void PresignPut_points_at_local_upload_endpoint()
     {
         var url = _store.PresignPut("media/abc/x.png", "image/png", ObjectTags.Pending);
-        Assert.Equal(UploadBase + "/local-upload/abc", url);
+        Assert.Equal(UploadBase + "/local-upload/abc?filename=x.png", url);
     }
 
     [Fact]

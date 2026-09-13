@@ -78,7 +78,7 @@ public static class AdminMediaEndpoints
                 var items = new List<MediaAssetDto>();
                 var sql = new System.Text.StringBuilder(@"
 select id, filename, content_type, kind, state, s3_key, size_bytes, width, height, sha256,
-       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at
+       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at, dzi_key
 from media_asset
 where 1 = 1");
                 var parameters = new List<NpgsqlParameter>();
@@ -187,10 +187,6 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                 }
 
                 var uploadUrl = store.PresignPut(key, body.ContentType, ObjectTags.Pending);
-                var localHint = store is LocalObjectStore
-                    ? $"?filename={Uri.EscapeDataString(sanitized!)}"
-                    : "";
-                if (localHint.Length > 0) uploadUrl += localHint;
 
                 var media = await ReadByIdAsync(conn, null, id, options, ct)
                     ?? throw new InvalidOperationException("failed to reload created media row");
@@ -282,6 +278,8 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                 int? height = null;
                 var variantMap = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 var variantKeysPut = new List<string>();
+                string? dziKey = null;
+                IReadOnlyList<string> dziTileKeys = Array.Empty<string>();
 
                 if (string.Equals(contentType, ImageSniffer.Svg, StringComparison.Ordinal))
                 {
@@ -312,11 +310,12 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                 }
                 else
                 {
-                    // Raster (png, jpeg, webp).
-                    RasterDecodeResult decoded;
+                    // Raster (png, jpeg, webp). Decode once, derive variants,
+                    // and cut the Deep Zoom pyramid from the same image.
+                    SixLabors.ImageSharp.Image image;
                     try
                     {
-                        decoded = VariantDeriver.DecodeRaster(bytes);
+                        image = VariantDeriver.LoadRaster(bytes);
                     }
                     catch (MediaDecodeException ex)
                     {
@@ -325,31 +324,57 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                         RequestValidation.Throw("file", $"decode failed: {ex.Reason}");
                         return Results.StatusCode(StatusCodes.Status500InternalServerError); // unreachable
                     }
-                    width = decoded.Width;
-                    height = decoded.Height;
-
-                    // PUT each variant. Any failure: 502 media_write_failed; the
-                    // row stays pending so a retry re-derives and re-PUTs.
-                    foreach (var (target, webpBytes) in decoded.Variants)
+                    using (image)
                     {
-                        var variantKey = $"media/{mediaId}/w{target}.webp";
-                        try
+                        width = image.Width;
+                        height = image.Height;
+                        var variants = VariantDeriver.DeriveVariants(image);
+
+                        // PUT each variant. Any failure: 502 media_write_failed;
+                        // the row stays pending so a retry re-derives and re-PUTs.
+                        foreach (var (target, webpBytes) in variants)
                         {
-                            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                            cts.CancelAfter(PutTimeout);
-                            await store.PutObjectAsync(
-                                variantKey, webpBytes, WebpContentType, ImmutableCacheControl,
-                                ObjectTags.Pending, cts.Token);
-                            variantKeysPut.Add(variantKey);
-                            variantMap[target.ToString(System.Globalization.CultureInfo.InvariantCulture)] = variantKey;
+                            var variantKey = $"media/{mediaId}/w{target}.webp";
+                            try
+                            {
+                                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                cts.CancelAfter(PutTimeout);
+                                await store.PutObjectAsync(
+                                    variantKey, webpBytes, WebpContentType, ImmutableCacheControl,
+                                    ObjectTags.Pending, cts.Token);
+                                variantKeysPut.Add(variantKey);
+                                variantMap[target.ToString(System.Globalization.CultureInfo.InvariantCulture)] = variantKey;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex,
+                                    "media variant PUT failed id={MediaId} width={Width}; marker={Marker}",
+                                    mediaId, target, LogMarkers.MediaWriteFailed);
+                                throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
+                                    $"variant write failed for width {target}");
+                            }
                         }
-                        catch (Exception ex)
+
+                        // Tile pyramid (api.md 11.3 step 5, contracts 1.3b): a
+                        // raster whose longest side is 2048 px or more.
+                        if (DeepZoomTiler.ShouldTile(image.Width, image.Height))
                         {
-                            logger.LogWarning(ex,
-                                "media variant PUT failed id={MediaId} width={Width}; marker={Marker}",
-                                mediaId, target, LogMarkers.MediaWriteFailed);
-                            throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
-                                $"variant write failed for width {target}");
+                            try
+                            {
+                                var pyramid = await DeepZoomTiler.RunAsync(
+                                    image, mediaId, store, ImmutableCacheControl,
+                                    ObjectTags.Pending, ct);
+                                dziKey = pyramid.DescriptorKey;
+                                dziTileKeys = pyramid.TileKeys;
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex,
+                                    "media dzi PUT failed id={MediaId}; marker={Marker}",
+                                    mediaId, LogMarkers.MediaWriteFailed);
+                                throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
+                                    "dzi write failed");
+                            }
                         }
                     }
                 }
@@ -357,7 +382,8 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                 // 4. sha256 of the original bytes.
                 var sha = CanonicalJson.Sha256Hex(bytes);
 
-                // 5. Tag removal on the original and every variant.
+                // 5. Tag removal on the original, every variant, the descriptor,
+                //    and every tile. Tiles untag concurrently like the PUTs.
                 try
                 {
                     await store.DeleteObjectTaggingAsync(s3Key!, ct);
@@ -365,6 +391,11 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn))
                     {
                         await store.DeleteObjectTaggingAsync(vk, ct);
                     }
+                    if (dziKey is not null)
+                    {
+                        await store.DeleteObjectTaggingAsync(dziKey, ct);
+                    }
+                    await UntagManyAsync(store, dziTileKeys, ct);
                 }
                 catch (Exception ex)
                 {
@@ -385,8 +416,9 @@ set state = 'ready',
     height = $3,
     sha256 = $4,
     variants = $5::jsonb,
+    dzi_key = $6,
     confirmed_at = now()
-where id = $6 and state = 'pending';", conn))
+where id = $7 and state = 'pending';", conn))
                 {
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (long)head.ContentLength });
                     upd.Parameters.Add(width.HasValue
@@ -397,6 +429,9 @@ where id = $6 and state = 'pending';", conn))
                         : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = DBNull.Value });
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = variantsJson });
+                    upd.Parameters.Add(dziKey is not null
+                        ? new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = dziKey }
+                        : new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DBNull.Value });
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
                     var rows = await upd.ExecuteNonQueryAsync(ct);
                     if (rows == 0)
@@ -607,7 +642,7 @@ where id = $6 and state = 'pending';", conn))
     {
         await using var cmd = new NpgsqlCommand(@"
 select id, filename, content_type, kind, state, s3_key, size_bytes, width, height, sha256,
-       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at
+       variants, alt, title, uploaded_by, created_at, confirmed_at, unreferenced_since, orphaned_at, dzi_key
 from media_asset where id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -629,6 +664,7 @@ from media_asset where id = $1;", conn, tx);
                 variants[e.Name] = cdn + "/" + value;
             }
         }
+        var dziKey = reader.IsDBNull(18) ? null : reader.GetString(18);
         return new MediaAssetDto
         {
             Id = reader.GetGuid(0).ToString(),
@@ -644,6 +680,7 @@ from media_asset where id = $1;", conn, tx);
             Title = reader.GetString(12),
             Url = cdn + "/" + s3Key,
             Variants = variants,
+            DziUrl = dziKey is null ? null : cdn + "/" + dziKey,
             UploadedBy = reader.GetString(13),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             ConfirmedAt = reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15),
@@ -693,6 +730,26 @@ from media_asset where id = $1;", conn, tx);
     {
         try { await store.DeleteObjectAsync(key, ct); }
         catch { }
+    }
+
+    // Untag tile keys concurrently (api.md 11.3 step 6): eight in flight like
+    // the PUTs. The lifecycle rule ignores untagged objects, so a partial
+    // failure is 502 media_write_failed and the confirm retries.
+    private static async Task UntagManyAsync(IObjectStore store, IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        if (keys.Count == 0) return;
+        using var gate = new SemaphoreSlim(DeepZoomTiler.MaxConcurrentPuts, DeepZoomTiler.MaxConcurrentPuts);
+        var tasks = new List<Task>(keys.Count);
+        foreach (var key in keys)
+        {
+            await gate.WaitAsync(ct);
+            tasks.Add(Task.Run(async () =>
+            {
+                try { await store.DeleteObjectTaggingAsync(key, ct); }
+                finally { gate.Release(); }
+            }, ct));
+        }
+        await Task.WhenAll(tasks);
     }
 }
 

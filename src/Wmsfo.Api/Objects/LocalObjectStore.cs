@@ -159,9 +159,13 @@ public sealed class LocalObjectStore : IObjectStore
         ArgumentException.ThrowIfNullOrWhiteSpace(tag);
         // The API's PUT /local-upload/{id} route is the sole callsite; the id
         // segment is the media asset id, which is the second component of every
-        // media/ key (platform.md 1.2).
+        // media/ key (platform.md 1.2). The filename lives after `media/{id}/`;
+        // the local-upload endpoint reads it from the query string so the bytes
+        // land at the ticket's key, matching the S3 presigned PUT.
         var uploadId = ExtractUploadId(key);
-        return $"{_uploadBaseUrl}/local-upload/{uploadId}";
+        var filename = ExtractFilename(key);
+        var url = $"{_uploadBaseUrl}/local-upload/{uploadId}";
+        return filename.Length == 0 ? url : $"{url}?filename={Uri.EscapeDataString(filename)}";
     }
 
     // Called by the /local-upload/{id} endpoint, which turns a browser PUT into
@@ -253,5 +257,11 @@ public sealed class LocalObjectStore : IObjectStore
         // then simply keys by the whole string.
         var parts = key.Split('/', StringSplitOptions.RemoveEmptyEntries);
         return parts.Length >= 2 ? parts[1] : key;
+    }
+
+    private static string ExtractFilename(string key)
+    {
+        var parts = key.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 3 ? parts[^1] : "";
     }
 }

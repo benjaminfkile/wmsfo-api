@@ -6,9 +6,9 @@ namespace Wmsfo.Api.Media;
 
 // api.md 11.3 step 4: decode the raster bytes with a 40-megapixel ceiling; for
 // each width in (480, 960, 1600) that is less than the source width, resize
-// (aspect kept) and encode WebP quality 82. Returns the source dimensions and
-// the encoded variants keyed by width. GIF: dimensions only, no variants. The
-// caller has already sniffed the type.
+// (aspect kept) and encode WebP quality 82. GIF: dimensions only, no variants.
+// SVG has no decode path here. The tile pyramid step (api.md 11.3 step 5) uses
+// LoadRaster + DeriveVariants so the decoded image is decoded once and reused.
 public static class VariantDeriver
 {
     public const int MaxMegapixels = 40;
@@ -16,22 +16,37 @@ public static class VariantDeriver
     public const int WebpQuality = 82;
     public static readonly int[] TargetWidths = { 480, 960, 1600 };
 
-    // Decode a raster (png, jpeg, webp) and derive the WebP variants narrower
-    // than the source width.
-    public static RasterDecodeResult DecodeRaster(byte[] bytes)
+    // Load the raster into an ImageSharp Image and enforce the 40-megapixel
+    // ceiling. The caller owns the returned image and must dispose it.
+    public static Image LoadRaster(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
-
-        using var image = TryLoad(bytes)
-            ?? throw new MediaDecodeException("decode_failed");
+        Image image;
+        try
+        {
+            image = Image.Load(bytes);
+        }
+        catch (Exception)
+        {
+            throw new MediaDecodeException("decode_failed");
+        }
 
         var pixels = (long)image.Width * image.Height;
         if (pixels > MaxPixelCount)
+        {
+            image.Dispose();
             throw new MediaDecodeException("over_megapixel_ceiling");
+        }
+        return image;
+    }
 
+    // Derive the WebP variants narrower than the source width, keyed by width.
+    public static SortedDictionary<int, byte[]> DeriveVariants(Image image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var variants = new SortedDictionary<int, byte[]>();
         var width = image.Width;
         var height = image.Height;
-        var variants = new SortedDictionary<int, byte[]>();
         foreach (var target in TargetWidths)
         {
             if (target >= width) continue;
@@ -41,8 +56,15 @@ public static class VariantDeriver
             resized.SaveAsWebp(ms, new WebpEncoder { Quality = WebpQuality });
             variants[target] = ms.ToArray();
         }
+        return variants;
+    }
 
-        return new RasterDecodeResult(width, height, variants);
+    // Convenience: decode + derive in one call, disposing the image. Used by
+    // unit tests; the confirm handler keeps the image alive for the tiler.
+    public static RasterDecodeResult DecodeRaster(byte[] bytes)
+    {
+        using var image = LoadRaster(bytes);
+        return new RasterDecodeResult(image.Width, image.Height, DeriveVariants(image));
     }
 
     // GIF: dimensions only, no variants. Uses ImageSharp so the caller does not
@@ -59,18 +81,6 @@ public static class VariantDeriver
         catch (Exception ex) when (ex is not MediaDecodeException)
         {
             throw new MediaDecodeException("decode_failed");
-        }
-    }
-
-    private static Image? TryLoad(byte[] bytes)
-    {
-        try
-        {
-            return Image.Load(bytes);
-        }
-        catch (Exception)
-        {
-            return null;
         }
     }
 }

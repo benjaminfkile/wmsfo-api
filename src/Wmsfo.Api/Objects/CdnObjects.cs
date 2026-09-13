@@ -115,6 +115,9 @@ public sealed class MediaEntry
     [JsonPropertyOrder(4)] public string Alt { get; set; } = "";
     // {} for svg and gif; deterministic (empty or fixed keys) for raster.
     [JsonPropertyOrder(5)] public SortedDictionary<string, string> Variants { get; set; } = new(StringComparer.Ordinal);
+    // Absolute CDN URL of the Deep Zoom descriptor when a tile pyramid exists
+    // (contracts 1.3b); null on smaller rasters, svg, and gif.
+    [JsonPropertyOrder(6)] public string? Dzi { get; set; }
 }
 
 // Route object contracts 1.4.
