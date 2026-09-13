@@ -28,6 +28,8 @@ public static class AdminEventEndpoints
         MapDelete(app);
         MapCurrent(app);
         MapStatus(app);
+        MapNotify(app);
+        MapClone(app);
         MapStatusHistory(app);
         MapMessages(app);
         MapCreateMessage(app);
@@ -428,6 +430,8 @@ returning id;", conn, tx))
             {
                 var v = new RequestValidation();
                 if (body.StatusId < 1 || body.StatusId > 5) v.Field("statusId", "must be 1..5");
+                if (body.Message is not null && (body.Message.Length < 1 || body.Message.Length > 1000))
+                    v.Field("message", "must be 1 to 1000 characters");
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -567,31 +571,54 @@ where id = $" + idParamIndex + @";";
                         }
                     }
 
-                    // event_status_history row.
+                    // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify, message, historyId }.
+                    // sql.md 8.4: insert outbox, then history, then update outbox with historyId.
+                    var payload = JsonSerializer.Serialize(new
+                    {
+                        eventId = id,
+                        fromStatusId = (int)from,
+                        toStatusId = (int)to,
+                        notify = body.Notify,
+                        message = body.Message,
+                    });
+                    long outboxId;
+                    await using (var outbox = new NpgsqlCommand(@"
+insert into outbox (topic, payload) values ('event.status_changed', $1::jsonb) returning id;", conn, tx))
+                    {
+                        outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
+                        outboxId = (long)(await outbox.ExecuteScalarAsync(token) ?? 0L);
+                    }
+
+                    long historyId;
                     await using (var hist = new NpgsqlCommand(@"
-insert into event_status_history (event_id, from_status_id, to_status_id, changed_by)
-values ($1, $2, $3, $4);", conn, tx))
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+values ($1, $2, $3, $4, $5, $6, $7) returning id;", conn, tx))
                     {
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = from });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = to });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                        await hist.ExecuteNonQueryAsync(token);
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Notify });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.Message ?? DBNull.Value });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+                        historyId = (long)(await hist.ExecuteScalarAsync(token) ?? 0L);
                     }
 
-                    // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify }.
-                    var payload = JsonSerializer.Serialize(new
+                    await using (var outboxUpd = new NpgsqlCommand(@"
+update outbox set payload = payload || jsonb_build_object('historyId', $1::bigint) where id = $2;", conn, tx))
                     {
-                        eventId = id,
-                        fromStatusId = from,
-                        toStatusId = to,
-                        notify = body.Notify,
-                    });
-                    await using (var outbox = new NpgsqlCommand(@"
-insert into outbox (topic, payload) values ('event.status_changed', $1::jsonb);", conn, tx))
+                        outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = historyId });
+                        outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+                        await outboxUpd.ExecuteNonQueryAsync(token);
+                    }
+
+                    // status_notified_at: set on notify, cleared otherwise (sql.md 8.4).
+                    await using (var stampNotify = new NpgsqlCommand(@"
+update event set status_notified_at = case when $1 then now() else null end where id = $2;", conn, tx))
                     {
-                        outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
-                        await outbox.ExecuteNonQueryAsync(token);
+                        stampNotify.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Notify });
+                        stampNotify.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await stampNotify.ExecuteNonQueryAsync(token);
                     }
 
                     var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
@@ -619,7 +646,7 @@ insert into outbox (topic, payload) values ('event.status_changed', $1::jsonb);"
                 await conn.OpenAsync(ct);
                 var items = new List<StatusHistoryDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select id, event_id, from_status_id, to_status_id, changed_by, changed_at
+select id, event_id, from_status_id, to_status_id, changed_by, changed_at, notify, message, sent_count
 from event_status_history
 where event_id = $1
 order by changed_at desc, id desc;", conn);
@@ -635,12 +662,188 @@ order by changed_at desc, id desc;", conn);
                         ToStatusId = reader.GetInt16(3),
                         ChangedBy = reader.GetString(4),
                         ChangedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                        Notify = reader.GetBoolean(6),
+                        Message = reader.IsDBNull(7) ? null : reader.GetString(7),
+                        SentCount = reader.GetInt32(8),
                     });
                 }
                 return Results.Ok(new ItemsResponse<StatusHistoryDto> { Items = items });
             })
             .WithTags("AdminEvents")
             .Produces<ItemsResponse<StatusHistoryDto>>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // POST /admin/events/{id}/notify per contracts 4.5 and sql.md 8.4a.
+    // Announces the event's current status to subscribers now (outbox
+    // event.status_notified), sets status_notified_at, appends a
+    // StatusHistory row (from = to, notify = true). Not snapshot-affecting.
+    private static void MapNotify(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/events/{id:long}/notify",
+            async (long id, NotifyStatusRequest? body, HttpContext ctx,
+                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            {
+                var message = body?.Message;
+                var v = new RequestValidation();
+                if (message is not null && (message.Length < 1 || message.Length > 1000))
+                    v.Field("message", "must be 1 to 1000 characters");
+                v.ThrowIfInvalid();
+                var email = AdminHelpers.RequireAdminEmail(ctx);
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                EventDto dto;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    short status;
+                    await using (var read = new NpgsqlCommand(
+                        "select status_id from event where id = $1 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        var r = await read.ExecuteScalarAsync(ct);
+                        if (r is null || r is DBNull) throw NotFound();
+                        status = Convert.ToInt16(r);
+                    }
+                    var payload = JsonSerializer.Serialize(new
+                    {
+                        eventId = id,
+                        statusId = (int)status,
+                        message,
+                    });
+                    long outboxId;
+                    await using (var outbox = new NpgsqlCommand(@"
+insert into outbox (topic, payload) values ('event.status_notified', $1::jsonb) returning id;", conn, tx))
+                    {
+                        outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
+                        outboxId = (long)(await outbox.ExecuteScalarAsync(ct) ?? 0L);
+                    }
+                    long historyId;
+                    await using (var hist = new NpgsqlCommand(@"
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+values ($1, $2, $2, $3, true, $4, $5) returning id;", conn, tx))
+                    {
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = status });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)message ?? DBNull.Value });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+                        historyId = (long)(await hist.ExecuteScalarAsync(ct) ?? 0L);
+                    }
+                    await using (var outboxUpd = new NpgsqlCommand(@"
+update outbox set payload = payload || jsonb_build_object('historyId', $1::bigint) where id = $2;", conn, tx))
+                    {
+                        outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = historyId });
+                        outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+                        await outboxUpd.ExecuteNonQueryAsync(ct);
+                    }
+                    await using (var stampNotify = new NpgsqlCommand(@"
+update event set status_notified_at = now(), updated_at = now() where id = $1;", conn, tx))
+                    {
+                        stampNotify.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await stampNotify.ExecuteNonQueryAsync(ct);
+                    }
+                    var read2 = await ReadEventByIdAsync(conn, tx, id, options, ct);
+                    if (read2 is null) throw NotFound();
+                    dto = read2;
+                    await tx.CommitAsync(ct);
+                }
+                return Results.Ok(dto);
+            })
+            .WithTags("AdminEvents")
+            .Accepts<NotifyStatusRequest>("application/json")
+            .Produces<EventDto>(StatusCodes.Status200OK)
+            .WithBodyLimit(BodyLimits.JsonDefault)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // POST /admin/events/{id}/clone per contracts 4.5 and sql.md 8.4b.
+    // Creates a new event in status 1, not current, funds 0, no scheduled time;
+    // copy.sponsors copies year's sponsor_year rows (with pinned/linger) to the
+    // new year (skipping sponsors that already have it); copy.route links the
+    // source's routeId; copy.poster links the source's routeImageMediaId. Not
+    // snapshot-affecting (the new event is not current).
+    private static void MapClone(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/events/{id:long}/clone",
+            async (long id, CloneEventRequest body, HttpContext ctx,
+                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
+                if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 200)
+                    v.Field("name", "must be 1 to 200 characters");
+                v.ThrowIfInvalid();
+                var email = AdminHelpers.RequireAdminEmail(ctx);
+
+                var copySponsors = body.Copy?.Sponsors ?? false;
+                var copyRoute = body.Copy?.Route ?? false;
+                var copyPoster = body.Copy?.Poster ?? false;
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                EventDto dto;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    int sourceYear;
+                    long? sourceRouteId;
+                    Guid? sourcePosterId;
+                    await using (var read = new NpgsqlCommand(
+                        "select year, route_id, route_image_media_id from event where id = $1 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await using var reader = await read.ExecuteReaderAsync(ct);
+                        if (!await reader.ReadAsync(ct)) throw NotFound();
+                        sourceYear = reader.GetInt32(0);
+                        sourceRouteId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+                        sourcePosterId = reader.IsDBNull(2) ? null : reader.GetGuid(2);
+                    }
+
+                    long newId;
+                    try
+                    {
+                        await using var ins = new NpgsqlCommand(@"
+insert into event (year, name, status_id, is_current, funds_percent, route_id, route_image_media_id, created_by, updated_at)
+values ($1, $2, 1, false, 0, $3, $4, $5, now()) returning id;", conn, tx);
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)(copyRoute ? sourceRouteId : null) ?? DBNull.Value });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = (object?)(copyPoster ? sourcePosterId : null) ?? DBNull.Value });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        newId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
+                    }
+                    catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.EventYearKey)
+                    {
+                        throw new ApiException(StatusCodes.Status409Conflict, "year_taken", "year already used");
+                    }
+
+                    if (copySponsors)
+                    {
+                        await using var cp = new NpgsqlCommand(@"
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override)
+select sponsor_id, $1, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override
+from sponsor_year where event_year = $2
+on conflict (sponsor_id, event_year) do nothing;", conn, tx);
+                        cp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
+                        cp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = sourceYear });
+                        await cp.ExecuteNonQueryAsync(ct);
+                    }
+
+                    var read3 = await ReadEventByIdAsync(conn, tx, newId, options, ct);
+                    if (read3 is null) throw NotFound();
+                    dto = read3;
+                    await tx.CommitAsync(ct);
+                }
+                return Results.Json(dto, statusCode: StatusCodes.Status201Created);
+            })
+            .WithTags("AdminEvents")
+            .Accepts<CloneEventRequest>("application/json")
+            .Produces<EventDto>(StatusCodes.Status201Created)
+            .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
@@ -1022,7 +1225,7 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.filename, m.content_type, m.kind, m.state, m.s3_key,
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
-       m.unreferenced_since, m.orphaned_at, m.dzi_key
+       m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id";
@@ -1056,6 +1259,7 @@ left join media_asset m on m.id = e.route_image_media_id";
             CreatedBy = reader.GetString(12),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(13),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
+            StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
         };
         if (!reader.IsDBNull(11))
         {

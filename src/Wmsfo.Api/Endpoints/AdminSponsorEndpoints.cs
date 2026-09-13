@@ -25,6 +25,8 @@ public static class AdminSponsorEndpoints
         MapDelete(app);
         MapUpsertYear(app);
         MapDeleteYear(app);
+        MapCopyFromYear(app);
+        MapImport(app);
         MapGetOrder(app);
         MapPutOrder(app);
     }
@@ -365,6 +367,230 @@ on conflict (sponsor_id, event_year) do update set
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Sponsors)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // POST /admin/sponsors/{id}/years/{eventYear}/copy-from/{sourceYear}
+    // [snapshot when eventYear is the current event's year] per contracts 4.5,
+    // sql.md 8.4c. Copies the sponsor's sourceYear row to eventYear; returns
+    // the sponsor with the year list refreshed. 404 (sponsor, or no sourceYear
+    // row) / 409 year_exists.
+    private static void MapCopyFromYear(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/sponsors/{id:long}/years/{eventYear:int}/copy-from/{sourceYear:int}",
+            async (long id, int eventYear, int sourceYear, HttpContext ctx,
+                   AdminSnapshotTransaction snap, WmsfoConnectionStrings connections,
+                   WmsfoOptions options, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                if (eventYear < 2000 || eventYear > 2100)
+                    v.Field("eventYear", "must be between 2000 and 2100");
+                if (sourceYear < 2000 || sourceYear > 2100)
+                    v.Field("sourceYear", "must be between 2000 and 2100");
+                if (eventYear == sourceYear)
+                    v.Field("sourceYear", "must differ from eventYear");
+                v.ThrowIfInvalid();
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                // snapshot-affecting when the target year is the current
+                // event's year (sql.md 8.4c). Look up the current event's year
+                // ahead of the transaction; if it matches we run through the
+                // AdminSnapshotTransaction, otherwise a plain transaction.
+                int? currentYear = null;
+                await using (var lookup = new NpgsqlConnection(connections.App))
+                {
+                    await lookup.OpenAsync(ct);
+                    await using var cmd = new NpgsqlCommand(
+                        "select year from event where is_current;", lookup);
+                    var r = await cmd.ExecuteScalarAsync(ct);
+                    if (r is not null && r is not DBNull) currentYear = Convert.ToInt32(r);
+                }
+
+                SponsorDto dto;
+                if (currentYear == eventYear)
+                {
+                    var (result, _) = await snap.RunAsync<SponsorDto>(async (conn, tx, token) =>
+                    {
+                        return await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, options, token);
+                    }, ct);
+                    dto = result;
+                }
+                else
+                {
+                    await using var conn = new NpgsqlConnection(connections.App);
+                    await conn.OpenAsync(ct);
+                    await using var tx = await conn.BeginTransactionAsync(ct);
+                    dto = await CopySponsorYearAsync(conn, tx, id, eventYear, sourceYear, options, ct);
+                    await tx.CommitAsync(ct);
+                }
+
+                return Results.Json(dto, statusCode: StatusCodes.Status201Created);
+            })
+            .WithTags("AdminSponsors")
+            .Produces<SponsorDto>(StatusCodes.Status201Created)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // POST /admin/sponsors/import [snapshot when toYear is current] per
+    // contracts 4.5 and sql.md 8.4c. One transaction: for each sponsorId, copy
+    // its fromYear row to toYear (unless one already exists at toYear).
+    private static void MapImport(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/sponsors/import",
+            async (SponsorImportRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                if (body.FromYear < 2000 || body.FromYear > 2100)
+                    v.Field("fromYear", "must be between 2000 and 2100");
+                if (body.ToYear < 2000 || body.ToYear > 2100)
+                    v.Field("toYear", "must be between 2000 and 2100");
+                if (body.FromYear == body.ToYear)
+                    v.Field("toYear", "must differ from fromYear");
+                var ids = body.SponsorIds ?? new List<long>();
+                if (ids.Count < 1 || ids.Count > 1000)
+                    v.Field("sponsorIds", "must contain 1 to 1000 ids");
+                if (ids.Count != ids.Distinct().Count())
+                    v.Field("sponsorIds", "must be distinct");
+                v.ThrowIfInvalid();
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                int? currentYear = null;
+                await using (var lookup = new NpgsqlConnection(connections.App))
+                {
+                    await lookup.OpenAsync(ct);
+                    await using var cmd = new NpgsqlCommand(
+                        "select year from event where is_current;", lookup);
+                    var r = await cmd.ExecuteScalarAsync(ct);
+                    if (r is not null && r is not DBNull) currentYear = Convert.ToInt32(r);
+                }
+
+                SponsorImportResponse result;
+                if (currentYear == body.ToYear)
+                {
+                    var (rs, _) = await snap.RunAsync<SponsorImportResponse>(async (conn, tx, token) =>
+                    {
+                        return await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), token);
+                    }, ct);
+                    result = rs;
+                }
+                else
+                {
+                    await using var conn = new NpgsqlConnection(connections.App);
+                    await conn.OpenAsync(ct);
+                    await using var tx = await conn.BeginTransactionAsync(ct);
+                    result = await RunImportAsync(conn, tx, body.FromYear, body.ToYear, ids.ToArray(), ct);
+                    await tx.CommitAsync(ct);
+                }
+
+                return Results.Ok(result);
+            })
+            .WithTags("AdminSponsors")
+            .Accepts<SponsorImportRequest>("application/json")
+            .Produces<SponsorImportResponse>(StatusCodes.Status200OK)
+            .WithBodyLimit(BodyLimits.JsonDefault)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Sponsors)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // sql.md 8.4c: verify the sponsor and the source year row exist, then
+    // insert into the target year. 23505 (unique) becomes 409 year_exists.
+    private static async Task<SponsorDto> CopySponsorYearAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, long sponsorId, int targetYear, int sourceYear,
+        WmsfoOptions options, CancellationToken ct)
+    {
+        await using (var check = new NpgsqlCommand(
+            "select 1 from sponsor where id = $1;", conn, tx))
+        {
+            check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+            var r = await check.ExecuteScalarAsync(ct);
+            if (r is null || r is DBNull) throw NotFound("sponsor not found");
+        }
+        decimal? amount = null; bool active = true, canAdv = true, anon = false;
+        bool found = false;
+        await using (var read = new NpgsqlCommand(@"
+select amount_donated, active, can_advertise, anonymous
+from sponsor_year where sponsor_id = $1 and event_year = $2 for update;", conn, tx))
+        {
+            read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+            read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = sourceYear });
+            await using var reader = await read.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                found = true;
+                amount = reader.IsDBNull(0) ? null : reader.GetDecimal(0);
+                active = reader.GetBoolean(1);
+                canAdv = reader.GetBoolean(2);
+                anon = reader.GetBoolean(3);
+            }
+        }
+        if (!found) throw NotFound($"no sponsor_year for sourceYear {sourceYear}");
+        try
+        {
+            await using var ins = new NpgsqlCommand(@"
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
+values ($1, $2, $3, $4, $5, $6);", conn, tx);
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = targetYear });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Numeric, Value = (object?)amount ?? DBNull.Value });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = active });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = canAdv });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = anon });
+            await ins.ExecuteNonQueryAsync(ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "23505" &&
+            ex.ConstraintName == "sponsor_year_sponsor_id_event_year_key")
+        {
+            throw new ApiException(StatusCodes.Status409Conflict,
+                "year_exists", "the sponsor already has that year");
+        }
+        var dto = await ReadSponsorByIdAsync(conn, tx, sponsorId, options, ct);
+        if (dto is null) throw NotFound("sponsor not found");
+        return dto;
+    }
+
+    private static async Task<SponsorImportResponse> RunImportAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, int fromYear, int toYear, long[] sponsorIds,
+        CancellationToken ct)
+    {
+        // Every listed sponsor must have a fromYear row.
+        var haveFrom = new HashSet<long>();
+        await using (var lookup = new NpgsqlCommand(
+            "select sponsor_id from sponsor_year where event_year = $1 and sponsor_id = any($2);", conn, tx))
+        {
+            lookup.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = fromYear });
+            lookup.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = sponsorIds });
+            await using var reader = await lookup.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct)) haveFrom.Add(reader.GetInt64(0));
+        }
+        var missing = sponsorIds.Where(s => !haveFrom.Contains(s)).ToArray();
+        if (missing.Length > 0)
+        {
+            var vv = new RequestValidation();
+            vv.Field("sponsorIds",
+                $"the following sponsors have no sponsor_year row for {fromYear}: " + string.Join(", ", missing));
+            vv.ThrowIfInvalid();
+        }
+
+        // One insert per sponsor, on conflict do nothing.
+        int created = 0, skipped = 0;
+        foreach (var sponsorId in sponsorIds)
+        {
+            await using var ins = new NpgsqlCommand(@"
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
+select sponsor_id, $2, amount_donated, active, can_advertise, anonymous
+from sponsor_year where sponsor_id = $1 and event_year = $3
+on conflict (sponsor_id, event_year) do nothing;", conn, tx);
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = toYear });
+            ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = fromYear });
+            var rows = await ins.ExecuteNonQueryAsync(ct);
+            if (rows > 0) created++;
+            else skipped++;
+        }
+        return new SponsorImportResponse { Created = created, Skipped = skipped };
     }
 
     // GET /admin/sponsors/order/{eventYear}. Returns SponsorOrderRow[] in

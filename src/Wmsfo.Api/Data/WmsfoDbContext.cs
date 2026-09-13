@@ -116,6 +116,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.RouteImageMediaId).HasColumnType("uuid")
                 .HasComment("The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.");
             e.Property(x => x.FinalCookieTally).HasColumnType("jsonb");
+            e.Property(x => x.StatusNotifiedAt).HasColumnType("timestamptz")
+                .HasComment("When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.");
             e.Property(x => x.NextSeq).HasColumnType("bigint").IsRequired().HasDefaultValue(1L)
                 .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
@@ -138,21 +140,31 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<EventStatusHistory>(e =>
         {
             e.ToTable("event_status_history", t =>
-                t.HasComment("One row per status change, written in the status change transaction."));
+                t.HasComment("One row per status change, written in the status change transaction, and one per later announcement (from_status_id = to_status_id) written by POST .../notify."));
             e.HasKey(x => x.Id).HasName("event_status_history_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.EventId).HasColumnType("bigint").IsRequired();
             e.Property(x => x.FromStatusId).HasColumnType("smallint")
-                .HasComment("Null when there was no previous status.");
+                .HasComment("Null when there was no previous status; equal to to_status_id for an announcement without a change.");
             e.Property(x => x.ToStatusId).HasColumnType("smallint").IsRequired();
             e.Property(x => x.ChangedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.ChangedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.Notify).HasColumnType("boolean").IsRequired().HasDefaultValue(false)
+                .HasComment("The admin asked for subscribers to be emailed.");
+            e.Property(x => x.Message).HasColumnType("text")
+                .HasComment("The custom alert text; null means the template's stock paragraph.");
+            e.Property(x => x.OutboxId).HasColumnType("bigint")
+                .HasComment("The alert's outbox row while it exists (set null when the row is cleaned up).");
+            e.Property(x => x.SentCount).HasColumnType("integer").IsRequired().HasDefaultValue(0)
+                .HasComment("Alert emails sent for this row, incremented by the alert-send chore per successful send; survives the outbox row.");
             e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
                 .HasConstraintName("event_status_history_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<EventStatus>().WithMany().HasForeignKey(x => x.FromStatusId)
                 .HasConstraintName("event_status_history_from_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasOne<EventStatus>().WithMany().HasForeignKey(x => x.ToStatusId)
                 .HasConstraintName("event_status_history_to_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
+            e.HasOne<Outbox>().WithMany().HasForeignKey(x => x.OutboxId)
+                .HasConstraintName("event_status_history_outbox_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => new { x.EventId, x.ChangedAt })
                 .HasDatabaseName("event_status_history_event")
                 .IsDescending(false, true);

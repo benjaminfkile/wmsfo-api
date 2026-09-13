@@ -432,9 +432,12 @@ values ($1, decode('01', 'hex'), null, now() - interval '30 days', now() - inter
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
             await cmd.ExecuteNonQueryAsync();
         }
+        // Non-alert topic: the 30-day retention applies. Alert topics
+        // (event.status_changed, event.status_notified, event.message_posted)
+        // keep 400 days (contracts 7.6) and would not be swept here.
         await using (var cmd = new NpgsqlCommand(@"
 insert into outbox (topic, payload, published_at)
-values ('event.status_changed', '{}'::jsonb, now() - interval '31 days');", conn))
+values ('contact.received', '{}'::jsonb, now() - interval '31 days');", conn))
         {
             await cmd.ExecuteNonQueryAsync();
         }
@@ -485,6 +488,38 @@ values ($1, 'stale.png', 'image/png', 'raster', 'pending', 'media/x/stale.png', 
         Assert.Equal(0, second.BeaconLogs);
         Assert.Equal(0, second.PreviewTokens);
         Assert.Equal(0, second.StalePendingMedia);
+    }
+
+    // A30 / contracts 7.6: alert topics stay 400 days so /me/alerts spans a
+    // full season. Non-alert topics remain the 30-day sweep tested above.
+    [Theory]
+    [InlineData("event.status_changed")]
+    [InlineData("event.status_notified")]
+    [InlineData("event.message_posted")]
+    public async Task Nightly_outbox_keeps_alert_topics_for_400_days(string topic)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        // 200 days old: kept.
+        long kept;
+        await using (var cmd = new NpgsqlCommand(
+            "insert into outbox (topic, payload, published_at) values ($1, '{}'::jsonb, now() - interval '200 days') returning id;", conn))
+        {
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = topic });
+            kept = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+        }
+        // 401 days old: swept.
+        long swept;
+        await using (var cmd = new NpgsqlCommand(
+            "insert into outbox (topic, payload, published_at) values ($1, '{}'::jsonb, now() - interval '401 days') returning id;", conn))
+        {
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = topic });
+            swept = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+        }
+        var host = Host();
+        await host.Nightly.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1L, await CountAsync(conn, $"select count(*) from outbox where id = {kept};"));
+        Assert.Equal(0L, await CountAsync(conn, $"select count(*) from outbox where id = {swept};"));
     }
 
     // ---------- helpers ----------

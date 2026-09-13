@@ -1,6 +1,6 @@
 {{customMessage}}
 
-Follow along at:
+Details at:
 {{siteUrl}}
 
 To stop receiving these alerts, use the one-click link:
