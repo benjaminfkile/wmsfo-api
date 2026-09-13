@@ -54,6 +54,10 @@ This document is the technical design of the Postgres schema and the data layer 
 | `preview_token` | Short-lived preview tokens, hashed | Preview token mint; nightly cleanup | tens |
 | `icon_library_state` | Single row: hash of the icon library last written to the bucket | Boot migrator | 1 |
 | `audit_log` | One row per admin write: actor, action, entity, before and after | Every admin write transaction | tens of thousands per year, never pruned |
+| `place` | A node of the places tree with its note, opens, and pin | Admin writes | hundreds |
+| `qr_code` | A printed code: tag, batch, its own opens, note, active | Mint and patch | hundreds |
+| `qr_attachment` | Where a code hung, from when to when | Attach and detach | hundreds |
+| `qr_scan` | One visit to a printed address, flagged or not | The public scan beacon | tens of thousands, never pruned |
 | `snapshot` | Single row: current snapshot URL and version | Snapshot-affecting transactions; first boot | 1 |
 | `live_state` | Single row: outcome of the last live-object write | Every live-object write | 1 |
 | `outbox` | Work for the leader chores | Status change, notify, message post, subscribe, contact | hundreds live; 30-day retention, 400 days for the alert topics |
@@ -708,6 +712,11 @@ comment on column audit_log.entity_id is 'The row''s id as text so uuids, settin
 comment on column audit_log.before is 'The resource as the API answered it before the write; null on create.';
 comment on column audit_log.after is 'The resource after the write; null on delete.';
 ```
+
+### 3.30 `place`, `qr_code`, `qr_attachment`, `qr_scan`
+
+The DDL of contracts 5 (the four tables and their indexes) verbatim. Comments: `place.parent_id` restricts deletes so a parent with children answers `409 place_has_children`; `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
+
 
 ## 4. Indexes
 
@@ -1631,6 +1640,7 @@ Subscriber status filter: `verified` is `verified_at is not null and unsubscribe
 | `outbox` | 30 days after `published_at`, except the alert topics (`event.status_changed`, `event.status_notified`, `event.message_posted`), kept 400 days for the person's alert history; rows that never publish (5 attempts) stay | nightly cleanup |
 | `alert_delivery` | With its outbox row, 30 days after that row was published, through the cascade. No statement of its own. |
 | `audit_log` | Never. |
+| `qr_scan` | Never. |
 | `subscriber` | Unverified rows 7 days after creation; verified and unsubscribed rows until an admin or the person deletes | nightly cleanup; endpoints |
 | `page`, `section`, `section_item`, `site_setting_draft` | Until an editor deletes or a restore replaces | editor endpoints |
 | `content_version` | Newest 50 rows | the publish transaction |
@@ -1791,7 +1801,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

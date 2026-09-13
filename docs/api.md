@@ -258,6 +258,8 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `/admin/sponsors*` | Editor (`sponsors`) | CRUD, a year copied from another year (`copy-from`, `409 year_exists`), the bulk `import` between two years in one transaction, years upsert with `pinnedPosition` (`409 pinned_position_taken` from the partial unique index) and `lingerMsOverride`; `order/{eventYear}` reads and rewrites the pinned list for a year in one transaction; `logoMediaId` must name a `ready` asset (`409 media_not_ready`); every `SponsorYear` answered carries the computed `lingerMs` | [snapshot] |
 | `/admin/api-keys*` | Admin, Cognito only (`DenyApiKeys`) | list, mint, revoke | section 6.4 |
 | `/admin/audit*` | Admin (`audit`) | the log by entity and id, by action, by actor; the entity kinds | section 5a |
+| `/admin/qr-codes*`, `/admin/places*` | Canvasser (`qr`); the two deletes Admin | codes: list, mint a batch, detail with history and daily counts, patch, attach, detach, delete; places: tree, create, patch (with the cycle check), location put and delete, delete, the map | section 11b |
+| `/qr-codes/{tag}/scans` | none; rate limited like `/contact` | the scan beacon, always 204 | section 11b |
 | `/me/alerts` | Person | the alert emails sent to the caller's subscriptions, newest first, 100 at most (contracts 4.4) | |
 | `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard on every write; delete answers `409 cookie_type_in_use` while any cookie references the type (sql.md 8.10) | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
@@ -421,6 +423,14 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 `StarterContent.EnsureSeededAsync` (sql.md 8.16 step 1) inserts `contracts/starter-content.json` when `page` is empty: the six role pages with a section stack that makes sense for each status (for example the live page with a `map` section and a `leaderboard`; the ended page with `event_times`, a `leaderboard` in the `full` variant, a `sponsor_grid`, and a `latest_message`), the ordinary pages (`about`, `sponsors`, `route`, `donate`, `contact`, `alerts`), and the site settings. It references library icons only and no media, so it publishes cleanly on an empty bucket. A contract test publishes it against the schemas at the publish level.
 
 ---
+
+## 11b. QR codes and places
+
+`QrEndpoints` and `PlaceEndpoints` under the `Canvasser` policy (`admin`, `editor`, or `canvasser` in `cognito:groups`; API keys with `qr`). Tags mint as `qr-` plus the next number zero-padded to three digits (`qr-1000` after `qr-999`), one batch per `POST`, in a transaction that locks `qr_code` against concurrent mints. Attach closes the open attachment and opens the new one, then `update qr_scan set attachment_id = $new where qr_code_id = $code and attachment_id is null and at > now() - interval '1 hour'` (the early scans of contracts 4.5a). Resolution of `opens` and pins walks the ancestor chain in SQL with a recursive CTE, at most 32 levels; the place tree is validated for cycles on `parentId` changes by walking up from the new parent. `GET /admin/places/map` aggregates `qr_scan` rows with `is_bot = false and is_repeat = false` through their attachment's place and its ancestors.
+
+The snapshot builder (10.2) adds `qrCodes`: every active code with its resolved `pageSlug` or `forwardUrl`; codes and places are read in the builder's transaction like sponsors are.
+
+`POST /qr-codes/{tag}/scans` records the row with `ip_hash = sha256(WMSFO_SCAN_SALT || client IP)`, `is_bot` from a fixed marker list on the user agent (`bot`, `crawler`, `spider`, `preview`, `facebookexternalhit`, `Slackbot`, `WhatsApp`, `Twitterbot`, `LinkedInBot`, `HeadlessChrome`), `is_repeat` when a row with the same code, `ip_hash`, and user agent exists within ten seconds, and `event_id` from the current event; unknown or inactive tags are dropped silently. Always `204`; the rate limit is the contact form's.
 
 ## 12. Gateway callbacks and internal client
 
