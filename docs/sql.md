@@ -30,7 +30,7 @@ This document is the technical design of the Postgres schema and the data layer 
 |---|---|---|---|
 | `event_status` | Fixed lookup, 5 rows | Migration seed | 5 |
 | `event` | One row per flyover year; status, current flag, `next_seq` counter | Admin writes; location transaction (`next_seq`); migration tool | tens |
-| `event_status_history` | Every status change | Status change transaction | hundreds |
+| `event_status_history` | Every status change, and every later announcement of a status, with whether subscribers were told | Status change and notify transactions | hundreds |
 | `event_message` | Messages shown on the site | Admin writes; migration tool | hundreds |
 | `route` | Uploaded route objects (metadata; bytes live on the CDN) | Route upload; migration tool | tens |
 | `beacon` | Trusted senders, hashed key, telemetry, health stamps | Admin writes; ingest; heartbeat; chores | tens |
@@ -53,9 +53,10 @@ This document is the technical design of the Postgres schema and the data layer 
 | `content_version` | Published content documents, newest 50 kept | Publish; first boot | 50 |
 | `preview_token` | Short-lived preview tokens, hashed | Preview token mint; nightly cleanup | tens |
 | `icon_library_state` | Single row: hash of the icon library last written to the bucket | Boot migrator | 1 |
+| `audit_log` | One row per admin write: actor, action, entity, before and after | Every admin write transaction | tens of thousands per year, never pruned |
 | `snapshot` | Single row: current snapshot URL and version | Snapshot-affecting transactions; first boot | 1 |
 | `live_state` | Single row: outcome of the last live-object write | Every live-object write | 1 |
-| `outbox` | Work for the leader chores | Status change, message post, subscribe, contact | hundreds live; 30-day retention |
+| `outbox` | Work for the leader chores | Status change, notify, message post, subscribe, contact | hundreds live; 30-day retention, 400 days for the alert topics |
 | `alert_delivery` | One row per (subscriber, outbox row) email | Outbox chore; alert send chore | tens of thousands per alert |
 | `__EFMigrationsHistory` | EF Core migration history | Migrator only | tens |
 
@@ -114,6 +115,7 @@ create table event (
   funds_percent integer not null default 0 check (funds_percent between 0 and 100),
   route_id      bigint references route (id),
   final_cookie_tally jsonb,
+  status_notified_at timestamptz,
   next_seq      bigint not null default 1,
   created_by    text not null,
   created_at    timestamptz not null default now(),
@@ -142,12 +144,20 @@ create table event_status_history (
   from_status_id smallint references event_status (id),
   to_status_id   smallint not null references event_status (id),
   changed_by     text not null,
-  changed_at     timestamptz not null default now()
+  changed_at     timestamptz not null default now(),
+  notify         boolean not null default false,
+  message        text,
+  outbox_id      bigint references outbox (id) on delete set null,
+  sent_count     integer not null default 0
 );
 create index event_status_history_event on event_status_history (event_id, changed_at desc);
 
-comment on table event_status_history is 'One row per status change, written in the status change transaction.';
-comment on column event_status_history.from_status_id is 'Null when there was no previous status.';
+comment on table event_status_history is 'One row per status change, written in the status change transaction, and one per later announcement (from_status_id = to_status_id) written by POST .../notify.';
+comment on column event_status_history.from_status_id is 'Null when there was no previous status; equal to to_status_id for an announcement without a change.';
+comment on column event_status_history.notify is 'The admin asked for subscribers to be emailed.';
+comment on column event_status_history.message is 'The custom alert text; null means the template''s stock paragraph.';
+comment on column event_status_history.outbox_id is 'The alert''s outbox row while it exists (set null when the row is cleaned up).';
+comment on column event_status_history.sent_count is 'Alert emails sent for this row, incremented by the alert-send chore per successful send; survives the outbox row.';
 ```
 
 ### 3.5 `event_message`
@@ -674,6 +684,31 @@ comment on table icon_library_state is 'Single row (id = 1). Hash of the icon li
 
 ---
 
+### 3.29 `audit_log`
+
+```sql
+create table audit_log (
+  id         bigint generated always as identity primary key,
+  at         timestamptz not null default now(),
+  actor      text not null,
+  action     text not null,
+  entity     text not null,
+  entity_id  text not null,
+  before     jsonb,
+  after      jsonb,
+  request_id text
+);
+create index audit_log_entity on audit_log (entity, entity_id, id desc);
+create index audit_log_action on audit_log (action, id desc);
+
+comment on table audit_log is 'One row per admin write, inserted in the write''s own transaction (contracts 4.5 Audit). Never pruned.';
+comment on column audit_log.actor is 'person:<email> for an ID token, key:<name> for an API key.';
+comment on column audit_log.action is 'create, update, delete, or the endpoint''s verb.';
+comment on column audit_log.entity_id is 'The row''s id as text so uuids, setting keys, and sponsor-year pairs (sponsorId:year) share one index.';
+comment on column audit_log.before is 'The resource as the API answered it before the write; null on create.';
+comment on column audit_log.after is 'The resource after the write; null on delete.';
+```
+
 ## 4. Indexes
 
 Every index, including the ones created implicitly by primary keys and unique constraints, with the query it serves. Section 10 shows the hot-path queries against them.
@@ -938,11 +973,16 @@ set status_id    = $to,
     ended_at     = case when $to = 4 then now() else ended_at end,
     updated_at   = now()
 where id = $event;
-insert into event_status_history (event_id, from_status_id, to_status_id, changed_by)
-values ($event, $from, $to, $admin_email);
 insert into outbox (topic, payload)
 values ('event.status_changed',
-        jsonb_build_object('eventId', $event, 'fromStatusId', $from, 'toStatusId', $to, 'notify', $notify));
+        jsonb_build_object('eventId', $event, 'fromStatusId', $from, 'toStatusId', $to, 'notify', $notify, 'message', $message))
+returning id into $outbox;
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+values ($event, $from, $to, $admin_email, $notify, $message, $outbox)
+returning id into $history;
+update outbox set payload = payload || jsonb_build_object('historyId', $history) where id = $outbox;
+update event set status_notified_at = case when $notify then now() else null end where id = $event;
+insert into audit_log (actor, action, entity, entity_id, before, after, request_id) values ($actor, 'status', 'event', $event::text, $before, $after, $request_id);
 -- build the snapshot (section 7); canonicalize; hash; PUT snapshots/{sha256}.json (3 s, one attempt; failure: rollback, 502 snapshot_write_failed)
 update snapshot
 set version = version + 1, url = $cdn_base || '/' || $key, s3_key = $key, built_at = now()
@@ -951,6 +991,66 @@ commit;
 ```
 
 After commit: refresh memory from SQL (section 8.17), write the live object, publish, update `live_state`.
+
+### 8.4a Announce the current status (`POST /admin/events/{id}/notify`)
+
+```sql
+begin;
+select id, status_id from event where id = $event for update;             -- none: 404
+insert into outbox (topic, payload)
+values ('event.status_notified', jsonb_build_object('eventId', $event, 'statusId', $status, 'message', $message))
+returning id into $outbox;
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+values ($event, $status, $status, $admin_email, true, $message, $outbox)
+returning id into $history;
+update outbox set payload = payload || jsonb_build_object('historyId', $history) where id = $outbox;
+update event set status_notified_at = now(), updated_at = now() where id = $event;
+insert into audit_log (...) values ($actor, 'notify', 'event', $event::text, $before, $after, $request_id);
+commit;
+```
+
+Not snapshot-affecting: nothing the site reads changes. `sentCount` on a history row is its `sent_count` column, kept by the alert-send chore (section 9).
+
+### 8.4b Clone an event (`POST /admin/events/{id}/clone`)
+
+```sql
+begin;
+select * from event where id = $source for update;                          -- none: 404
+insert into event (year, name, status_id, is_current, funds_percent, route_id, route_image_media_id, created_by)
+values ($year, $name, 1, false, 0,
+        case when $copy_route  then $source_route_id  end,
+        case when $copy_poster then $source_poster_id end,
+        $admin_email)
+returning id into $new;                                                       -- 23505 on year: 409 year_taken
+-- copy.sponsors: the source year's rows to the new year, skipping sponsors that already have it
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override)
+select sponsor_id, $year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override
+from sponsor_year where event_year = $source_year
+on conflict (sponsor_id, event_year) do nothing;
+insert into audit_log (...) values ($actor, 'clone', 'event', $new::text, null, $after, $request_id);
+commit;
+```
+
+Not snapshot-affecting: the new event is neither current nor live, and the snapshot carries only the current event's year.
+
+### 8.4c Copy a sponsor year (`POST /admin/sponsors/{id}/years/{eventYear}/copy-from/{sourceYear}`) and import
+
+```sql
+begin;
+select * from snapshot where id = 1 for update;                              -- snapshot-affecting when eventYear is the current event's year
+select * from sponsor_year where sponsor_id = $sponsor and event_year = $source for update;   -- none: 404
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
+values ($sponsor, $target, $amount, $active, $can_advertise, $anonymous);   -- 23505: 409 year_exists
+insert into audit_log (...) values ($actor, 'copy', 'sponsor_year', $sponsor || ':' || $target, null, $after, $request_id);
+-- build the snapshot when $target is the current event's year (8.5)
+commit;
+```
+
+`import` runs the same statements once per listed sponsor inside one transaction; a sponsor whose `(sponsor_id, $target)` row exists is skipped (`on conflict do nothing`, counted from the affected-row count) rather than failing the batch.
+
+### 8.4d Audit rows
+
+Every recipe in this section ends with one `insert into audit_log` before `commit` (contracts 4.5 Audit; api.md 5a). `before` and `after` are the endpoint's response shapes; the id column is text so uuids, keys, and years fit one index.
 
 ### 8.5 Generic snapshot-affecting admin write
 
@@ -1415,7 +1515,7 @@ limit $batch
 for update of d skip locked;
 ```
 
-Per row: `update alert_delivery set sent_at = now(), ses_message_id = $mid, last_error = null where id = $id;` on success, `update alert_delivery set attempts = attempts + 1, last_error = $error where id = $id;` on failure. The leader holds the batch's row locks only while selecting; sends happen outside the transaction, which is why overlapping leaders can double-send a row within one loop at most, and the unique constraint bounds the damage to one email per subscriber per alert.
+Per row: `update alert_delivery set sent_at = now(), ses_message_id = $mid, last_error = null where id = $id;` and `update event_status_history set sent_count = sent_count + 1 where outbox_id = $outbox;` on success, `update alert_delivery set attempts = attempts + 1, last_error = $error where id = $id;` on failure. The leader holds the batch's row locks only while selecting; sends happen outside the transaction, which is why overlapping leaders can double-send a row within one loop at most, and the unique constraint bounds the damage to one email per subscriber per alert.
 
 ### 9.4 Stale beacon flag (every 15 s)
 
@@ -1528,8 +1628,9 @@ Subscriber status filter: `verified` is `verified_at is not null and unsubscribe
 | `contact_message` | Until an admin deletes | admin endpoint |
 | `beacon_enrollment_token` | 24 h after expiry or consumption; also deleted by rotate and revoke while pending | nightly cleanup; beacon writes |
 | `beacon_log` | 30 days | nightly cleanup |
-| `outbox` | 30 days after `published_at`; rows that never publish (5 attempts) stay | nightly cleanup |
+| `outbox` | 30 days after `published_at`, except the alert topics (`event.status_changed`, `event.status_notified`, `event.message_posted`), kept 400 days for the person's alert history; rows that never publish (5 attempts) stay | nightly cleanup |
 | `alert_delivery` | With its outbox row, 30 days after that row was published, through the cascade. No statement of its own. |
+| `audit_log` | Never. |
 | `subscriber` | Unverified rows 7 days after creation; verified and unsubscribed rows until an admin or the person deletes | nightly cleanup; endpoints |
 | `page`, `section`, `section_item`, `site_setting_draft` | Until an editor deletes or a restore replaces | editor endpoints |
 | `content_version` | Newest 50 rows | the publish transaction |
@@ -1690,7 +1791,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
