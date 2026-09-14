@@ -173,20 +173,37 @@ public sealed class A9AdminRouteEndpointsTests : IClassFixture<PostgresFixture>,
     // ---------- DELETE /admin/routes/{id} ----------
 
     [Fact]
-    public async Task Delete_in_use_by_event_is_409_route_in_use()
+    public async Task Delete_in_use_by_event_unlinks_the_event()
     {
+        // A36 / api.md 5b: routes no longer refuse when an event references
+        // them; the FK on event.route_id sets null and the event stays.
         var body = "{\"name\":\"delete-me\",\"points\":[{\"lat\":1,\"lng\":1,\"recordedAt\":null},{\"lat\":2,\"lng\":2,\"recordedAt\":null}]}";
         var upload = await SendAsync(HttpMethod.Post, "/admin/routes", body);
         var doc = await ReadJsonAsync(upload);
         var routeId = doc.RootElement.GetProperty("id").GetInt64();
 
-        // Attach to a new event.
         var evt = await SeedEventAsync(2082);
         await LinkRouteAsync(evt, routeId);
 
+        // The impact preview lists one unlink (the event) and no deletes.
+        var preview = await SendAsync(HttpMethod.Get, $"/admin/routes/{routeId}/impact", "");
+        preview.EnsureSuccessStatusCode();
+        var previewBody = await ReadJsonAsync(preview);
+        var unlinks = previewBody.RootElement.GetProperty("unlinks");
+        Assert.Equal(1, unlinks.GetArrayLength());
+        Assert.Equal("event", unlinks[0].GetProperty("entity").GetString());
+        Assert.Equal(1, unlinks[0].GetProperty("count").GetInt32());
+
         var response = await SendAsync(HttpMethod.Delete, $"/admin/routes/{routeId}", "");
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("route_in_use", await ReadCodeAsync(response));
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var check = new NpgsqlCommand(
+            "select route_id from event where id = $1;", conn);
+        check.Parameters.Add(new NpgsqlParameter { Value = evt });
+        var r = await check.ExecuteScalarAsync();
+        Assert.True(r is DBNull || r is null);
     }
 
     [Fact]

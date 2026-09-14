@@ -163,9 +163,9 @@ order by seq;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/routes/{id} - 409 route_in_use if any event references it;
-    // otherwise delete the row, then the object (a failed delete of the object
-    // is logged; the row is already gone).
+    // DELETE /admin/routes/{id} - preview impact + apply (no-op) + delete row
+    // + audit + delete the object (api.md 5b). event.route_id sets null on
+    // delete (contracts 4.5 Delete impact).
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/routes/{id:long}",
@@ -196,14 +196,8 @@ order by seq;", conn))
                 }
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
-                await using (var refs = new NpgsqlCommand(
-                    "select 1 from event where route_id = $1 limit 1;", conn, tx))
-                {
-                    refs.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    var r = await refs.ExecuteScalarAsync(ct);
-                    if (r is not null && r is not DBNull)
-                        throw new ApiException(StatusCodes.Status409Conflict, "route_in_use", "route referenced by an event");
-                }
+                var impact = await Impact.RouteImpactQueries.PreviewAsync(conn, tx, id, ct);
+                await Impact.RouteImpactQueries.ApplyAsync(conn, tx, id, ct);
                 await using (var del = new NpgsqlCommand("delete from route where id = $1;", conn, tx))
                 {
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
@@ -211,7 +205,7 @@ order by seq;", conn))
                 }
                 await audit.RecordAsync(conn, tx, "delete", "route",
                     id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before, null, ct);
+                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 try
                 {

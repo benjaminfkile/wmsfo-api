@@ -301,9 +301,10 @@ returning id;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/events/{id} [snapshot]. 409 event_live (status 3), 409
-    // event_has_locations (any location row), else cascade messages, cookies,
-    // status history.
+    // DELETE /admin/events/{id} [snapshot]. 409 event_live (status 3),
+    // 409 event_current, else preview impact + apply + delete row + audit
+    // (api.md 5b). Cascades remove locations, messages, cookies, status
+    // history, and pending outbox rows.
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/events/{id:long}",
@@ -314,27 +315,24 @@ returning id;", conn, tx))
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
                 {
                     short status = 0;
+                    bool isCurrent = false;
                     await using (var read = new NpgsqlCommand(
-                        "select status_id from event where id = $1 for update;", conn, tx))
+                        "select status_id, is_current from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        var r = await read.ExecuteScalarAsync(token);
-                        if (r is null || r is DBNull) throw NotFound();
-                        status = Convert.ToInt16(r);
+                        await using var reader = await read.ExecuteReaderAsync(token);
+                        if (!await reader.ReadAsync(token)) throw NotFound();
+                        status = reader.GetInt16(0);
+                        isCurrent = reader.GetBoolean(1);
                     }
                     if (status == 3)
                         throw new ApiException(StatusCodes.Status409Conflict, "event_live", "event is live");
-
-                    await using (var locs = new NpgsqlCommand(
-                        "select 1 from location where event_id = $1 limit 1;", conn, tx))
-                    {
-                        locs.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        var r = await locs.ExecuteScalarAsync(token);
-                        if (r is not null && r is not DBNull)
-                            throw new ApiException(StatusCodes.Status409Conflict, "event_has_locations", "event has stored locations");
-                    }
+                    if (isCurrent)
+                        throw new ApiException(StatusCodes.Status409Conflict, "event_current", "event is the current event");
 
                     var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var impact = await Impact.EventImpactQueries.PreviewAsync(conn, tx, id, token);
+                    await Impact.EventImpactQueries.ApplyAsync(conn, tx, id, token);
                     await using (var del = new NpgsqlCommand(
                         "delete from event where id = $1;", conn, tx))
                     {
@@ -343,7 +341,7 @@ returning id;", conn, tx))
                     }
                     await audit.RecordAsync(conn, tx, "delete", "event",
                         id.ToString(CultureInfo.InvariantCulture),
-                        before, null, token);
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();

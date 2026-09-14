@@ -129,6 +129,7 @@ public sealed class A9Host : IAsyncDisposable
         RealtimeEndpoints.MapAll(app);
         AdminEventEndpoints.MapAll(app);
         AdminRouteEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()

@@ -389,13 +389,16 @@ where qr_code_id = $1 and to_at is null;", conn, tx))
                 {
                     var before = await QrRead.ByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
+                    var impact = await Impact.QrCodeImpactQueries.PreviewAsync(conn, tx, id, token);
+                    await Impact.QrCodeImpactQueries.ApplyAsync(conn, tx, id, token);
                     await using var del = new NpgsqlCommand(
                         "delete from qr_code where id = $1;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var rows = await del.ExecuteNonQueryAsync(token);
                     if (rows == 0) throw NotFound();
                     await audit.RecordAsync(conn, tx, "delete", "qr_code",
-                        id.ToString(CultureInfo.InvariantCulture), before, null, token);
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();

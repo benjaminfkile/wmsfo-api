@@ -166,6 +166,7 @@ public sealed class A19Host : IAsyncDisposable
         AdminAuditEndpoints.MapAll(app);
         QrEndpoints.MapAll(app);
         PlaceEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
         AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
         // Local-upload route (Program.cs installs this when LocalObjectStore is

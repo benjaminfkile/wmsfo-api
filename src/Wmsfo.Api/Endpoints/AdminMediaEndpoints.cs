@@ -589,8 +589,10 @@ where id = $7 and state = 'pending';", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/media/{id} - 409 media_in_use with details.usage if referenced;
-    // otherwise delete every object under media/{id}/, then the row.
+    // DELETE /admin/media/{id} - preview impact + apply (clear content JSON
+    // refs, cookie_type icons, content_version.media_ids) + delete row (which
+    // triggers FK set null on sponsor.logo_media_id and event.route_image_media_id)
+    // + audit + delete the objects. api.md 5b Delete impact and cascades.
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/media/{id}",
@@ -608,10 +610,21 @@ where id = $7 and state = 'pending';", conn, tx))
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
 
-                var usage = await MediaUsage.ForAsync(conn, mediaId, ct);
-                if (MediaUsage.IsInUse(usage))
-                    throw new ApiException(StatusCodes.Status409Conflict, "media_in_use",
-                        "media asset is referenced", new MediaInUseDetails(usage));
+                DeleteImpactDto impact;
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    impact = await Impact.MediaImpactQueries.PreviewAsync(conn, tx, mediaId, ct);
+                    await Impact.MediaImpactQueries.ApplyAsync(conn, tx, mediaId, ct);
+                    await using (var del = new NpgsqlCommand("delete from media_asset where id = $1;", conn, tx))
+                    {
+                        del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
+                        await del.ExecuteNonQueryAsync(ct);
+                    }
+                    await audit.RecordAsync(conn, tx, "delete", "media_asset",
+                        mediaId.ToString(),
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
+                    await tx.CommitAsync(ct);
+                }
 
                 var prefix = $"media/{mediaId}/";
                 var keys = new List<string>();
@@ -626,18 +639,6 @@ where id = $7 and state = 'pending';", conn, tx))
                         loggerFactory.CreateLogger("Wmsfo.Api.Endpoints.AdminMedia")
                             .LogWarning(ex, "media object delete failed; key={Key}", key);
                     }
-                }
-
-                await using (var tx = await conn.BeginTransactionAsync(ct))
-                {
-                    await using (var del = new NpgsqlCommand("delete from media_asset where id = $1;", conn, tx))
-                    {
-                        del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                        await del.ExecuteNonQueryAsync(ct);
-                    }
-                    await audit.RecordAsync(conn, tx, "delete", "media_asset",
-                        mediaId.ToString(), before, null, ct);
-                    await tx.CommitAsync(ct);
                 }
                 return Results.NoContent();
             })

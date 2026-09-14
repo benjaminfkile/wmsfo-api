@@ -33,7 +33,8 @@ public static class EndpointStubs
         includeAdminSiteSettingsStubs: true,
         includeAdminContentStubs: true,
         includeAdminApiKeysStubs: true,
-        includeQrPlacesStubs: true);
+        includeQrPlacesStubs: true,
+        includeAdminImpactStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -58,7 +59,8 @@ public static class EndpointStubs
         bool includeAdminSiteSettingsStubs = true,
         bool includeAdminContentStubs = true,
         bool includeAdminApiKeysStubs = true,
-        bool includeQrPlacesStubs = true)
+        bool includeQrPlacesStubs = true,
+        bool includeAdminImpactStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -84,6 +86,36 @@ public static class EndpointStubs
         // Diagnostics endpoints have real handlers now (Node.AdminDiagnosticsEndpoints).
         if (includeRealtimeStubs) MapRealtime(app);
         if (includeQrPlacesStubs) MapQrAndPlaces(app);
+        if (includeAdminImpactStubs) MapAdminImpact(app);
+    }
+
+    // A36 / api.md 5b: `GET /admin/<resource>/{id}/impact` per deletable
+    // resource. Every real endpoint is under AdminImpactEndpoints.MapAll; the
+    // stubs here keep the OpenAPI document listing them.
+    private static void MapAdminImpact(IEndpointRouteBuilder app)
+    {
+        static void MapLong(IEndpointRouteBuilder a, string path) =>
+            a.MapGet(path, NotImplemented)
+                .WithTags("AdminImpact")
+                .Produces<DeleteImpactDto>(StatusCodes.Status200OK);
+        static void MapMedia(IEndpointRouteBuilder a) =>
+            a.MapGet("/admin/media/{id}/impact", NotImplemented)
+                .WithTags("AdminImpact")
+                .Produces<DeleteImpactDto>(StatusCodes.Status200OK);
+
+        MapLong(app, "/admin/events/{id:long}/impact");
+        MapLong(app, "/admin/routes/{id:long}/impact");
+        MapLong(app, "/admin/sponsors/{id:long}/impact");
+        MapLong(app, "/admin/cookie-types/{id:long}/impact");
+        MapLong(app, "/admin/pages/{id:long}/impact");
+        MapMedia(app);
+        MapLong(app, "/admin/places/{id:long}/impact");
+        MapLong(app, "/admin/qr-codes/{id:long}/impact");
+        MapLong(app, "/admin/beacons/{id:long}/impact");
+        MapLong(app, "/admin/api-keys/{id:long}/impact");
+        MapLong(app, "/admin/subscribers/{id:long}/impact");
+        MapLong(app, "/admin/people/{id:long}/impact");
+        MapLong(app, "/admin/contact-messages/{id:long}/impact");
     }
 
     // A33: QR codes, places, and the public scan beacon. Real handlers live in

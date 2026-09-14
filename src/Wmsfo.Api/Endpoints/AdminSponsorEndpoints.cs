@@ -258,13 +258,15 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                 {
                     var before = await ReadSponsorByIdAsync(conn, tx, id, options, token);
                     if (before is null) throw NotFound("sponsor not found");
+                    var impact = await Impact.SponsorImpactQueries.PreviewAsync(conn, tx, id, token);
+                    await Impact.SponsorImpactQueries.ApplyAsync(conn, tx, id, token);
                     await using var del = new NpgsqlCommand("delete from sponsor where id = $1;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     var rows = await del.ExecuteNonQueryAsync(token);
                     if (rows == 0) throw NotFound("sponsor not found");
                     await audit.RecordAsync(conn, tx, "delete", "sponsor",
                         id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        before, null, token);
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();

@@ -127,6 +127,7 @@ public sealed class A11Host : IAsyncDisposable
         AdminSponsorEndpoints.MapAll(app);
         AdminCookieTypeEndpoints.MapAll(app);
         AdminSettingsEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()

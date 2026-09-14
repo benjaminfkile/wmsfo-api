@@ -267,6 +267,25 @@ returning id;", conn, tx);
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                // Optional query `?roleTo=<id>` names the page that inherits the
+                // deleted role page's role. api.md 5b: `400 role_needs_page`
+                // when a role page delete lacks roleTo.
+                long? roleTo = null;
+                var roleToRaw = ctx.Request.Query["roleTo"].ToString();
+                if (!string.IsNullOrEmpty(roleToRaw))
+                {
+                    if (!long.TryParse(roleToRaw,
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var parsed))
+                    {
+                        throw new ApiException(StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed, "roleTo must be a bigint");
+                    }
+                    roleTo = parsed;
+                }
+
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
@@ -279,12 +298,35 @@ returning id;", conn, tx);
                     if (r is null || r is DBNull) throw NotFound("page not found");
                     role = (string)r;
                 }
+
+                var (impact, roleFromPreview) = await Impact.PageImpactQueries.PreviewAsync(conn, tx, id, ct);
+
+                // A role page must hand its role off; the caller passes roleTo.
                 if (!string.Equals(role, "none", StringComparison.Ordinal))
                 {
-                    throw new ApiException(StatusCodes.Status409Conflict, ApiErrorCodes.PageHasRole,
-                        "role pages cannot be deleted");
+                    if (roleTo is null)
+                    {
+                        throw new ApiException(StatusCodes.Status400BadRequest,
+                            "role_needs_page", "role page delete needs a roleTo target");
+                    }
+                    // roleTo must be an existing `none` page.
+                    string? targetRole = null;
+                    await using (var target = new NpgsqlCommand(
+                        "select role from page where id = $1 for update;", conn, tx))
+                    {
+                        target.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = roleTo.Value });
+                        var r = await target.ExecuteScalarAsync(ct);
+                        if (r is null || r is DBNull)
+                            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "roleTo page not found");
+                        targetRole = (string)r;
+                    }
+                    if (!string.Equals(targetRole, "none", StringComparison.Ordinal))
+                        throw new ApiException(StatusCodes.Status400BadRequest,
+                            "role_needs_page", "roleTo must be a none page");
                 }
+
                 var before = await ReadPageByIdAsync(conn, tx, id, ct);
+                await Impact.PageImpactQueries.ApplyAsync(conn, tx, id, role, roleTo, ct);
                 await using (var del = new NpgsqlCommand("delete from page where id = $1;", conn, tx))
                 {
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
@@ -292,7 +334,7 @@ returning id;", conn, tx);
                 }
                 await audit.RecordAsync(conn, tx, "delete", "page",
                     id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before, null, ct);
+                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })

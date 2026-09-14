@@ -301,10 +301,10 @@ public sealed class A15MediaPipelineTests : IClassFixture<PostgresFixture>, IAsy
         Assert.Equal("hangar shot", body.RootElement.GetProperty("title").GetString());
     }
 
-    // ---------- media_in_use guard on DELETE ----------
+    // ---------- media DELETE unlinks references (A36 / api.md 5b) ----------
 
     [Fact]
-    public async Task Delete_when_referenced_by_sponsor_is_409_media_in_use()
+    public async Task Delete_when_referenced_by_sponsor_unlinks_the_sponsor()
     {
         var id = await UploadAndConfirmAsync("sponsor.png", "image/png", BuildPng(200, 200));
         // Wire it to a sponsor (direct SQL - sponsor endpoints are not in this task).
@@ -317,12 +317,15 @@ public sealed class A15MediaPipelineTests : IClassFixture<PostgresFixture>, IAsy
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(id) });
             await cmd.ExecuteNonQueryAsync();
         }
+
         var response = await EditorSendAsync(HttpMethod.Delete, $"/admin/media/{id}", content: null);
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        Assert.Equal("media_in_use", body.RootElement.GetProperty("code").GetString());
-        var usage = body.RootElement.GetProperty("details").GetProperty("usage");
-        Assert.NotEmpty(usage.GetProperty("sponsors").EnumerateArray());
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        // Sponsor stays; its logo_media_id is null.
+        await using var check = new NpgsqlCommand(
+            "select logo_media_id from sponsor where name = 'Sponsor';", conn);
+        var r = await check.ExecuteScalarAsync();
+        Assert.True(r is null || r is DBNull);
     }
 
     [Fact]

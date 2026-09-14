@@ -133,9 +133,9 @@ public sealed class WmsfoDbContext : DbContext
             e.HasOne<EventStatus>().WithMany().HasForeignKey(x => x.StatusId)
                 .HasConstraintName("event_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
-                .HasConstraintName("event_route_id_fkey").OnDelete(DeleteBehavior.NoAction);
+                .HasConstraintName("event_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.RouteImageMediaId)
-                .HasConstraintName("event_route_image_media_id_fkey").OnDelete(DeleteBehavior.NoAction);
+                .HasConstraintName("event_route_image_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
 
             e.HasIndex(x => x.StatusId).HasDatabaseName("event_one_live").IsUnique().HasFilter("status_id = 3");
             e.HasIndex(x => x.IsCurrent).HasDatabaseName("event_one_current").IsUnique().HasFilter("is_current");
@@ -297,7 +297,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Published).HasColumnType("boolean").IsRequired()
                 .HasComment("beacon.is_active at the moment of the insert. Only published rows reach the live object.");
             e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
-                .HasConstraintName("location_event_id_fkey").OnDelete(DeleteBehavior.NoAction);
+                .HasConstraintName("location_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Beacon>().WithMany().HasForeignKey(x => x.BeaconId)
                 .HasConstraintName("location_beacon_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasAlternateKey(x => new { x.EventId, x.Seq }).HasName("location_event_id_seq_key");
@@ -365,7 +365,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.LogoMediaId)
-                .HasConstraintName("sponsor_logo_media_id_fkey").OnDelete(DeleteBehavior.NoAction);
+                .HasConstraintName("sponsor_logo_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => x.LogoMediaId).HasDatabaseName("sponsor_logo_media").HasFilter("logo_media_id is not null");
         });
 
@@ -510,7 +510,7 @@ public sealed class WmsfoDbContext : DbContext
             e.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId)
                 .HasConstraintName("cookie_person_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<CookieType>().WithMany().HasForeignKey(x => x.CookieTypeId)
-                .HasConstraintName("cookie_cookie_type_id_fkey").OnDelete(DeleteBehavior.NoAction);
+                .HasConstraintName("cookie_cookie_type_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.EventId, x.PersonId }).HasDatabaseName("cookie_event_person");
             e.HasIndex(x => new { x.EventId, x.CookieTypeId })
                 .HasDatabaseName("cookie_event_type_visible")

@@ -158,6 +158,9 @@ public static class FixtureData
                 // The example code resolves through an ancestor place that opens
                 // the sponsors page; the snapshot carries the resolved slug.
                 ["qr-001"] = new SnapshotQrCode { PageSlug = "sponsors", ForwardUrl = null },
+                // A home-resolving code (contracts 1.3): pageSlug "/" for both
+                // the home role page and codes with no code- or place-set opens.
+                ["qr-002"] = new SnapshotQrCode { PageSlug = "/", ForwardUrl = null },
             },
         };
     }
@@ -276,6 +279,28 @@ public static class FixtureData
             By = "person:canvasser@wmsfo.test",
             At = DateTimeOffset.Parse("2026-12-20T19:00:00.000Z"),
         },
+    };
+
+    // contracts 4.5 Delete impact: representative preview of the walk event
+    // (its messages, cookies, status history, and one location) with no block
+    // (the walk is not live). Warnings are empty; the panel would surface them
+    // for a role page delete or a cookie type live-event drop.
+    public static Contracts.Dtos.DeleteImpactDto BuildDeleteImpact() => new()
+    {
+        Blocked = null,
+        Deletes = new List<Contracts.Dtos.ImpactGroupDto>
+        {
+            new()
+            {
+                Entity = "event_message", Count = 2,
+                Names = new List<string> { "Santa is airborne over the valley.", "Watch the roof to the west." },
+            },
+            new() { Entity = "event_status_history", Count = 3, Names = new List<string>() },
+            new() { Entity = "cookie", Count = 41, Names = new List<string>() },
+            new() { Entity = "location", Count = 1832, Names = new List<string>() },
+        },
+        Unlinks = new List<Contracts.Dtos.ImpactGroupDto>(),
+        Warnings = new List<string>(),
     };
 
     public static Contracts.Dtos.PlacePinDto BuildPlacePin() => new()

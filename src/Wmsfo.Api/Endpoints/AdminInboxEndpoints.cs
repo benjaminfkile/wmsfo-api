@@ -127,6 +127,8 @@ left join lateral (
                 }
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "contact message not found");
+                var impact = await Impact.ContactMessageImpactQueries.PreviewAsync(conn, tx, id, ct);
+                await Impact.ContactMessageImpactQueries.ApplyAsync(conn, tx, id, ct);
                 await using (var del = new NpgsqlCommand(
                     "delete from contact_message where id = $1;", conn, tx))
                 {
@@ -135,7 +137,7 @@ left join lateral (
                 }
                 await audit.RecordAsync(conn, tx, "delete", "contact_message",
                     id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before, null, ct);
+                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
@@ -320,6 +322,8 @@ where s.id = $1;", conn, tx))
                 }
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "subscriber not found");
+                var impact = await Impact.SubscriberImpactQueries.PreviewAsync(conn, tx, id, ct);
+                await Impact.SubscriberImpactQueries.ApplyAsync(conn, tx, id, ct);
                 await using (var del = new NpgsqlCommand(
                     "delete from subscriber where id = $1;", conn, tx))
                 {
@@ -328,7 +332,7 @@ where s.id = $1;", conn, tx))
                 }
                 await audit.RecordAsync(conn, tx, "delete", "subscriber",
                     id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before, null, ct);
+                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
@@ -435,6 +439,8 @@ left join lateral (
                 }
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "person not found");
+                var impact = await Impact.PersonImpactQueries.PreviewAsync(conn, tx, id, ct);
+                await Impact.PersonImpactQueries.ApplyAsync(conn, tx, id, ct);
                 await using (var del = new NpgsqlCommand(
                     "delete from person where id = $1;", conn, tx))
                 {
@@ -443,7 +449,7 @@ left join lateral (
                 }
                 await audit.RecordAsync(conn, tx, "delete", "person",
                     id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before, null, ct);
+                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })
