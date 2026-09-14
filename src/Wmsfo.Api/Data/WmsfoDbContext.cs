@@ -791,7 +791,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.HasOne<Place>().WithMany().HasForeignKey(x => x.ParentId)
-                .HasConstraintName("place_parent_id_fkey").OnDelete(DeleteBehavior.Restrict);
+                .HasConstraintName("place_parent_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Page>().WithMany().HasForeignKey(x => x.OpensPageId)
                 .HasConstraintName("place_opens_page_id_fkey").OnDelete(DeleteBehavior.SetNull);
             // place_sibling_name is a functional unique index on
@@ -830,14 +830,14 @@ public sealed class WmsfoDbContext : DbContext
             e.HasKey(x => x.Id).HasName("qr_attachment_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.QrCodeId).HasColumnType("bigint").IsRequired();
-            e.Property(x => x.PlaceId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.PlaceId).HasColumnType("bigint");
             e.Property(x => x.FromAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.ToAt).HasColumnType("timestamptz");
             e.Property(x => x.AttachedBy).HasColumnType("text").IsRequired();
             e.HasOne<QrCode>().WithMany().HasForeignKey(x => x.QrCodeId)
                 .HasConstraintName("qr_attachment_qr_code_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Place>().WithMany().HasForeignKey(x => x.PlaceId)
-                .HasConstraintName("qr_attachment_place_id_fkey").OnDelete(DeleteBehavior.Restrict);
+                .HasConstraintName("qr_attachment_place_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => x.QrCodeId)
                 .HasDatabaseName("qr_attachment_open")
                 .IsUnique()

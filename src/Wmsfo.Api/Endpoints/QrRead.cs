@@ -53,7 +53,7 @@ from qr_code where id = $1;", conn, tx);
         };
         // history: every attachment for this code, newest first, with the
         // people count of each stay and the earlyScans it inherited (folded).
-        var historyRows = new List<(long AttId, long PlaceId, DateTimeOffset FromAt, DateTimeOffset? ToAt, int People, int Early)>();
+        var historyRows = new List<(long AttId, long? PlaceId, DateTimeOffset FromAt, DateTimeOffset? ToAt, int People, int Early)>();
         await using (var hist = new NpgsqlCommand(@"
 select a.id, a.place_id, a.from_at, a.to_at,
   (select count(*)::int from qr_scan s
@@ -69,7 +69,7 @@ from qr_attachment a where a.qr_code_id = $1 order by a.from_at desc, a.id desc;
             {
                 historyRows.Add((
                     reader.GetInt64(0),
-                    reader.GetInt64(1),
+                    reader.IsDBNull(1) ? null : reader.GetInt64(1),
                     reader.GetFieldValue<DateTimeOffset>(2),
                     reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
                     reader.GetInt32(4),
@@ -78,7 +78,9 @@ from qr_attachment a where a.qr_code_id = $1 order by a.from_at desc, a.id desc;
         }
         foreach (var row in historyRows)
         {
-            var path = await PlacePathAsync(conn, tx, row.PlaceId, ct).ConfigureAwait(false);
+            var path = row.PlaceId is long stayPlace
+                ? await PlacePathAsync(conn, tx, stayPlace, ct).ConfigureAwait(false)
+                : new List<string>();
             detail.History.Add(new QrHistoryEntryDto
             {
                 AttachmentId = row.AttId,
@@ -158,6 +160,9 @@ select id, place_id, from_at from qr_attachment where qr_code_id = $1 and to_at 
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = dto.Id });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false)) return;
+            // A place delete closes its open attachments, so an open row
+            // always has a place; a null here is a row mid-delete.
+            if (reader.IsDBNull(1)) return;
             attId = reader.GetInt64(0);
             placeId = reader.GetInt64(1);
             since = reader.GetFieldValue<DateTimeOffset>(2);

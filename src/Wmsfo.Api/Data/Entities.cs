@@ -431,7 +431,7 @@ public sealed class QrAttachment
 {
     public long Id { get; set; }
     public long QrCodeId { get; set; }
-    public long PlaceId { get; set; }
+    public long? PlaceId { get; set; }   // null once the place is deleted (the stay keeps its history)
     public DateTimeOffset FromAt { get; set; }
     public DateTimeOffset? ToAt { get; set; }
     public string AttachedBy { get; set; } = "";

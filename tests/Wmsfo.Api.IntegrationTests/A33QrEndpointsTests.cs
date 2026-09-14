@@ -149,27 +149,36 @@ public sealed class A33QrEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         Assert.Contains("place_name_taken", await resp.Content.ReadAsStringAsync());
     }
 
-    // Delete refusals: 409 place_has_children and 409 place_has_codes.
+    // Delete takes the subtree with it: the child goes, the code attached under
+    // it becomes unattached, and its stay keeps a history row with no place.
     [Fact]
-    public async Task Delete_place_refuses_when_children_or_codes_present()
+    public async Task Delete_place_removes_subtree_and_frees_its_codes()
     {
         var parent = await CreatePlaceAsync(null, "Parent");
         var child = await CreatePlaceAsync(parent, "Child");
-        // Case 1: children present.
-        var r1 = await SendAsync(HttpMethod.Delete, $"/admin/places/{parent}", null, DevStaticTokens.AdminToken);
-        Assert.Equal(HttpStatusCode.Conflict, r1.StatusCode);
-        Assert.Contains("place_has_children", await r1.Content.ReadAsStringAsync());
-        // Delete the child first, then attach a code to a fresh place.
-        await SendAsync(HttpMethod.Delete, $"/admin/places/{child}", null, DevStaticTokens.AdminToken);
-        var solo = await CreatePlaceAsync(null, "Solo");
         var mint = await SendAsync(HttpMethod.Post, "/admin/qr-codes", "{\"count\":1}", DevStaticTokens.CanvasserToken);
         var mdoc = await ReadJsonAsync(mint);
         var codeId = mdoc.RootElement.GetProperty("items")[0].GetProperty("id").GetInt64();
-        await SendAsync(HttpMethod.Post, $"/admin/qr-codes/{codeId}/attach",
-            $"{{\"placeId\":{solo}}}", DevStaticTokens.CanvasserToken);
-        var r2 = await SendAsync(HttpMethod.Delete, $"/admin/places/{solo}", null, DevStaticTokens.AdminToken);
-        Assert.Equal(HttpStatusCode.Conflict, r2.StatusCode);
-        Assert.Contains("place_has_codes", await r2.Content.ReadAsStringAsync());
+        var attach = await SendAsync(HttpMethod.Post, $"/admin/qr-codes/{codeId}/attach",
+            $"{{\"placeId\":{child}}}", DevStaticTokens.CanvasserToken);
+        Assert.Equal(HttpStatusCode.OK, attach.StatusCode);
+
+        var del = await SendAsync(HttpMethod.Delete, $"/admin/places/{parent}", null, DevStaticTokens.AdminToken);
+        Assert.Equal(HttpStatusCode.NoContent, del.StatusCode);
+
+        var tree = await ReadJsonAsync(await SendAsync(HttpMethod.Get, "/admin/places", null, DevStaticTokens.AdminToken));
+        var remaining = tree.RootElement.GetProperty("items").EnumerateArray().Select(p => p.GetProperty("id").GetInt64()).ToList();
+        Assert.DoesNotContain(parent, remaining);
+        Assert.DoesNotContain(child, remaining);
+
+        var detail = await ReadJsonAsync(await SendAsync(HttpMethod.Get, $"/admin/qr-codes/{codeId}", null, DevStaticTokens.CanvasserToken));
+        Assert.Equal(JsonValueKind.Null, detail.RootElement.GetProperty("attachment").ValueKind);
+        var history = detail.RootElement.GetProperty("history");
+        Assert.Equal(1, history.GetArrayLength());
+        var stay = history[0];
+        Assert.Equal(JsonValueKind.Null, stay.GetProperty("placeId").ValueKind);
+        Assert.Equal(0, stay.GetProperty("placePath").GetArrayLength());
+        Assert.NotEqual(JsonValueKind.Null, stay.GetProperty("toAt").ValueKind);
     }
 
     // Attach folds the last hour's unattached scans onto the new attachment.

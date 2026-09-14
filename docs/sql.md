@@ -715,7 +715,7 @@ comment on column audit_log.after is 'The resource after the write; null on dele
 
 ### 3.30 `place`, `qr_code`, `qr_attachment`, `qr_scan`
 
-The DDL of contracts 5 (the four tables and their indexes) verbatim. Comments: `place.parent_id` restricts deletes so a parent with children answers `409 place_has_children`; `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
+The DDL of contracts 5 (the four tables and their indexes) verbatim. Comments: `place.parent_id` cascades, so deleting a place takes its subtree; `qr_attachment.place_id` sets null on delete, so a stay outlives its place (the API answers `placeId` null and an empty `placePath`); `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
 
 
 ## 4. Indexes
@@ -1801,7 +1801,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

@@ -55,7 +55,7 @@ public class QrCodeDto
 public sealed class QrHistoryEntryDto
 {
     public long AttachmentId { get; set; }
-    public long PlaceId { get; set; }
+    public long? PlaceId { get; set; }   // null once the place was deleted; placePath is then empty
     public IList<string> PlacePath { get; set; } = new List<string>();
     public DateTimeOffset FromAt { get; set; }
     public DateTimeOffset? ToAt { get; set; }

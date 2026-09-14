@@ -318,8 +318,10 @@ where id = $1;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/places/{id} [snapshot], admin only. 409 place_has_children
-    // if any child, 409 place_has_codes if any open attachment.
+    // DELETE /admin/places/{id} [snapshot], admin only. Deletes the place and
+    // everything under it (place.parent_id cascades). Open attachments in the
+    // subtree close first, so their codes become unattached; every stay keeps
+    // its history row with place_id null (qr_attachment.place_id sets null).
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/places/{id:long}",
@@ -330,21 +332,17 @@ where id = $1;", conn, tx))
                 {
                     var before = await PlaceRead.ByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
-                    await using (var childCheck = new NpgsqlCommand(
-                        "select 1 from place where parent_id = $1 limit 1;", conn, tx))
+                    await using (var close = new NpgsqlCommand(@"
+with recursive subtree(id) as (
+  select id from place where id = $1
+  union all
+  select p.id from place p join subtree s on p.parent_id = s.id
+)
+update qr_attachment set to_at = now()
+where to_at is null and place_id in (select id from subtree);", conn, tx))
                     {
-                        childCheck.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        var r = await childCheck.ExecuteScalarAsync(token);
-                        if (r is not null && r is not DBNull)
-                            throw new ApiException(StatusCodes.Status409Conflict, "place_has_children", "place has children");
-                    }
-                    await using (var codeCheck = new NpgsqlCommand(
-                        "select 1 from qr_attachment where place_id = $1 and to_at is null limit 1;", conn, tx))
-                    {
-                        codeCheck.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        var r = await codeCheck.ExecuteScalarAsync(token);
-                        if (r is not null && r is not DBNull)
-                            throw new ApiException(StatusCodes.Status409Conflict, "place_has_codes", "place has codes attached");
+                        close.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await close.ExecuteNonQueryAsync(token);
                     }
                     await using var del = new NpgsqlCommand(
                         "delete from place where id = $1;", conn, tx);

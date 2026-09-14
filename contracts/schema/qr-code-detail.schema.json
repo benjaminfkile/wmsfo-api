@@ -11,7 +11,10 @@
             "type": "integer"
           },
           "placeId": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "placePath": {
             "type": "array",
