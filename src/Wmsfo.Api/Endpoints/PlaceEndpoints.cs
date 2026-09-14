@@ -13,8 +13,9 @@ using Wmsfo.Api.Http;
 namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.5a Places (Canvasser). Every write is [snapshot] except location
-// PUT/DELETE (pins never reach the site). Delete is Admin-only and rejects
-// 409 place_has_children (any child) and 409 place_has_codes (any open attach).
+// PUT/DELETE (pins never reach the site). Delete is Admin-only and takes the
+// subtree with it (contracts 4.5 Delete impact); its preview lists the codes
+// that become unattached.
 public static class PlaceEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
