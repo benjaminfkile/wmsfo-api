@@ -185,15 +185,120 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     }
 
     [Fact]
-    public async Task Delete_event_with_locations_is_409_event_has_locations()
+    public async Task Delete_event_with_locations_cascades_the_locations()
     {
+        // A36 / api.md 5b: the delete no longer refuses on stored locations; the
+        // FK on location.event_id cascades and the rows go with the event.
         var id = await CreateEvent(year: 2035);
         var beacon = await SeedBeaconAsync("del-loc");
         await InsertLocationAsync(id, beacon);
+
+        var before = await CountLocationsAsync(id);
+        Assert.True(before > 0);
+
         using var req = _host!.AdminRequest(HttpMethod.Delete, $"/admin/events/{id}");
         var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        Assert.Equal(0, await CountLocationsAsync(id));
+    }
+
+    [Fact]
+    public async Task Delete_current_event_is_409_event_current()
+    {
+        var id = await CreateEvent(year: 2039);
+        using (var req = _host!.AdminRequest(HttpMethod.Post, $"/admin/events/{id}/current"))
+        {
+            using var resp = await _host.Client.SendAsync(req);
+            resp.EnsureSuccessStatusCode();
+        }
+        using var deleteReq = _host!.AdminRequest(HttpMethod.Delete, $"/admin/events/{id}");
+        var response = await _host.Client.SendAsync(deleteReq);
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("event_has_locations", await ReadCodeAsync(response));
+        Assert.Equal("event_current", await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Delete_preview_of_the_live_event_is_blocked()
+    {
+        var id = await CreateEvent(year: 2040);
+        await SetStatusAsync(id, 3, setCurrent: true);
+        using var req = _host!.AdminRequest(HttpMethod.Get, $"/admin/events/{id}/impact");
+        using var response = await _host.Client.SendAsync(req);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("event is live", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Delete_preview_counts_match_the_delete_effect()
+    {
+        // Seed an event with messages, status history, and a location. Compare
+        // the preview counts with the rows the delete removes.
+        var id = await CreateEvent(year: 2041);
+        var beacon = await SeedBeaconAsync("preview-vs-delete");
+        await InsertLocationAsync(id, beacon);
+        await InsertLocationAsync(id, beacon);
+        await PostMessageAsync(id, "Test message 1");
+        await PostMessageAsync(id, "Test message 2");
+        // Status changes produce event_status_history rows.
+        await SetStatusAsync(id, 2, setCurrent: false);
+        // Snapshot the counts *before*.
+        var locBefore = await CountLocationsAsync(id);
+        var msgBefore = await CountAsync("event_message", "event_id", id);
+        var hisBefore = await CountAsync("event_status_history", "event_id", id);
+
+        // Preview.
+        using var previewReq = _host!.AdminRequest(HttpMethod.Get, $"/admin/events/{id}/impact");
+        using var preview = await _host.Client.SendAsync(previewReq);
+        preview.EnsureSuccessStatusCode();
+        var doc = JsonDocument.Parse(await preview.Content.ReadAsStringAsync());
+        var deletes = new Dictionary<string, int>();
+        foreach (var e in doc.RootElement.GetProperty("deletes").EnumerateArray())
+            deletes[e.GetProperty("entity").GetString()!] = e.GetProperty("count").GetInt32();
+        Assert.Equal(locBefore, deletes.GetValueOrDefault("location"));
+        Assert.Equal(msgBefore, deletes.GetValueOrDefault("event_message"));
+        Assert.Equal(hisBefore, deletes.GetValueOrDefault("event_status_history"));
+
+        // Delete.
+        using var delReq = _host.AdminRequest(HttpMethod.Delete, $"/admin/events/{id}");
+        using var delResp = await _host.Client.SendAsync(delReq);
+        Assert.Equal(HttpStatusCode.NoContent, delResp.StatusCode);
+
+        // Every dependent row is gone (cascades).
+        Assert.Equal(0, await CountAsync("location", "event_id", id));
+        Assert.Equal(0, await CountAsync("event_message", "event_id", id));
+        Assert.Equal(0, await CountAsync("event_status_history", "event_id", id));
+    }
+
+    private async Task PostMessageAsync(long eventId, string body)
+    {
+        var payload = "{\"body\":\"" + body + "\"}";
+        using var req = _host!.AdminRequest(HttpMethod.Post, $"/admin/events/{eventId}/messages");
+        req.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
+        using var resp = await _host.Client.SendAsync(req);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    private async Task<int> CountAsync(string table, string col, long value)
+    {
+        await using var conn = new Npgsql.NpgsqlConnection(_fixture!.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand(
+            $"select count(*)::int from {table} where {col} = $1;", conn);
+        cmd.Parameters.Add(new Npgsql.NpgsqlParameter { Value = value });
+        return System.Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    private async Task<int> CountLocationsAsync(long eventId)
+    {
+        await using var conn = new Npgsql.NpgsqlConnection(_fixture!.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand(
+            "select count(*)::int from location where event_id = $1;", conn);
+        cmd.Parameters.Add(new Npgsql.NpgsqlParameter { Value = eventId });
+        var r = await cmd.ExecuteScalarAsync();
+        return r is int i ? i : System.Convert.ToInt32(r);
     }
 
     [Fact]

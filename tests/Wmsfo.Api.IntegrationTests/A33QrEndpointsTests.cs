@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Data;
@@ -362,6 +363,33 @@ values ('sponsors', 'Sponsors', 'Sponsors', 20, false, 'none', 'test', 'test') r
         Assert.Contains("update", actions);
         Assert.Contains("attach", actions);
         Assert.Contains("detach", actions);
+    }
+
+    // A36 / contracts 1.3: the snapshot lists home-resolving codes with
+    // pageSlug "/" so the site's /q/:tag route reads a single map.
+    [Fact]
+    public async Task Snapshot_lists_home_resolving_code_with_page_slug_slash()
+    {
+        // Mint one code (unattached, its opens is unset → resolves to home).
+        var mint = await SendAsync(HttpMethod.Post, "/admin/qr-codes", "{\"count\":1}", DevStaticTokens.CanvasserToken);
+        var mdoc = await ReadJsonAsync(mint);
+        var tag = mdoc.RootElement.GetProperty("items")[0].GetProperty("tag").GetString()!;
+        var codeId = mdoc.RootElement.GetProperty("items")[0].GetProperty("id").GetInt64();
+        // Attach it to a place that has no opens setting so the code resolves
+        // to the home page through the chain.
+        var place = await CreatePlaceAsync(null, "HomeChainPlace");
+        var attach = await SendAsync(HttpMethod.Post, $"/admin/qr-codes/{codeId}/attach",
+            $"{{\"placeId\":{place}}}", DevStaticTokens.CanvasserToken);
+        Assert.Equal(HttpStatusCode.OK, attach.StatusCode);
+
+        var builder = _host!.App.Services.GetRequiredService<Wmsfo.Api.Node.SnapshotBuilder>();
+        var info = await builder.RebuildAsync(CancellationToken.None);
+        var bytes = await _host.Store.GetObjectAsync(info.Key, CancellationToken.None);
+        Assert.NotNull(bytes);
+        using var doc = JsonDocument.Parse(bytes!.Bytes);
+        var qrCodes = doc.RootElement.GetProperty("qrCodes");
+        var entry = qrCodes.GetProperty(tag);
+        Assert.Equal("/", entry.GetProperty("pageSlug").GetString());
     }
 
     // ------------ helpers ------------

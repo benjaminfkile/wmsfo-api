@@ -18,6 +18,7 @@ public static class FixtureExport
         yield return ("qr-code-detail",   CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildQrCodeDetail()));
         yield return ("place",            CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlace()));
         yield return ("place-pin",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlacePin()));
+        yield return ("delete-impact",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildDeleteImpact()));
     }
 
     public static void WriteAll(string outputDir)

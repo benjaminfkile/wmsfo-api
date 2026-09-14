@@ -188,10 +188,10 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/cookie-types/{id} [snapshot] (sql.md 8.10):
+    // DELETE /admin/cookie-types/{id} [snapshot] (api.md 5b):
     //   409 event_live while any event has status 3;
-    //   409 cookie_type_in_use (details.cookieCount) while any cookie references
-    //   the type; else 204. 404 when the id is unknown after the write.
+    //   otherwise preview + apply (no-op) + delete (cookies cascade). 404 when
+    //   the id is unknown after the write.
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/cookie-types/{id:long}",
@@ -205,13 +205,8 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                     CookieTypeDto? before = await ReadByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound("cookie type not found");
 
-                    int cookieCount = before.CookieCount;
-                    if (cookieCount > 0)
-                    {
-                        throw new ApiException(StatusCodes.Status409Conflict,
-                            "cookie_type_in_use", "cookies reference this type",
-                            new CookieTypeInUseDetails(cookieCount));
-                    }
+                    var impact = await Impact.CookieTypeImpactQueries.PreviewAsync(conn, tx, id, token);
+                    await Impact.CookieTypeImpactQueries.ApplyAsync(conn, tx, id, token);
 
                     await using var del = new NpgsqlCommand(
                         "delete from cookie_type where id = $1;", conn, tx);
@@ -220,7 +215,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                     if (rows == 0) throw NotFound("cookie type not found");
                     await audit.RecordAsync(conn, tx, "delete", "cookie_type",
                         id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        before, null, token);
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();
@@ -231,9 +226,6 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             .RequireCapability(ApiKeyCapabilities.CookieTypes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
-
-    private sealed record CookieTypeInUseDetails(
-        [property: System.Text.Json.Serialization.JsonPropertyName("cookieCount")] int CookieCount);
 
     // --- helpers ---
 

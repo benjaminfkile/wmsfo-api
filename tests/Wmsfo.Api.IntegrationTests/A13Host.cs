@@ -141,6 +141,7 @@ public sealed class A13Host : IAsyncDisposable
 
         app.UseWmsfoPipeline();
         AdminContentEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()

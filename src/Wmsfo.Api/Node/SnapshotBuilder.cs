@@ -389,8 +389,11 @@ where c.active;", conn, tx))
             {
                 url = resolvedUrl;
             }
-            // Absent from the map means "opens the home page" (contracts 1.3).
-            if (slug is null && url is null) continue;
+            // Codes that resolve to the home page (no page and no URL) are
+            // listed with pageSlug "/" (contracts 1.3): the site's /q/:tag
+            // route reads the snapshot for every active code, home-resolving
+            // included.
+            if (slug is null && url is null) slug = "/";
             qrCodes[code.Tag] = new SnapshotQrCode { PageSlug = slug, ForwardUrl = url };
         }
         snap.QrCodes = qrCodes;

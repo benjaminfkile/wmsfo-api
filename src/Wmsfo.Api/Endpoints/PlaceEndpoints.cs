@@ -332,24 +332,15 @@ where id = $1;", conn, tx))
                 {
                     var before = await PlaceRead.ByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
-                    await using (var close = new NpgsqlCommand(@"
-with recursive subtree(id) as (
-  select id from place where id = $1
-  union all
-  select p.id from place p join subtree s on p.parent_id = s.id
-)
-update qr_attachment set to_at = now()
-where to_at is null and place_id in (select id from subtree);", conn, tx))
-                    {
-                        close.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        await close.ExecuteNonQueryAsync(token);
-                    }
+                    var impact = await Impact.PlaceImpactQueries.PreviewAsync(conn, tx, id, token);
+                    await Impact.PlaceImpactQueries.ApplyAsync(conn, tx, id, token);
                     await using var del = new NpgsqlCommand(
                         "delete from place where id = $1;", conn, tx);
                     del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                     await del.ExecuteNonQueryAsync(token);
                     await audit.RecordAsync(conn, tx, "delete", "place",
-                        id.ToString(CultureInfo.InvariantCulture), before, null, token);
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before: Impact.ImpactBefore.Combine(before, impact), after: null, token);
                     return null;
                 }, ct);
                 return Results.NoContent();

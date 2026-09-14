@@ -36,6 +36,7 @@ public static class SchemaExport
         yield return ("qr-code-detail", Build(typeof(QrCodeDetailDto)));
         yield return ("place", Build(typeof(PlaceDto)));
         yield return ("place-pin", Build(typeof(PlacePinDto)));
+        yield return ("delete-impact", Build(typeof(DeleteImpactDto)));
     }
 
     public static void WriteAll(string outputDir)

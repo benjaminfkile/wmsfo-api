@@ -123,13 +123,54 @@ public sealed class A13AdminContentEndpointsTests : IClassFixture<PostgresFixtur
     }
 
     [Fact]
-    public async Task Pages_delete_role_page_is_409_page_has_role()
+    public async Task Pages_delete_role_page_without_roleTo_is_400_role_needs_page()
     {
+        // A36 / api.md 5b: role page delete needs a target `none` page to
+        // inherit the role; otherwise the API answers 400 role_needs_page.
         var pageId = await ReadRolePageIdAsync("live");
         using var req = _host!.EditorRequest(HttpMethod.Delete, $"/admin/pages/{pageId}");
         var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.PageHasRole, await ReadCodeAsync(response));
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("role_needs_page", await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Pages_delete_role_page_with_roleTo_hands_off_the_role()
+    {
+        // Use a role less pinned by fixtures. This test transfers the role and
+        // then restores it so the shared class fixture keeps its invariants
+        // (Pages_list_returns_six_role_pages, etc.).
+        var oldId = await ReadRolePageIdAsync("cancelled");
+        var newId = await CreateNonePageAsync("role-target-cancelled");
+        using var req = _host!.EditorRequest(HttpMethod.Delete, $"/admin/pages/{oldId}?roleTo={newId}");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        // The new page now carries the role.
+        await using var conn = new Npgsql.NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using (var check = new Npgsql.NpgsqlCommand(
+            "select role from page where id = $1;", conn))
+        {
+            check.Parameters.Add(new Npgsql.NpgsqlParameter { Value = newId });
+            var r = await check.ExecuteScalarAsync();
+            Assert.Equal("cancelled", (string)r!);
+        }
+        // Restore: clear the new page's role and re-insert a `cancelled` role
+        // page with the seed's expected slug, so downstream tests still find
+        // it. The partial unique index page_one_per_role means we must clear
+        // first.
+        await using (var clear = new Npgsql.NpgsqlCommand(
+            "update page set role = 'none' where id = $1;", conn))
+        {
+            clear.Parameters.Add(new Npgsql.NpgsqlParameter { Value = newId });
+            await clear.ExecuteNonQueryAsync();
+        }
+        await using (var recreate = new Npgsql.NpgsqlCommand(@"
+insert into page (slug, title, nav_label, nav_position, is_hidden, role, created_by, updated_by)
+values ('cancelled', 'Cancelled', null, 0, false, 'cancelled', 'seed', 'seed');", conn))
+        {
+            await recreate.ExecuteNonQueryAsync();
+        }
     }
 
     [Fact]

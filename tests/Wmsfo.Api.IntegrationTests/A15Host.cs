@@ -129,6 +129,7 @@ public sealed class A15Host : IAsyncDisposable
 
         AdminMediaEndpoints.MapAll(app);
         AdminIconEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         // The /local-upload/{id} route - the local object store cannot presign,
         // so the ticket URL points at this route.

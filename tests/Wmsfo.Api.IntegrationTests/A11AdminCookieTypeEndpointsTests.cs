@@ -220,18 +220,32 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
     }
 
     [Fact]
-    public async Task Delete_in_use_is_409_cookie_type_in_use_with_details_cookieCount()
+    public async Task Delete_in_use_cascades_cookies_and_the_preview_says_how_many()
     {
+        // A36 / api.md 5b: cookie types no longer refuse when cookies reference
+        // them; the FK on cookie.cookie_type_id cascades and the rows go away.
         var typeId = await CreateAsync("Beloved", 10, true, "cookie");
         var eventId = await CreatePlannedEventAsync(2030);
         var personId = await InsertPersonAsync();
         await InsertCookiesAsync(eventId, personId, typeId, count: 2);
 
+        var preview = await SendAdminAsync(HttpMethod.Get, $"/admin/cookie-types/{typeId}/impact", body: "");
+        preview.EnsureSuccessStatusCode();
+        var previewBody = await ReadJsonAsync(preview);
+        var deletes = previewBody.RootElement.GetProperty("deletes");
+        Assert.Equal(1, deletes.GetArrayLength());
+        Assert.Equal("cookie", deletes[0].GetProperty("entity").GetString());
+        Assert.Equal(2, deletes[0].GetProperty("count").GetInt32());
+
         var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/cookie-types/{typeId}", body: "");
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        Assert.Equal("cookie_type_in_use", body.RootElement.GetProperty("code").GetString());
-        Assert.Equal(2, body.RootElement.GetProperty("details").GetProperty("cookieCount").GetInt32());
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var check = new NpgsqlCommand(
+            "select count(*)::int from cookie where cookie_type_id = $1;", conn);
+        check.Parameters.Add(new NpgsqlParameter { Value = typeId });
+        Assert.Equal(0, System.Convert.ToInt32(await check.ExecuteScalarAsync()));
     }
 
     // A28 (3): every cookie type response carries cookieCount.

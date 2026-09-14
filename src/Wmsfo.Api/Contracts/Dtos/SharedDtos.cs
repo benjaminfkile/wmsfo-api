@@ -559,3 +559,23 @@ public sealed class AuditEntryDto
     public JsonElement? After { get; set; }
     public string? RequestId { get; set; }
 }
+
+// contracts 4.5 Delete impact: one preview per resource. `blocked` is the
+// sentence explaining why the delete is refused (the live or current event),
+// else null. `deletes` names groups of rows the delete removes; `unlinks`
+// names groups whose reference to the row is cleared but that stay. `warnings`
+// are fixed sentences the panel shows above the counts.
+public sealed class DeleteImpactDto
+{
+    public string? Blocked { get; set; }
+    public IList<ImpactGroupDto> Deletes { get; set; } = new List<ImpactGroupDto>();
+    public IList<ImpactGroupDto> Unlinks { get; set; } = new List<ImpactGroupDto>();
+    public IList<string> Warnings { get; set; } = new List<string>();
+}
+
+public sealed class ImpactGroupDto
+{
+    public string Entity { get; set; } = "";
+    public int Count { get; set; }
+    public IList<string> Names { get; set; } = new List<string>();
+}
