@@ -28,7 +28,7 @@ public static class AdminSettingsEndpoints
     // JSON type is `int` for every key except `location_min_distance_m`, which
     // is `number` because sub-metre values are meaningful; the validator
     // switches on `IsInteger`.
-    public sealed record SettingKind(string Key, double DefaultValue, double Min, double Max, bool IsInteger = true);
+    public sealed record SettingKind(string Key, double DefaultValue, double Min, double Max, bool IsInteger = true, bool IsBoolean = false);
 
     public static readonly IReadOnlyList<SettingKind> Kinds = new SettingKind[]
     {
@@ -40,6 +40,7 @@ public static class AdminSettingsEndpoints
         new("flight_history_max_points",   2000,  100,  50000),
         new("location_min_interval_ms",     250,    0,  60000),
         new("location_min_distance_m",        0,    0,  10000, IsInteger: false),
+        new("hub_enabled",                    1,    0,      1, IsBoolean: true),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =
@@ -110,7 +111,9 @@ left join lateral (
                     JsonElement value;
                     if (row.value.ValueKind == JsonValueKind.Undefined)
                     {
-                        using var doc = JsonDocument.Parse(kind.DefaultValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                        using var doc = JsonDocument.Parse(kind.IsBoolean
+                            ? (kind.DefaultValue != 0 ? "true" : "false")
+                            : kind.DefaultValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
                         value = doc.RootElement.Clone();
                     }
                     else
@@ -145,7 +148,13 @@ left join lateral (
             {
                 if (!ByKey.TryGetValue(key, out var kind))
                     throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed, "unknown setting");
-                if (body.Value.ValueKind != JsonValueKind.Number)
+                if (kind.IsBoolean && body.Value.ValueKind != JsonValueKind.True && body.Value.ValueKind != JsonValueKind.False)
+                {
+                    throw new ApiException(StatusCodes.Status400BadRequest,
+                        ApiErrorCodes.ValidationFailed,
+                        "value must be true or false");
+                }
+                if (!kind.IsBoolean && body.Value.ValueKind != JsonValueKind.Number)
                 {
                     throw new ApiException(StatusCodes.Status400BadRequest,
                         ApiErrorCodes.ValidationFailed,
@@ -153,7 +162,13 @@ left join lateral (
                 }
                 double parsedValue;
                 string valueJson;
-                if (kind.IsInteger)
+                if (kind.IsBoolean)
+                {
+                    var flag = body.Value.ValueKind == JsonValueKind.True;
+                    parsedValue = flag ? 1 : 0;
+                    valueJson = flag ? "true" : "false";
+                }
+                else if (kind.IsInteger)
                 {
                     if (!body.Value.TryGetInt32(out var parsedInt))
                     {

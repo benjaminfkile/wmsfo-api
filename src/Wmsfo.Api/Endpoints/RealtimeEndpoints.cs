@@ -100,7 +100,7 @@ public static class RealtimeEndpoints
                     long beaconId;
                     int keyVersion;
                     await using (var lookup = new NpgsqlCommand(
-                        "select id, key_version from beacon where key_hash = $1 and revoked_at is null;", conn))
+                        "select id, key_version, hub_allowed from beacon where key_hash = $1 and revoked_at is null;", conn))
                     {
                         lookup.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = hash });
                         await using var reader = await lookup.ExecuteReaderAsync(ct);
@@ -111,6 +111,13 @@ public static class RealtimeEndpoints
                         }
                         beaconId = reader.GetInt64(0);
                         keyVersion = reader.GetInt32(1);
+                        if (!reader.GetBoolean(2))
+                        {
+                            // The hub is switched off for this beacon (contracts 2.4): the
+                            // join is denied and the beacon sends over HTTP.
+                            counters.IncrementAuthorize(AuthorizeBranch.IngestDeny);
+                            return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
+                        }
                     }
                     await using (var stamp = new NpgsqlCommand(
                         "update beacon set last_seen_at = now(), updated_at = now() where id = $1;", conn))
@@ -185,8 +192,9 @@ public static class RealtimeEndpoints
                 await conn.OpenAsync(ct);
                 DateTimeOffset? revokedAt = null;
                 int rowKeyVersion = -1;
+                bool hubAllowed = true;
                 await using (var check = new NpgsqlCommand(
-                    "select revoked_at, key_version from beacon where id = $1;", conn))
+                    "select revoked_at, key_version, hub_allowed from beacon where id = $1;", conn))
                 {
                     check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                     await using var reader = await check.ExecuteReaderAsync(ct);
@@ -197,8 +205,9 @@ public static class RealtimeEndpoints
                     }
                     revokedAt = reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0);
                     rowKeyVersion = reader.GetInt32(1);
+                    hubAllowed = reader.GetBoolean(2);
                 }
-                if (revokedAt is not null || rowKeyVersion != keyVersion)
+                if (revokedAt is not null || rowKeyVersion != keyVersion || !hubAllowed)
                 {
                     counters.IncrementMessage(MessageOutcome.Forbidden);
                     throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "forbidden");

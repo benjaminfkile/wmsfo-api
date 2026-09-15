@@ -229,6 +229,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("The last heartbeat body, stored as received.");
             e.Property(x => x.MinIntervalMs).HasColumnType("integer").HasColumnName("min_interval_ms")
                 .HasComment("Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2 / 6).");
+            e.Property(x => x.HubAllowed).HasColumnType("boolean").IsRequired().HasDefaultValue(true).HasColumnName("hub_allowed")
+                .HasComment("Whether this beacon may join the hub (contracts 2.4); false denies the join and the beacon sends over HTTP.");
             e.Property(x => x.FixesStored).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_stored")
                 .HasComment("Fixes stored as location rows for this beacon.");
             e.Property(x => x.FixesCarried).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_carried")

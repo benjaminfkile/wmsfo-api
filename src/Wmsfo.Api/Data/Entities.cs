@@ -86,6 +86,7 @@ public sealed class Beacon
     public DateTimeOffset? StaleSince { get; set; }
     public JsonDocument? Telemetry { get; set; }
     public int? MinIntervalMs { get; set; }
+    public bool HubAllowed { get; set; } = true;
     public long FixesStored { get; set; }
     public long FixesCarried { get; set; }
     public long FixesRateLimited { get; set; }

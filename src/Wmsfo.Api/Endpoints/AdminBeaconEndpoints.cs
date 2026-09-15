@@ -208,6 +208,11 @@ order by b.name asc, b.id asc;", conn))
                     sets.Add($"min_interval_ms = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = mi2 });
                 }
+                if (body.HubAllowed is bool hubAllowed)
+                {
+                    sets.Add($"hub_allowed = ${next++}");
+                    parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = hubAllowed });
+                }
                 if (sets.Count > 0)
                 {
                     sets.Add("updated_at = now()");
@@ -638,7 +643,7 @@ select b.id, b.name, b.notes, b.key_prefix, b.key_version, b.is_active, b.revoke
        b.last_seen_at, b.last_location_at, b.last_heartbeat_at, b.stale_since,
        b.telemetry, b.created_by, b.created_at, b.updated_at,
        a.action, a.actor, a.at,
-       b.min_interval_ms, b.fixes_stored, b.fixes_carried, b.fixes_rate_limited
+       b.min_interval_ms, b.fixes_stored, b.fixes_carried, b.fixes_rate_limited, b.hub_allowed
 from beacon b
 left join lateral (
   select action, actor, at from audit_log
@@ -713,6 +718,7 @@ left join lateral (
         dto.FixesStored = reader.GetInt64(19);
         dto.FixesCarried = reader.GetInt64(20);
         dto.FixesRateLimited = reader.GetInt64(21);
+        dto.HubAllowed = reader.GetBoolean(22);
         return (dto, keyVersion);
     }
 

@@ -67,6 +67,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var doc = await ReadJsonAsync(response);
         var items = doc.RootElement.GetProperty("items").EnumerateArray()
+            .Where(e => e.GetProperty("value").ValueKind == JsonValueKind.Number)
             .Select(e => (e.GetProperty("key").GetString()!, e.GetProperty("value").GetDouble()))
             .ToDictionary(t => t.Item1, t => t.Item2);
         Assert.Equal(5000, items["poll_interval_ms"]);
@@ -122,6 +123,28 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(5000, poll.GetProperty("value").GetInt32());
         Assert.Equal(JsonValueKind.Null, poll.GetProperty("updatedBy").ValueKind);
         Assert.Equal(JsonValueKind.Null, poll.GetProperty("updatedAt").ValueKind);
+    }
+
+    [Fact]
+    public async Task Hub_enabled_is_a_boolean_setting_defaulting_to_true()
+    {
+        var list = await SendAdminAsync(HttpMethod.Get, "/admin/settings", "");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        var doc = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        var item = doc.RootElement.GetProperty("items").EnumerateArray()
+            .Single(i => i.GetProperty("key").GetString() == "hub_enabled");
+        Assert.Equal(JsonValueKind.True, item.GetProperty("value").ValueKind);
+
+        var bad = await SendAdminAsync(HttpMethod.Put, "/admin/settings/hub_enabled", "{\"value\":1}");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var off = await SendAdminAsync(HttpMethod.Put, "/admin/settings/hub_enabled", "{\"value\":false}");
+        Assert.Equal(HttpStatusCode.OK, off.StatusCode);
+        var offDoc = JsonDocument.Parse(await off.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.False, offDoc.RootElement.GetProperty("value").ValueKind);
+
+        var on = await SendAdminAsync(HttpMethod.Put, "/admin/settings/hub_enabled", "{\"value\":true}");
+        Assert.Equal(HttpStatusCode.OK, on.StatusCode);
     }
 
     [Fact]

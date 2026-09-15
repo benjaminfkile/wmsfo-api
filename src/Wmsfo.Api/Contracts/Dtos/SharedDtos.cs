@@ -99,6 +99,7 @@ public sealed class BeaconDto
     // A37: per-beacon min-interval override (null means the setting) plus the
     // three fix counters kept on the row (contracts 4.2, 5, 7.2).
     public int? MinIntervalMs { get; set; }
+    public bool HubAllowed { get; set; }
     public long FixesStored { get; set; }
     public long FixesCarried { get; set; }
     public long FixesRateLimited { get; set; }

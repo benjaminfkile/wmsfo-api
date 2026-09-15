@@ -9,20 +9,21 @@ public sealed class LiveObject
     [JsonPropertyOrder(1)]  public long? EventId { get; set; }
     [JsonPropertyOrder(2)]  public int? EventStatusId { get; set; }
     [JsonPropertyOrder(3)]  public int PollIntervalMs { get; set; }
-    [JsonPropertyOrder(4)]  public string SnapshotUrl { get; set; } = "";
+    [JsonPropertyOrder(4)]  public bool HubEnabled { get; set; } = true;
+    [JsonPropertyOrder(5)]  public string SnapshotUrl { get; set; } = "";
     // Keys emitted in ascending numeric order (contracts 1.2). Values are counts.
     // SortedDictionary<long,int> enumerates in numeric key order; STJ writes long keys as decimal strings.
-    [JsonPropertyOrder(5)]  public SortedDictionary<long, int> CookieTally { get; set; } = new();
-    [JsonPropertyOrder(6)]  public long? Seq { get; set; }
-    [JsonPropertyOrder(7)]  public double? Lat { get; set; }
-    [JsonPropertyOrder(8)]  public double? Lng { get; set; }
-    [JsonPropertyOrder(9)]  public double? SpeedMps { get; set; }
-    [JsonPropertyOrder(10)] public double? AltitudeM { get; set; }
-    [JsonPropertyOrder(11)] public double? HeadingDeg { get; set; }
-    [JsonPropertyOrder(12)] public double? AccuracyM { get; set; }
-    [JsonPropertyOrder(13)] public DateTimeOffset? RecordedAt { get; set; }
-    [JsonPropertyOrder(14)] public DateTimeOffset? ReceivedAt { get; set; }
-    [JsonPropertyOrder(15)] public DateTimeOffset PublishedAt { get; set; }
+    [JsonPropertyOrder(6)]  public SortedDictionary<long, int> CookieTally { get; set; } = new();
+    [JsonPropertyOrder(7)]  public long? Seq { get; set; }
+    [JsonPropertyOrder(8)]  public double? Lat { get; set; }
+    [JsonPropertyOrder(9)]  public double? Lng { get; set; }
+    [JsonPropertyOrder(10)] public double? SpeedMps { get; set; }
+    [JsonPropertyOrder(11)] public double? AltitudeM { get; set; }
+    [JsonPropertyOrder(12)] public double? HeadingDeg { get; set; }
+    [JsonPropertyOrder(13)] public double? AccuracyM { get; set; }
+    [JsonPropertyOrder(14)] public DateTimeOffset? RecordedAt { get; set; }
+    [JsonPropertyOrder(15)] public DateTimeOffset? ReceivedAt { get; set; }
+    [JsonPropertyOrder(16)] public DateTimeOffset PublishedAt { get; set; }
 }
 
 // Snapshot contracts 1.3. `qrCodes` is a top-level property (contracts 1.3, 4.5a);

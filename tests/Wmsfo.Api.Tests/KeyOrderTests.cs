@@ -13,7 +13,7 @@ public class KeyOrderTests
     {
         var expected = new[]
         {
-            "schemaVersion", "eventId", "eventStatusId", "pollIntervalMs", "snapshotUrl",
+            "schemaVersion", "eventId", "eventStatusId", "pollIntervalMs", "hubEnabled", "snapshotUrl",
             "cookieTally", "seq", "lat", "lng", "speedMps", "altitudeM", "headingDeg", "accuracyM",
             "recordedAt", "receivedAt", "publishedAt",
         };

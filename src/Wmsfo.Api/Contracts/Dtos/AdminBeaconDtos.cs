@@ -23,6 +23,7 @@ public sealed class PatchBeaconRequest
     // so JSON `null` yields `ValueKind == Null` (STJ collapses `JsonElement?`
     // JSON null to a C# null and we would not be able to tell it from absent).
     public JsonElement MinIntervalMs { get; set; }
+    public bool? HubAllowed { get; set; }
 }
 
 public sealed class BeaconWithKeyResponse

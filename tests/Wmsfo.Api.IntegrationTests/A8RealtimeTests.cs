@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
+using Wmsfo.Api.Auth;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Endpoints;
 using Wmsfo.Api.Http;
@@ -167,6 +168,35 @@ public sealed class A8RealtimeTests : IClassFixture<PostgresFixture>, IAsyncLife
     }
 
     [Fact]
+    public async Task Authorize_ingest_denies_when_hub_not_allowed_and_message_is_403()
+    {
+        var beacon = await SeedBeaconAsync("hub-off");
+        var key = _keys[beacon];
+        await SetHubAllowedAsync(beacon, false);
+
+        var response = await _host!.Client.PostAsync("/realtime/authorize",
+            new StringContent(
+                $"{{\"channel\":\"wmsfo-api-test:ingest\",\"credential\":\"{key}\",\"connectionId\":\"c1\"}}",
+                Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.False(body.RootElement.GetProperty("allow").GetBoolean());
+
+        var message = await _host!.Client.PostAsync("/realtime/message",
+            new StringContent(
+                $"{{\"channel\":\"wmsfo-api-test:ingest\",\"event\":\"location\",\"data\":{{}},\"connectionId\":\"c1\",\"identity\":\"{beacon}:1\"}}",
+                Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Forbidden, message.StatusCode);
+
+        await SetHubAllowedAsync(beacon, true);
+        var again = await _host!.Client.PostAsync("/realtime/authorize",
+            new StringContent(
+                $"{{\"channel\":\"wmsfo-api-test:ingest\",\"credential\":\"{key}\",\"connectionId\":\"c1\"}}",
+                Encoding.UTF8, "application/json"));
+        Assert.True(JsonDocument.Parse(await again.Content.ReadAsStringAsync()).RootElement.GetProperty("allow").GetBoolean());
+    }
+
+    [Fact]
     public async Task Authorize_ingest_bad_key_format_denies()
     {
         var response = await _host!.Client.PostAsync("/realtime/authorize",
@@ -315,6 +345,17 @@ values ($1, $2, $3, $4, 'seed', now()) returning id;", conn);
         var id = (long)(await cmd.ExecuteScalarAsync() ?? 0L);
         _keys[id] = minted.Token;
         return id;
+    }
+
+    private async Task SetHubAllowedAsync(long beaconId, bool allowed)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "update beacon set hub_allowed = $2 where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = allowed });
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task RevokeBeaconAsync(long beaconId)

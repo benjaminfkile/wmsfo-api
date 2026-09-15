@@ -408,6 +408,29 @@ public sealed class A10AdminBeaconEndpointsTests : IClassFixture<PostgresFixture
     // ---------- Patch and Logs sanity. ----------
 
     [Fact]
+    public async Task Patch_hub_allowed_round_trips()
+    {
+        var (id, _) = await CreateBeaconAsync("hub-flag");
+        var off = new HttpRequestMessage(HttpMethod.Patch, $"/admin/beacons/{id}")
+        {
+            Content = new StringContent("{\"hubAllowed\":false}", Encoding.UTF8, "application/json"),
+        };
+        off.Headers.Authorization = new AuthenticationHeaderValue("Bearer", DevStaticTokens.AdminToken);
+        var offResponse = await _host!.Client.SendAsync(off);
+        Assert.Equal(HttpStatusCode.OK, offResponse.StatusCode);
+        Assert.False((await ReadJsonAsync(offResponse)).RootElement.GetProperty("hubAllowed").GetBoolean());
+
+        var on = new HttpRequestMessage(HttpMethod.Patch, $"/admin/beacons/{id}")
+        {
+            Content = new StringContent("{\"hubAllowed\":true}", Encoding.UTF8, "application/json"),
+        };
+        on.Headers.Authorization = new AuthenticationHeaderValue("Bearer", DevStaticTokens.AdminToken);
+        var onResponse = await _host!.Client.SendAsync(on);
+        Assert.Equal(HttpStatusCode.OK, onResponse.StatusCode);
+        Assert.True((await ReadJsonAsync(onResponse)).RootElement.GetProperty("hubAllowed").GetBoolean());
+    }
+
+    [Fact]
     public async Task Patch_updates_name_and_notes()
     {
         var (id, _) = await CreateBeaconAsync("original");

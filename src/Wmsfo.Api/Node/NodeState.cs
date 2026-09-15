@@ -332,7 +332,8 @@ public sealed record NodeSettings(
     int SponsorLingerMinMs,
     int BeaconStaleAfterS,
     int LocationMinIntervalMs,
-    double LocationMinDistanceM)
+    double LocationMinDistanceM,
+    bool HubEnabled)
 {
     public static NodeSettings Defaults { get; } = new(
         PollIntervalMs: 5000,
@@ -341,7 +342,8 @@ public sealed record NodeSettings(
         SponsorLingerMinMs: 2000,
         BeaconStaleAfterS: 45,
         LocationMinIntervalMs: 250,
-        LocationMinDistanceM: 0);
+        LocationMinDistanceM: 0,
+        HubEnabled: true);
 
     public static NodeSettings FromMap(IReadOnlyDictionary<string, JsonElement> map)
     {
@@ -357,6 +359,15 @@ public sealed record NodeSettings(
                 return parsed;
             return fallback;
         }
+        bool ReadBool(string key, bool fallback)
+        {
+            if (map.TryGetValue(key, out var v))
+            {
+                if (v.ValueKind == JsonValueKind.True) return true;
+                if (v.ValueKind == JsonValueKind.False) return false;
+            }
+            return fallback;
+        }
         var d = Defaults;
         return new NodeSettings(
             PollIntervalMs: ReadInt("poll_interval_ms", d.PollIntervalMs),
@@ -365,7 +376,8 @@ public sealed record NodeSettings(
             SponsorLingerMinMs: ReadInt("sponsor_linger_min_ms", d.SponsorLingerMinMs),
             BeaconStaleAfterS: ReadInt("beacon_stale_after_s", d.BeaconStaleAfterS),
             LocationMinIntervalMs: ReadInt("location_min_interval_ms", d.LocationMinIntervalMs),
-            LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM));
+            LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM),
+            HubEnabled: ReadBool("hub_enabled", d.HubEnabled));
     }
 }
 

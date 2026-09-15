@@ -213,6 +213,7 @@ where id = 1;", conn);
             EventId = state.CurrentEvent?.Id,
             EventStatusId = state.CurrentEvent?.StatusId,
             PollIntervalMs = state.Settings.PollIntervalMs,
+            HubEnabled = state.Settings.HubEnabled,
             SnapshotUrl = state.SnapshotUrl,
             CookieTally = BuildTally(state),
             Seq = null,
