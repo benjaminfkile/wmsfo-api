@@ -136,6 +136,7 @@ public sealed class A37Host : IAsyncDisposable
         RealtimeEndpoints.MapAll(app);
         AdminBeaconEndpoints.MapAll(app);
         AdminEventEndpoints.MapAll(app);
+        AdminRouteEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()

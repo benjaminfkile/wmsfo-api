@@ -282,6 +282,7 @@ create table location (
 );
 create index location_event_published_seq on location (event_id, seq desc) where published;
 create index location_event_beacon_seq    on location (event_id, beacon_id, seq desc);
+create unique index location_event_position on location (event_id, lat, lng);
 
 comment on table location is 'Every stored fix. Kept forever; exported by admins; never read by the public site.';
 comment on column location.seq is 'Arrival order within the event, from event.next_seq. The only order that exists.';
@@ -290,6 +291,8 @@ comment on column location.received_at is 'When the API stored the row.';
 comment on column location.published is 'beacon.is_active at the moment of the insert. Only published rows reach the live object.';
 comment on column location.speed_source is 'beacon when the body carried speedMps, derived when the API computed it from the previous stored fix, null otherwise (contracts 7.2).';
 ```
+
+`location_event_position` (A38, sql.md 14) is the guarantee that a position is stored at most once per event: the ingest insert uses `on conflict (event_id, lat, lng) do nothing`, so a repeat lands on the carried outcome (contracts 4.2, 7.2). Not an error, so not in 4.3.
 
 ### 3.10 `sponsor`
 
@@ -762,6 +765,7 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `location_event_id_seq_key` | unique `(event_id, seq)` | the export (`order by seq asc`, keyset on `seq`); the guarantee that `next_seq` never hands out a duplicate |
 | `location_event_published_seq` | `(event_id, seq desc) where published` | the reconcile tick's latest published location (`limit 1`); the export with `publishedOnly=true` |
 | `location_event_beacon_seq` | `(event_id, beacon_id, seq desc)` | the location transaction's per-beacon latest-fix lookup (contracts 7.2) |
+| `location_event_position` | unique `(event_id, lat, lng)` | the A38 guarantee that a position is stored at most once per event; the ingest insert uses `on conflict do nothing` and the conflict is the carried outcome (contracts 4.2, 7.2), not an error |
 | `sponsor_pkey` | pk `(id)` | |
 | `sponsor_logo_media` | `(logo_media_id) where logo_media_id is not null` | media usage and the orphan chore's referenced set; `409 media_in_use` |
 | `sponsor_year_pkey` | pk `(id)` | |
@@ -825,6 +829,7 @@ The API catches `PostgresException` with `SqlState = '23505'` and switches on `C
 | `alert_delivery_subscriber_id_outbox_id_key` | never raised (`on conflict do nothing`) |
 | `person_cognito_sub_key` | never raised (`on conflict do update`) |
 | `sponsor_year_sponsor_id_event_year_key` | never raised (`on conflict do update`) |
+| `location_event_position` | never raised (`on conflict do nothing`; the conflict is the carried outcome of contracts 4.2 / 7.2, not an error) |
 
 Every other `23505` and every `23503` (foreign key) or `23514` (check) is `500 internal_error`; the API validates inputs before they reach a constraint.
 
@@ -955,11 +960,12 @@ begin;
 select id, status_id, next_seq from event where status_id = 3 for update;     -- none: rollback, 409 no_live_event
 select is_active, revoked_at, key_version, min_interval_ms from beacon where id = $beacon;   -- revoked or stale key_version: rollback, 401 (REST) or 403 (message path)
 select seq, lat, lng, recorded_at, received_at from location
-  where event_id = $event and beacon_id = $beacon order by seq desc limit 1;  -- new index location_event_beacon_seq (event_id, beacon_id, seq desc)
--- Store when: no previous fix; the haversine distance from it is at least location_min_distance_m
+  where event_id = $event and beacon_id = $beacon order by seq desc limit 1;  -- new index location_event_beacon_seq (event_id, beacon_id, seq desc); drives derived speed and the distance decision
+-- Try to store when: no previous fix; the haversine distance from it is at least location_min_distance_m
 -- (with 0 meaning lat or lng differs at all); or now - its received_at is at least location_max_gap_s. Otherwise carry.
+-- A38: the insert also carries on the unique (event_id, lat, lng) conflict, so a repeat of any position
+-- already stored in the event is carried whatever the filter said.
 
--- stored:
 insert into location (event_id, beacon_id, seq, recorded_at, received_at,
                       lat, lng, speed_mps, speed_source,
                       altitude_m, heading_deg, accuracy_m, published)
@@ -970,13 +976,16 @@ values ($event, $beacon, $next_seq, $recorded_at, now(),
              when $derived_speed_mps is not null then 'derived'
              else null end,
         $altitude_m, $heading_deg, $accuracy_m, $is_active)
+on conflict (event_id, lat, lng) do nothing
 returning seq, received_at;
+
+-- stored branch (returning yielded a row):
 update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
 update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
                   fixes_stored = fixes_stored + 1, updated_at = now()
   where id = $beacon;
 
--- carried (no row):
+-- carried branch (the filter carried, or the insert conflicted): no row.
 update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
 update beacon set last_seen_at = now(), stale_since = null,
                   fixes_carried = fixes_carried + 1, updated_at = now()
@@ -988,7 +997,7 @@ commit;
 
 Derived speed is the haversine distance from the previous stored fix divided by the seconds between the two `recorded_at` values; null when there is no previous fix or the delta is not positive.
 
-The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`. Carried fixes still take the seq from `event.next_seq`, advance it, and are published to the live object (contracts 7.2).
+The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`. Carried fixes still take the seq from `event.next_seq`, advance it, and are published to the live object (contracts 7.2). A38's `location_event_position` unique index turns a repeat of any position already in the event into a carried outcome, so a replayed flight loops without growing the recording and the max-gap rule no longer stores a repeat.
 
 ### 8.3 Heartbeat
 
@@ -1840,7 +1849,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

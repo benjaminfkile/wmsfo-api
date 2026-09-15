@@ -826,12 +826,15 @@ values ($1, $2, $3, true, now(), 'seed', now()) returning id;", conn);
             seq.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
             nextSeq = (long)(await seq.ExecuteScalarAsync() ?? 0L);
         }
+        // A38: unique (event_id, lat, lng), so vary lat by the seq.
+        var lat = 46.87 + nextSeq * 0.0001;
         await using var cmd = new NpgsqlCommand(@"
 insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, published)
-values ($1, $2, $3, now(), now(), 46.87, -114, $4);", conn);
+values ($1, $2, $3, now(), now(), $4, -114, $5);", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = nextSeq });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = lat });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
         await cmd.ExecuteNonQueryAsync();
     }

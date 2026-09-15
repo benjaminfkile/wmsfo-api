@@ -1002,7 +1002,7 @@ Errors: `400 validation_failed` (format), `404 enrollment_token_invalid` (unknow
 | `headingDeg` | `number \| null` | optional, 0 to 360 |
 | `accuracyM` | `number \| null` | optional, 0 to 100000 |
 
-Handling: resolve the beacon (`401` if unknown or revoked); apply the per-beacon min-interval rate limit and the min-distance / max-gap decision in the location transaction (7.2). The response is the `outcome`: `stored` (a `location` row was written), `carried` (no row; `seq` advanced anyway and the live object is written from the incoming fields), or `dropped` (the fix arrived inside the beacon's effective min interval on this node; no transaction, no live object, no publish; `seq` is the last seq this node accepted from that beacon or 0). The `location_min_interval_ms` filter is per node: a beacon's socket is pinned to one node and HTTP may spread across the fleet, so the fleet-wide bound is at most `<nodes>` times the setting; the gateway's 10 per second per connection stays the outer bound on the hub. The per-endpoint rate limit table row for `POST /locations` notes the per-beacon interval (10 per second, minus the drops for the interval).
+Handling: resolve the beacon (`401` if unknown or revoked); apply the per-beacon min-interval rate limit and the min-distance / max-gap decision in the location transaction (7.2). The response is the `outcome`: `stored` (a `location` row was written), `carried` (no row; `seq` advanced anyway and the live object is written from the incoming fields — either because the min-distance / max-gap filter decided to carry, or because the position already exists somewhere in the event and the unique `(event_id, lat, lng)` index sent the insert to `do nothing`), or `dropped` (the fix arrived inside the beacon's effective min interval on this node; no transaction, no live object, no publish; `seq` is the last seq this node accepted from that beacon or 0). A position is stored at most once per event, so a replayed flight loops without growing the recording. The `location_min_interval_ms` filter is per node: a beacon's socket is pinned to one node and HTTP may spread across the fleet, so the fleet-wide bound is at most `<nodes>` times the setting; the gateway's 10 per second per connection stays the outer bound on the hub. The per-endpoint rate limit table row for `POST /locations` notes the per-beacon interval (10 per second, minus the drops for the interval).
 
 `201`:
 
@@ -1894,12 +1894,13 @@ begin;
 select id, status_id, next_seq from event where status_id = 3 for update;                    -- none: rollback, 409 no_live_event
 select is_active, revoked_at, key_version, min_interval_ms from beacon where id = $beacon;   -- revoked or stale key_version: rollback, 401 or 403
 select seq, lat, lng, recorded_at, received_at from location
-  where event_id = $event and beacon_id = $beacon order by seq desc limit 1;                 -- the previous stored fix, or none
--- store when: no previous fix; or the haversine distance from it is at least location_min_distance_m
--- (with 0 meaning lat or lng differs at all); or now - its received_at is at least location_max_gap_s.
--- otherwise carry.
+  where event_id = $event and beacon_id = $beacon order by seq desc limit 1;                 -- the previous stored fix, or none (drives derived speed and the distance decision)
+-- Try to store when: no previous fix; or the haversine distance from it is at least
+-- location_min_distance_m (with 0 meaning lat or lng differs at all); or now - its
+-- received_at is at least location_max_gap_s. Otherwise carry.
+-- The insert uses `on conflict (event_id, lat, lng) do nothing` (A38): a position
+-- already stored anywhere in the event lands as carried, whatever the filter said.
 --
--- stored:
 insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng,
                       speed_mps, speed_source, altitude_m, heading_deg, accuracy_m, published)
   values ($event, $beacon, $next_seq, $recordedAt, now(), ...,
@@ -1908,12 +1909,16 @@ insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, l
                when $derived_speed_mps is not null then 'derived'
                else null end,
           ...,
-          $is_active);
+          $is_active)
+  on conflict (event_id, lat, lng) do nothing
+  returning seq, received_at;                                              -- no rows on conflict
+--
+-- stored branch (returning yielded a row):
 update event  set next_seq = next_seq + 1 where id = $event;
 update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
                   fixes_stored = fixes_stored + 1 where id = $beacon;
 --
--- carried (no row):
+-- carried branch (filter carried, or the insert conflicted): no row.
 update event  set next_seq = next_seq + 1 where id = $event;               -- next_seq still advances; that seq goes to the live object
 update beacon set last_seen_at = now(), stale_since = null,
                   fixes_carried = fixes_carried + 1 where id = $beacon;   -- last_location_at untouched
@@ -1922,7 +1927,7 @@ select version, url from snapshot where id = 1;                            -- ca
 commit;
 ```
 
-Derived speed is the haversine distance from the previous stored fix divided by the seconds between the two `recordedAt` values; null when there is no previous fix or the delta is not positive. `speed_source` is `'beacon'` when the body carried `speedMps`, `'derived'` when the API computed it, else null.
+Derived speed is the haversine distance from the previous stored fix divided by the seconds between the two `recordedAt` values; null when there is no previous fix or the delta is not positive. `speed_source` is `'beacon'` when the body carried `speedMps`, `'derived'` when the API computed it, else null. A38's unique index `location_event_position` on `(event_id, lat, lng)` is what turns a repeat of any position already stored in the event into a carry, so a replayed flight loops without growing the recording; the max-gap rule only stores a position that is new to the event.
 
 Then respond to the beacon with `{ seq, published, receivedAt, serverTime, outcome }` where `outcome` is `stored` or `carried`. Update in-memory `lastAcceptedAt`. Then, when `published` is true: update memory (location, snapshot version and URL, event status), build the live object with the tally from memory from the incoming fix's fields (with the new `seq` and `receivedAt = now`, so every apply rule and the signal-lost rule stay as they are), PUT `live/location.json`, publish `location` (2.6), set `wroteForLocationSinceVersionChange = true`, update `live_state` (1.8). Carried fixes publish the same way as stored ones: the site sees a rising `seq` and its store advances. The publish is attempted whether or not the PUT succeeded. The PUT and publish are not awaited by the beacon's response. A CDN write failure is logged and the response was already `2xx` (the row is stored or the fix was carried; the next update retries the object; the hub carried the point). When `published` is false nothing outside the transaction happens.
 
@@ -2378,6 +2383,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - Printed QR codes are permanent numbered tags at `/q/<tag>`, printed in batches at any size; places are a tree with a note and an optional pin; an attachment is the history; scans count against the code and roll up the tree; the snapshot carries every active code resolved so the site never asks the API what to open; the only public write is the scan beacon, always `204`.
 - A third admin-pool group, `canvasser`, reaches exactly the QR and places routes; deletes stay admin.
 - The location ingest filter is the API's, and beacons stay blind to it: `location_min_interval_ms` and `beacon.min_interval_ms` gate a per-beacon rate limit in memory on the node (dropped fixes get `outcome: "dropped"` and update no row); `location_min_distance_m` and `location_max_gap_s` decide inside the transaction whether the row is stored or carried. A carried fix still advances `event.next_seq` and moves the live object (contracts 1.2), so the site needs no change; the `LocationRow` and CSV gain `speedSource` (`beacon`, `derived`, or null) and `speedMps` on the live object is the beacon's value when present or the API-derived one.
+- A position is stored at most once per event: unique `(event_id, lat, lng)` on `location`, and the ingest insert runs `on conflict do nothing`; a repeat anywhere in the event is carried, so a replayed flight loops without growing the recording and beacons and the site stay unaware.
 - Clearing a recording is `DELETE /admin/events/{id}/locations?beaconId=`: 204 on success, 409 while the event is live; `next_seq` is not reset; the audit action is `event.locations_cleared` and the site keeps whatever it holds until the leader's next tick rewrites the live object.
 
 ## 15. Needs a decision
