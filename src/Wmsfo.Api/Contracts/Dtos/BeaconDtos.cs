@@ -51,6 +51,8 @@ public sealed class LocationResponse
     public bool Published { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
     public DateTimeOffset ServerTime { get; set; }
+    // A37: 'stored', 'carried', or 'dropped' (contracts 4.2, 7.2).
+    public string Outcome { get; set; } = "";
 }
 
 // POST /beacons/heartbeat body (contracts 4.2). Exactly three keys:

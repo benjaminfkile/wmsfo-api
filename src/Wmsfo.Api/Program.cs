@@ -171,6 +171,7 @@ static string? ResolveTemplatesRoot(string start)
 }
 
 // A8: the shared location transaction is the message-path and REST handler both.
+builder.Services.AddSingleton<BeaconRateLimiter>();
 builder.Services.AddSingleton<LocationIngest>();
 builder.Services.AddSingleton<IServerClock, SystemServerClock>();
 

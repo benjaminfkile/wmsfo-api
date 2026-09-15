@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
@@ -9,8 +10,11 @@ using Wmsfo.Api.Node;
 namespace Wmsfo.Api.Endpoints;
 
 // Contracts 2.5 message path AND POST /locations use the same validate-and-store
-// code. The transaction is sql.md 8.2. After commit the caller writes the live
-// object (contracts 1.8) when the row was `published`.
+// code (contracts 7.2, sql.md 8.2). A37 extends the write path with three
+// filters: per-beacon rate limit (min interval), per-fix distance carry (min
+// distance), and stored regardless of distance after max gap. The rate limit is
+// per node in memory; the carry decision runs inside the transaction against
+// the beacon's last stored fix on the event.
 public sealed class LocationIngest
 {
     private readonly WmsfoConnectionStrings _connections;
@@ -20,6 +24,7 @@ public sealed class LocationIngest
     private readonly IServerClock _clock;
     private readonly NodeCounters _counters;
     private readonly ILogger<LocationIngest> _logger;
+    private readonly BeaconRateLimiter _rateLimiter;
 
     public LocationIngest(
         WmsfoConnectionStrings connections,
@@ -28,6 +33,7 @@ public sealed class LocationIngest
         WmsfoOptions options,
         IServerClock clock,
         NodeCounters counters,
+        BeaconRateLimiter rateLimiter,
         ILogger<LocationIngest> logger)
     {
         _connections = connections;
@@ -36,6 +42,7 @@ public sealed class LocationIngest
         _options = options;
         _clock = clock;
         _counters = counters;
+        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
@@ -50,6 +57,31 @@ public sealed class LocationIngest
     {
         Validate(body);
 
+        // A37: pre-transaction rate limit. The `min_interval_ms` used comes
+        // from memory: the beacon's override when we have it, else the setting.
+        // The limiter is populated by prior accepted fixes on this node.
+        var settings = _state.Current.Settings;
+        var effectiveInterval = _rateLimiter.EffectiveInterval(beaconId, settings.LocationMinIntervalMs);
+        var now = _clock.UtcNow();
+        if (_rateLimiter.ShouldDrop(beaconId, now, effectiveInterval, out var lastSeq, out var lastPublished))
+        {
+            // A37 3(a): no transaction, no live object, no publish. Count the
+            // drop and let the flusher push the number to the row within 5 s.
+            _counters.IncrementLocationsRateLimited();
+            await _rateLimiter.RecordDropAsync(beaconId, _connections.App, ct).ConfigureAwait(false);
+            _logger.LogInformation(
+                "location accepted seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published} outcome=dropped",
+                lastSeq, beaconId, _state.Current.CurrentEvent?.Id, lastPublished);
+            return new LocationResponse
+            {
+                Seq = lastSeq,
+                Published = lastPublished,
+                ReceivedAt = now,
+                ServerTime = now,
+                Outcome = "dropped",
+            };
+        }
+
         await using var conn = new NpgsqlConnection(_connections.App);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
@@ -60,6 +92,10 @@ public sealed class LocationIngest
         long snapshotVersion;
         string snapshotUrl;
         bool published;
+        string outcome;                       // 'stored' or 'carried'
+        double? bodySpeed = body.SpeedMps;
+        double? derivedSpeed = null;
+        string? speedSource;
 
         await using (var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false))
         {
@@ -87,11 +123,15 @@ public sealed class LocationIngest
             eventId = lockedEventId.Value;
             statusId = lockedStatusId;
 
-            // sql.md 8.2 step 2: re-read is_active, revoked_at, key_version under the transaction.
+            // sql.md 8.2 step 2: re-read is_active, revoked_at, min_interval_ms
+            // under the transaction. min_interval_ms is not part of the auth
+            // check but the same read carries it back so the row we bill (fixes
+            // counters) is the row we validated.
             bool isActive = false;
             DateTimeOffset? revokedAt = null;
+            int? beaconMinIntervalMs = null;
             await using (var beacon = new NpgsqlCommand(
-                "select is_active, revoked_at, key_version from beacon where id = $1;", conn, tx))
+                "select is_active, revoked_at, key_version, min_interval_ms from beacon where id = $1;", conn, tx))
             {
                 beacon.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                 await using var reader = await beacon.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -104,6 +144,7 @@ public sealed class LocationIngest
                 }
                 isActive = reader.GetBoolean(0);
                 revokedAt = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1);
+                beaconMinIntervalMs = reader.IsDBNull(3) ? null : reader.GetInt32(3);
             }
             if (revokedAt is not null)
             {
@@ -113,49 +154,156 @@ public sealed class LocationIngest
                     : new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
             }
             published = isActive;
+            _rateLimiter.RecordBeaconMinInterval(beaconId, beaconMinIntervalMs);
 
-            // sql.md 8.2 step 3: insert location, returning seq, received_at.
-            await using (var insert = new NpgsqlCommand(@"
-insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m, published)
-values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11)
+            // A37 3(b): read the beacon's last stored fix on this event.
+            double? prevLat = null, prevLng = null;
+            DateTimeOffset? prevReceivedAt = null;
+            DateTimeOffset? prevRecordedAt = null;
+            await using (var prev = new NpgsqlCommand(
+                @"select seq, lat, lng, recorded_at, received_at
+from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;", conn, tx))
+            {
+                prev.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                prev.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                await using var reader = await prev.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    prevLat = reader.GetDouble(1);
+                    prevLng = reader.GetDouble(2);
+                    prevRecordedAt = reader.GetFieldValue<DateTimeOffset>(3);
+                    prevReceivedAt = reader.GetFieldValue<DateTimeOffset>(4);
+                }
+            }
+
+            var minDistance = settings.LocationMinDistanceM;
+            var maxGap = TimeSpan.FromSeconds(settings.LocationMaxGapS);
+            var nowUtc = DateTimeOffset.UtcNow;
+
+            bool store;
+            if (prevLat is not double pLat || prevLng is not double pLng)
+            {
+                store = true;
+            }
+            else
+            {
+                var moved = HaversineMetres(pLat, pLng, body.Lat, body.Lng);
+                var pastGap = prevReceivedAt is not DateTimeOffset prAt || (nowUtc - prAt) >= maxGap;
+                bool distanceExceeded;
+                if (minDistance <= 0)
+                {
+                    // 0 means "carry only an exact repeat of lat and lng".
+                    distanceExceeded = body.Lat != pLat || body.Lng != pLng;
+                }
+                else
+                {
+                    distanceExceeded = moved >= minDistance;
+                }
+                store = distanceExceeded || pastGap;
+            }
+
+            outcome = store ? "stored" : "carried";
+
+            if (store)
+            {
+                // A37 3(b): compute derived speed when the body did not carry
+                // one AND we have a previous stored fix with a positive time
+                // delta. speed_source records which source we used.
+                if (bodySpeed is double bs)
+                {
+                    derivedSpeed = null;
+                    speedSource = "beacon";
+                }
+                else if (prevLat is double pl && prevLng is double png && prevRecordedAt is DateTimeOffset pra)
+                {
+                    var deltaS = (body.RecordedAt - pra).TotalSeconds;
+                    if (deltaS > 0)
+                    {
+                        var d = HaversineMetres(pl, png, body.Lat, body.Lng);
+                        derivedSpeed = d / deltaS;
+                        speedSource = "derived";
+                    }
+                    else
+                    {
+                        derivedSpeed = null;
+                        speedSource = null;
+                    }
+                }
+                else
+                {
+                    derivedSpeed = null;
+                    speedSource = null;
+                }
+
+                double? storedSpeed = bodySpeed ?? derivedSpeed;
+
+                await using (var insert = new NpgsqlCommand(@"
+insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m, published)
+values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12)
 returning seq, received_at;", conn, tx))
-            {
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = nextSeq });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.RecordedAt.ToUniversalTime() });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = body.Lat });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = body.Lng });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.SpeedMps ?? DBNull.Value });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AltitudeM ?? DBNull.Value });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.HeadingDeg ?? DBNull.Value });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AccuracyM ?? DBNull.Value });
-                insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
-                await using var reader = await insert.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                await reader.ReadAsync(ct).ConfigureAwait(false);
-                seq = reader.GetInt64(0);
-                receivedAt = reader.GetFieldValue<DateTimeOffset>(1);
-            }
+                {
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = nextSeq });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.RecordedAt.ToUniversalTime() });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = body.Lat });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = body.Lng });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)storedSpeed ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)speedSource ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AltitudeM ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.HeadingDeg ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AccuracyM ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
+                    await using var reader = await insert.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                    await reader.ReadAsync(ct).ConfigureAwait(false);
+                    seq = reader.GetInt64(0);
+                    receivedAt = reader.GetFieldValue<DateTimeOffset>(1);
+                }
 
-            // sql.md 8.2 step 4: bump event.next_seq.
-            await using (var bump = new NpgsqlCommand(
-                "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
-            {
-                bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-                await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-            }
-
-            // sql.md 8.2 step 5: stamp beacon.
-            await using (var stamp = new NpgsqlCommand(@"
-update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null, updated_at = now()
+                // Bump next_seq, and beacon counters + timestamps for a stored fix.
+                await using (var bump = new NpgsqlCommand(
+                    "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
+                {
+                    bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                    await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+                await using (var stamp = new NpgsqlCommand(@"
+update beacon
+set last_seen_at = now(), last_location_at = now(), stale_since = null,
+    fixes_stored = fixes_stored + 1, updated_at = now()
 where id = $1;", conn, tx))
+                {
+                    stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                    await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+            }
+            else
             {
-                stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
-                await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                // A37 3(b) carried: no row, but next_seq advances and that seq
+                // goes to the live object; beacon fixes_carried += 1,
+                // last_seen_at, stale_since null, last_location_at untouched.
+                seq = nextSeq;
+                receivedAt = DateTimeOffset.UtcNow;
+                speedSource = null;
+                await using (var bump = new NpgsqlCommand(
+                    "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
+                {
+                    bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                    await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
+                await using (var stamp = new NpgsqlCommand(@"
+update beacon
+set last_seen_at = now(), stale_since = null,
+    fixes_carried = fixes_carried + 1, updated_at = now()
+where id = $1;", conn, tx))
+                {
+                    stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                    await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                }
             }
 
-            // sql.md 8.2 step 6: read the snapshot row so the live object built after
-            // commit carries the exact snapshotUrl the transaction saw.
+            // sql.md 8.2 step 6: read the snapshot row so the live object built
+            // after commit carries the exact snapshotUrl the transaction saw.
             await using (var snap = new NpgsqlCommand(
                 "select version, url from snapshot where id = 1;", conn, tx))
             {
@@ -175,17 +323,30 @@ where id = $1;", conn, tx))
             await tx.CommitAsync(ct).ConfigureAwait(false);
         }
 
-        // api.md 16: log `location stored` at Information with seq, beaconId,
-        // eventId, published. CloudWatch's `LocationPublished` metric filter
-        // keys on this line.
-        _counters.IncrementLocationStored();
-        if (published) _counters.IncrementLocationPublished();
-        _logger.LogInformation("location stored seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published}",
-            seq, beaconId, eventId, published);
+        // Accept: set lastAcceptedAt for both stored and carried.
+        _rateLimiter.RecordAccept(beaconId, now, seq, published);
+
+        // api.md 16: log `location accepted` with the outcome property. The
+        // CloudWatch `LocationPublished` metric filter keys on outcome=stored.
+        if (outcome == "stored")
+        {
+            _counters.IncrementLocationStored();
+            if (published) _counters.IncrementLocationPublished();
+        }
+        else
+        {
+            _counters.IncrementLocationCarried();
+        }
+        _logger.LogInformation(
+            "location accepted seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published} outcome={Outcome}",
+            seq, beaconId, eventId, published, outcome);
 
         // After commit: on the ingest path, fire the CDN write (contracts 1.8).
+        // A37: carried fixes are published just like stored ones - the site
+        // sees a rising seq and every apply rule stays as it is.
         if (published)
         {
+            var effectiveSpeed = bodySpeed ?? derivedSpeed;
             var fields = new LocationSourceFields(
                 EventId: eventId,
                 EventStatusId: statusId,
@@ -194,7 +355,7 @@ where id = $1;", conn, tx))
                 Seq: seq,
                 Lat: body.Lat,
                 Lng: body.Lng,
-                SpeedMps: body.SpeedMps,
+                SpeedMps: effectiveSpeed,
                 AltitudeM: body.AltitudeM,
                 HeadingDeg: body.HeadingDeg,
                 AccuracyM: body.AccuracyM,
@@ -209,6 +370,7 @@ where id = $1;", conn, tx))
             Published = published,
             ReceivedAt = receivedAt,
             ServerTime = _clock.UtcNow(),
+            Outcome = outcome,
         };
     }
 
@@ -231,5 +393,117 @@ where id = $1;", conn, tx))
         if (body.AccuracyM is double ac && (double.IsNaN(ac) || double.IsInfinity(ac) || ac < 0 || ac > 100000))
             v.Field("accuracyM", "must be between 0 and 100000");
         v.ThrowIfInvalid();
+    }
+
+    // Great-circle distance in metres; the earth radius is the IUGG mean.
+    public static double HaversineMetres(double lat1, double lng1, double lat2, double lng2)
+    {
+        const double R = 6371008.8;
+        var toRad = Math.PI / 180.0;
+        var dLat = (lat2 - lat1) * toRad;
+        var dLng = (lng2 - lng1) * toRad;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2)
+              + Math.Cos(lat1 * toRad) * Math.Cos(lat2 * toRad)
+              * Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return R * c;
+    }
+}
+
+// A37: per-node in-memory rate limiter for POST /locations and the message
+// path. Each beacon tracks the last accepted timestamp, its effective override
+// (mirrored from the beacon row on the last write), the last accepted seq for
+// the dropped-response body, and a drop counter that flushes to
+// beacon.fixes_rate_limited at most once every 5 s per beacon (contracts 7.2).
+public sealed class BeaconRateLimiter
+{
+    private readonly ConcurrentDictionary<long, BeaconState> _states = new();
+
+    private sealed class BeaconState
+    {
+        public DateTimeOffset LastAcceptedAt = DateTimeOffset.MinValue;
+        public long LastSeq = 0;
+        public bool LastPublished = false;
+        public int? OverrideMs;
+        public int PendingDrops = 0;
+        public DateTimeOffset LastFlushAt = DateTimeOffset.MinValue;
+        public readonly SemaphoreSlim FlushGate = new(1, 1);
+    }
+
+    private BeaconState GetOrAdd(long beaconId) =>
+        _states.GetOrAdd(beaconId, _ => new BeaconState());
+
+    public int EffectiveInterval(long beaconId, int settingMs)
+    {
+        var s = GetOrAdd(beaconId);
+        return s.OverrideMs ?? settingMs;
+    }
+
+    public bool ShouldDrop(long beaconId, DateTimeOffset now, int effectiveMs, out long lastSeq, out bool lastPublished)
+    {
+        var s = GetOrAdd(beaconId);
+        lastSeq = Interlocked.Read(ref s.LastSeq);
+        lastPublished = s.LastPublished;
+        if (effectiveMs <= 0) return false;
+        if (s.LastAcceptedAt == DateTimeOffset.MinValue) return false;
+        var since = now - s.LastAcceptedAt;
+        return since < TimeSpan.FromMilliseconds(effectiveMs);
+    }
+
+    public void RecordAccept(long beaconId, DateTimeOffset now, long seq, bool published)
+    {
+        var s = GetOrAdd(beaconId);
+        s.LastAcceptedAt = now;
+        Interlocked.Exchange(ref s.LastSeq, seq);
+        s.LastPublished = published;
+    }
+
+    public void RecordBeaconMinInterval(long beaconId, int? overrideMs)
+    {
+        var s = GetOrAdd(beaconId);
+        s.OverrideMs = overrideMs;
+    }
+
+    // Called by the drop branch. Increments the pending count and, when at
+    // least 5 s have passed since the last flush, sends the accumulated count
+    // to the row and resets. One update per beacon at most every 5 s.
+    public async Task RecordDropAsync(long beaconId, string appConnectionString, CancellationToken ct)
+    {
+        var s = GetOrAdd(beaconId);
+        Interlocked.Increment(ref s.PendingDrops);
+        var now = DateTimeOffset.UtcNow;
+        if (now - s.LastFlushAt < TimeSpan.FromSeconds(5)) return;
+
+        if (!await s.FlushGate.WaitAsync(0, ct).ConfigureAwait(false))
+            return;                    // another flush in flight
+        try
+        {
+            if (DateTimeOffset.UtcNow - s.LastFlushAt < TimeSpan.FromSeconds(5))
+                return;
+            var toFlush = Interlocked.Exchange(ref s.PendingDrops, 0);
+            if (toFlush <= 0) return;
+            try
+            {
+                await using var conn = new NpgsqlConnection(appConnectionString);
+                await conn.OpenAsync(ct).ConfigureAwait(false);
+                await using var cmd = new NpgsqlCommand(
+                    "update beacon set fixes_rate_limited = fixes_rate_limited + $1, updated_at = now() where id = $2;", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (long)toFlush });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                s.LastFlushAt = DateTimeOffset.UtcNow;
+            }
+            catch
+            {
+                // Return the drops to the pending counter so a later flush
+                // captures them; a persistent database failure keeps the row
+                // untouched and the memory counter growing.
+                Interlocked.Add(ref s.PendingDrops, toFlush);
+            }
+        }
+        finally
+        {
+            s.FlushGate.Release();
+        }
     }
 }

@@ -24,10 +24,11 @@ public static class AdminSettingsEndpoints
         MapPut(app);
     }
 
-    // The five keys with their JSON defaults and integer ranges (contracts 6).
-    // Type is int only, so a single int-validating validator suffices; range
-    // limits differ per key.
-    public sealed record SettingKind(string Key, int DefaultValue, int Min, int Max);
+    // The keys with their JSON defaults and numeric ranges (contracts 6). The
+    // JSON type is `int` for every key except `location_min_distance_m`, which
+    // is `number` because sub-metre values are meaningful; the validator
+    // switches on `IsInteger`.
+    public sealed record SettingKind(string Key, double DefaultValue, double Min, double Max, bool IsInteger = true);
 
     public static readonly IReadOnlyList<SettingKind> Kinds = new SettingKind[]
     {
@@ -37,6 +38,9 @@ public static class AdminSettingsEndpoints
         new("sponsor_linger_min_ms",       2000,    0, 600000),
         new("beacon_stale_after_s",          45,   15,   3600),
         new("flight_history_max_points",   2000,  100,  50000),
+        new("location_min_interval_ms",     250,    0,  60000),
+        new("location_min_distance_m",        0,    0,  10000, IsInteger: false),
+        new("location_max_gap_s",            30,    1,   3600),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =
@@ -142,17 +146,46 @@ left join lateral (
             {
                 if (!ByKey.TryGetValue(key, out var kind))
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "unknown setting");
-                if (body.Value.ValueKind != JsonValueKind.Number || !body.Value.TryGetInt32(out var parsed))
+                if (body.Value.ValueKind != JsonValueKind.Number)
                 {
                     throw new ApiException(StatusCodes.Status400BadRequest,
                         ApiErrorCodes.ValidationFailed,
-                        "value must be an integer");
+                        kind.IsInteger ? "value must be an integer" : "value must be a number");
                 }
-                if (parsed < kind.Min || parsed > kind.Max)
+                double parsedValue;
+                string valueJson;
+                if (kind.IsInteger)
                 {
+                    if (!body.Value.TryGetInt32(out var parsedInt))
+                    {
+                        throw new ApiException(StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed,
+                            "value must be an integer");
+                    }
+                    parsedValue = parsedInt;
+                    valueJson = parsedInt.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                else
+                {
+                    if (!body.Value.TryGetDouble(out var parsedDouble)
+                        || double.IsNaN(parsedDouble) || double.IsInfinity(parsedDouble))
+                    {
+                        throw new ApiException(StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed,
+                            "value must be a finite number");
+                    }
+                    parsedValue = parsedDouble;
+                    valueJson = parsedDouble.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                }
+                if (parsedValue < kind.Min || parsedValue > kind.Max)
+                {
+                    var lo = kind.IsInteger ? ((int)kind.Min).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : kind.Min.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+                    var hi = kind.IsInteger ? ((int)kind.Max).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : kind.Max.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
                     throw new ApiException(StatusCodes.Status400BadRequest,
                         ApiErrorCodes.ValidationFailed,
-                        $"value must be between {kind.Min} and {kind.Max}");
+                        $"value must be between {lo} and {hi}");
                 }
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -177,7 +210,6 @@ left join lateral (
                             };
                         }
                     }
-                    var valueJson = parsed.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     string? updatedBy = null;
                     DateTimeOffset updatedAt = default;
                     await using (var up = new NpgsqlCommand(@"

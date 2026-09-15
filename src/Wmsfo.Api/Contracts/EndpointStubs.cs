@@ -355,6 +355,14 @@ public static class EndpointStubs
         app.MapGet("/admin/events/{id:long}/locations", NotImplemented)
             .WithTags("AdminEvents")
             .Produces<PageResponse<LocationRowDto>>(StatusCodes.Status200OK);
+
+        app.MapDelete("/admin/events/{id:long}/locations", NotImplemented)
+            .WithTags("AdminEvents")
+            .Produces(StatusCodes.Status204NoContent);
+
+        app.MapGet("/admin/events/{id:long}/locations/impact", NotImplemented)
+            .WithTags("AdminEvents")
+            .Produces<DeleteImpactDto>(StatusCodes.Status200OK);
     }
 
     private static void MapAdminRoutes(IEndpointRouteBuilder app)

@@ -354,12 +354,15 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         var k1 = await SetBeaconKeyAsync(b1);
         var k2 = await SetBeaconKeyAsync(b2);
 
-        async Task Send(string key)
+        // A37: the second call from b1 must be stored (not carried); using a
+        // fresh coordinate for it makes the min-distance decision trivially
+        // "distance exceeded" so the row lands regardless of the setting.
+        async Task Send(string key, double lat, double lng)
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "/locations")
             {
                 Content = new StringContent(
-                    "{\"lat\":1,\"lng\":1,\"recordedAt\":\"2026-12-22T01:31:07Z\"}",
+                    $"{{\"lat\":{lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"lng\":{lng.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"recordedAt\":\"2026-12-22T01:31:07Z\"}}",
                     Encoding.UTF8, "application/json"),
             };
             req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
@@ -367,9 +370,9 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
             Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         }
 
-        await Send(k1);
-        await Send(k2);
-        await Send(k1);
+        await Send(k1, 1, 1);
+        await Send(k2, 1, 1);
+        await Send(k1, 2, 2);
 
         var counts = await ReadLocationPublishedCountsAsync(evtId);
         Assert.Equal(2, counts.published);
@@ -572,9 +575,12 @@ values ($1, $2, $3, 'seed', now()) returning id;", conn);
             await wipe.ExecuteNonQueryAsync();
         }
         var key = Wmsfo.Api.Security.Keys.MintKey();
+        // A37: min_interval_ms = 0 by default so the A8 concurrent-inserts test
+        // is not throttled by the location filter (contracts 7.2). The A37
+        // tests seed beacons with the override they need explicitly.
         await using var cmd = new NpgsqlCommand(@"
-insert into beacon (name, key_hash, key_prefix, is_active, created_by, updated_at)
-values ($1, $2, $3, $4, 'seed', now()) returning id;", conn);
+insert into beacon (name, key_hash, key_prefix, is_active, min_interval_ms, created_by, updated_at)
+values ($1, $2, $3, $4, 0, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = key.Hash });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key.Prefix });

@@ -67,7 +67,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var doc = await ReadJsonAsync(response);
         var items = doc.RootElement.GetProperty("items").EnumerateArray()
-            .Select(e => (e.GetProperty("key").GetString()!, e.GetProperty("value").GetInt32()))
+            .Select(e => (e.GetProperty("key").GetString()!, e.GetProperty("value").GetDouble()))
             .ToDictionary(t => t.Item1, t => t.Item2);
         Assert.Equal(5000, items["poll_interval_ms"]);
         Assert.Equal(10, items["cookie_limit_per_person"]);
@@ -75,6 +75,9 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(2000, items["sponsor_linger_min_ms"]);
         Assert.Equal(45, items["beacon_stale_after_s"]);
         Assert.Equal(2000, items["flight_history_max_points"]);
+        Assert.Equal(250, items["location_min_interval_ms"]);
+        Assert.Equal(0, items["location_min_distance_m"]);
+        Assert.Equal(30, items["location_max_gap_s"]);
     }
 
     [Fact]

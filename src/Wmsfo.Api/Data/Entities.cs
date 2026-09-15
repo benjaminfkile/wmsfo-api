@@ -85,6 +85,10 @@ public sealed class Beacon
     public DateTimeOffset? LastHeartbeatAt { get; set; }
     public DateTimeOffset? StaleSince { get; set; }
     public JsonDocument? Telemetry { get; set; }
+    public int? MinIntervalMs { get; set; }
+    public long FixesStored { get; set; }
+    public long FixesCarried { get; set; }
+    public long FixesRateLimited { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -122,6 +126,7 @@ public sealed class Location
     public double Lat { get; set; }
     public double Lng { get; set; }
     public double? SpeedMps { get; set; }
+    public string? SpeedSource { get; set; }
     public double? AltitudeM { get; set; }
     public double? HeadingDeg { get; set; }
     public double? AccuracyM { get; set; }

@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -20,11 +21,10 @@ using Wmsfo.Api.Realtime;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A11 test host - the sponsors, cookie types and settings admin endpoints
-// wired to the real handlers, with dev static tokens for the admin and editor
-// bearers, an in-memory recording object store and fake gateway client so the
-// [snapshot] frames actually build+PUT+publish the snapshot.
-public sealed class A11Host : IAsyncDisposable
+// A37 test host: beacon + realtime + admin events + admin beacons, so the tests
+// can exercise POST /locations, /realtime/message, PATCH /admin/beacons, and
+// DELETE /admin/events/{id}/locations + its impact endpoint in one process.
+public sealed class A37Host : IAsyncDisposable
 {
     public WebApplication App { get; }
     public HttpClient Client { get; }
@@ -32,8 +32,10 @@ public sealed class A11Host : IAsyncDisposable
     public RecordingObjectStore Store { get; }
     public FakeGatewayClient Gateway { get; }
     public LiveObjectWriter Writer => App.Services.GetRequiredService<LiveObjectWriter>();
+    public BeaconRateLimiter RateLimiter => App.Services.GetRequiredService<BeaconRateLimiter>();
+    public NodeStateService State => App.Services.GetRequiredService<NodeStateService>();
 
-    private A11Host(WebApplication app, HttpClient client, WmsfoOptions options,
+    private A37Host(WebApplication app, HttpClient client, WmsfoOptions options,
         RecordingObjectStore store, FakeGatewayClient gateway)
     {
         App = app;
@@ -43,7 +45,12 @@ public sealed class A11Host : IAsyncDisposable
         Gateway = gateway;
     }
 
-    public static async Task<A11Host> StartAsync(string connectionString)
+    public async Task RefreshStateAsync()
+    {
+        await State.RefreshAsync("test", CancellationToken.None);
+    }
+
+    public static async Task<A37Host> StartAsync(string connectionString)
     {
         var options = new WmsfoOptions
         {
@@ -76,7 +83,7 @@ public sealed class A11Host : IAsyncDisposable
 
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
-            ApplicationName = typeof(A11Host).Assembly.GetName().Name,
+            ApplicationName = typeof(A37Host).Assembly.GetName().Name,
         });
         builder.Logging.ClearProviders();
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
@@ -125,17 +132,17 @@ public sealed class A11Host : IAsyncDisposable
 
         app.UseWmsfoPipeline();
 
-        AdminSponsorEndpoints.MapAll(app);
-        AdminCookieTypeEndpoints.MapAll(app);
-        AdminSettingsEndpoints.MapAll(app);
-        AdminImpactEndpoints.MapAll(app);
+        BeaconEndpoints.MapAll(app);
+        RealtimeEndpoints.MapAll(app);
+        AdminBeaconEndpoints.MapAll(app);
+        AdminEventEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
-        return new A11Host(app, client, options, store, gateway);
+        return new A37Host(app, client, options, store, gateway);
     }
 
     private static IEnumerable<string> AllPolicies()
@@ -157,16 +164,8 @@ public sealed class A11Host : IAsyncDisposable
     public HttpRequestMessage AdminRequest(HttpMethod method, string path)
     {
         var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+        req.Headers.Authorization = new AuthenticationHeaderValue(
             "Bearer", DevStaticTokens.AdminToken);
-        return req;
-    }
-
-    public HttpRequestMessage EditorRequest(HttpMethod method, string path)
-    {
-        var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-            "Bearer", DevStaticTokens.EditorToken);
         return req;
     }
 
