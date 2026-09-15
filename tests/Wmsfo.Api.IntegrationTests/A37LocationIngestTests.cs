@@ -66,8 +66,7 @@ public sealed class A37LocationIngestTests : IClassFixture<PostgresFixture>, IAs
         await using (var upd = new NpgsqlCommand(@"
 insert into app_setting (key, value, updated_by) values
   ('location_min_interval_ms', '250', 'seed'),
-  ('location_min_distance_m',  '0',   'seed'),
-  ('location_max_gap_s',       '30',  'seed')
+  ('location_min_distance_m',  '0',   'seed')
 on conflict (key) do update set value = excluded.value, updated_by = 'seed', updated_at = now();", conn))
         {
             await upd.ExecuteNonQueryAsync();
@@ -149,12 +148,11 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
     }
 
     [Fact]
-    public async Task New_position_after_max_gap_is_stored_even_when_inside_min_distance()
+    public async Task Move_inside_min_distance_is_carried_regardless_of_elapsed_time()
     {
-        // A previous stored fix whose received_at is more than max_gap ago
-        // lets a fix that moved less than min_distance still store, as long
-        // as the position is new to the event (A38: an existing position is
-        // carried whatever the gap).
+        // A39: without the max-gap rule, a fix that moved less than min_distance
+        // from the beacon's last stored fix is always carried, whatever the
+        // time between the two.
         await SetSettingAsync("location_min_distance_m", "50");
         await _host!.RefreshStateAsync();
 
@@ -163,6 +161,9 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await conn.OpenAsync();
+            // Seed a previous stored fix long enough ago that the old max-gap
+            // rule would have stored the follow-up. Without the rule, min
+            // distance alone decides.
             await using (var cmd = new NpgsqlCommand(@"
 insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, published)
 values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);", conn))
@@ -177,10 +178,9 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
                 await upd.ExecuteNonQueryAsync();
             }
         }
-        // ~1.1 m move (inside min_distance 50) but the position is new and
-        // the previous fix is past the gap.
+        // ~1.1 m move, inside min_distance 50.
         var (_, doc) = await PostFixAsync(key, 46.870010, -114.0);
-        Assert.Equal("stored", doc.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal("carried", doc.RootElement.GetProperty("outcome").GetString());
     }
 
     [Fact]

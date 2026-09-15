@@ -10,11 +10,11 @@ using Wmsfo.Api.Node;
 namespace Wmsfo.Api.Endpoints;
 
 // Contracts 2.5 message path AND POST /locations use the same validate-and-store
-// code (contracts 7.2, sql.md 8.2). A37 extends the write path with three
-// filters: per-beacon rate limit (min interval), per-fix distance carry (min
-// distance), and stored regardless of distance after max gap. The rate limit is
-// per node in memory; the carry decision runs inside the transaction against
-// the beacon's last stored fix on the event.
+// code (contracts 7.2, sql.md 8.2). The write path applies three rules: the
+// per-beacon min interval rate limit (in-memory, per node), the optional min
+// distance carry (in the transaction against the beacon's last stored fix on
+// the event), and the unique (event_id, lat, lng) index (A38) that carries a
+// repeat of any position already stored anywhere in the event.
 public sealed class LocationIngest
 {
     private readonly WmsfoConnectionStrings _connections;
@@ -155,12 +155,12 @@ public sealed class LocationIngest
             published = isActive;
             _rateLimiter.RecordBeaconMinInterval(beaconId, beaconMinIntervalMs);
 
-            // A37 3(b): read the beacon's last stored fix on this event.
+            // Read the beacon's last stored fix on this event: it drives the
+            // min-distance decision and the derived speed.
             double? prevLat = null, prevLng = null;
-            DateTimeOffset? prevReceivedAt = null;
             DateTimeOffset? prevRecordedAt = null;
             await using (var prev = new NpgsqlCommand(
-                @"select seq, lat, lng, recorded_at, received_at
+                @"select seq, lat, lng, recorded_at
 from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;", conn, tx))
             {
                 prev.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
@@ -171,34 +171,25 @@ from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;"
                     prevLat = reader.GetDouble(1);
                     prevLng = reader.GetDouble(2);
                     prevRecordedAt = reader.GetFieldValue<DateTimeOffset>(3);
-                    prevReceivedAt = reader.GetFieldValue<DateTimeOffset>(4);
                 }
             }
 
             var minDistance = settings.LocationMinDistanceM;
-            var maxGap = TimeSpan.FromSeconds(settings.LocationMaxGapS);
-            var nowUtc = DateTimeOffset.UtcNow;
 
             bool store;
             if (prevLat is not double pLat || prevLng is not double pLng)
             {
                 store = true;
             }
+            else if (minDistance <= 0)
+            {
+                // 0 means "carry only an exact repeat of lat and lng".
+                store = body.Lat != pLat || body.Lng != pLng;
+            }
             else
             {
                 var moved = HaversineMetres(pLat, pLng, body.Lat, body.Lng);
-                var pastGap = prevReceivedAt is not DateTimeOffset prAt || (nowUtc - prAt) >= maxGap;
-                bool distanceExceeded;
-                if (minDistance <= 0)
-                {
-                    // 0 means "carry only an exact repeat of lat and lng".
-                    distanceExceeded = body.Lat != pLat || body.Lng != pLng;
-                }
-                else
-                {
-                    distanceExceeded = moved >= minDistance;
-                }
-                store = distanceExceeded || pastGap;
+                store = moved >= minDistance;
             }
 
             bool inserted = false;
