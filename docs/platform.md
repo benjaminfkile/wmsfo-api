@@ -608,7 +608,7 @@ Container logs land in `/gateway/services/<service>` (one stream per instance, 3
 | `health-unavailable` | `{ $.marker = "wmsfo_health_unavailable" }` | `HealthUnavailable` |
 | `media-write-failed` | `{ $.marker = "wmsfo_media_write_failed" }` | `MediaWriteFailed` |
 | `content-published` | `{ $.marker = "wmsfo_content_published" }` | `ContentPublished` |
-| `location-stored` | `{ $.msg = "location stored" && $.published is true }` | `LocationPublished` |
+| `location-stored` | `{ $.outcome = "stored" && $.published is true }` (the `location accepted` line, api.md 16) | `LocationPublished` |
 | `http-5xx` | `{ $.status >= 500 }` | `Http5xx` |
 
 S3 request metrics on prefix `live/` (section 1.1) give `PutRequests` and `5xxErrors` for the live object; CloudFront's default metrics give requests, error rate, and cache hit ratio per distribution.
