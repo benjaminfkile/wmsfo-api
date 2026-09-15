@@ -14,7 +14,7 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - GET lists every key from contracts 6, filling defaults for missing rows
 //   - PUT validates type (integer) and range per key
 //   - PUT is a [snapshot] write; the snapshot version bumps
-//   - Unknown key → 404 not_found
+//   - Unknown key → 400 validation_failed
 public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -77,7 +77,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(2000, items["flight_history_max_points"]);
         Assert.Equal(250, items["location_min_interval_ms"]);
         Assert.Equal(0, items["location_min_distance_m"]);
-        Assert.Equal(30, items["location_max_gap_s"]);
+        Assert.False(items.ContainsKey("location_max_gap_s"));
     }
 
     [Fact]
@@ -125,10 +125,30 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
     }
 
     [Fact]
-    public async Task Put_unknown_key_is_404()
+    public async Task Put_unknown_key_is_400_validation_failed()
     {
         var response = await SendAdminAsync(HttpMethod.Put, "/admin/settings/no_such_key", "{\"value\":1}");
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Put_removed_location_max_gap_key_is_400_validation_failed()
+    {
+        var response = await SendAdminAsync(HttpMethod.Put, "/admin/settings/location_max_gap_s", "{\"value\":30}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+    }
+
+    [Fact]
+    public async Task Migration_removed_the_location_max_gap_row()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select count(*)::int from app_setting where key = 'location_max_gap_s';", conn);
+        var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+        Assert.Equal(0, count);
     }
 
     [Fact]

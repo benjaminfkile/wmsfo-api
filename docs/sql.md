@@ -222,7 +222,7 @@ comment on column beacon.stale_since is 'Set by the stale-beacon chore; cleared 
 comment on column beacon.telemetry is 'The last heartbeat body, stored as received: sentAt, the optional health core, and the beacon''s own debug object (contracts 4.2).';
 comment on column beacon.min_interval_ms is 'Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2, 7.2).';
 comment on column beacon.fixes_stored is 'Fixes stored as location rows on this beacon.';
-comment on column beacon.fixes_carried is 'Fixes accepted without a location row (within min distance and max gap).';
+comment on column beacon.fixes_carried is 'Fixes accepted without a location row (within min distance, or a repeat of a position already stored in the event).';
 comment on column beacon.fixes_rate_limited is 'Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.';
 ```
 
@@ -467,8 +467,7 @@ insert into app_setting (key, value, updated_by) values
   ('sponsor_linger_min_ms',        '2000', 'seed'),
   ('beacon_stale_after_s',         '45',   'seed'),
   ('location_min_interval_ms',     '250',  'seed'),
-  ('location_min_distance_m',      '0',    'seed'),
-  ('location_max_gap_s',           '30',   'seed')
+  ('location_min_distance_m',      '0',    'seed')
 on conflict (key) do nothing;
 ```
 
@@ -959,10 +958,10 @@ Before the transaction (per-node, in memory): drop the fix when `now - lastAccep
 begin;
 select id, status_id, next_seq from event where status_id = 3 for update;     -- none: rollback, 409 no_live_event
 select is_active, revoked_at, key_version, min_interval_ms from beacon where id = $beacon;   -- revoked or stale key_version: rollback, 401 (REST) or 403 (message path)
-select seq, lat, lng, recorded_at, received_at from location
+select seq, lat, lng, recorded_at from location
   where event_id = $event and beacon_id = $beacon order by seq desc limit 1;  -- new index location_event_beacon_seq (event_id, beacon_id, seq desc); drives derived speed and the distance decision
 -- Try to store when: no previous fix; the haversine distance from it is at least location_min_distance_m
--- (with 0 meaning lat or lng differs at all); or now - its received_at is at least location_max_gap_s. Otherwise carry.
+-- (with 0 meaning lat or lng differs at all). Otherwise carry.
 -- A38: the insert also carries on the unique (event_id, lat, lng) conflict, so a repeat of any position
 -- already stored in the event is carried whatever the filter said.
 
@@ -997,7 +996,7 @@ commit;
 
 Derived speed is the haversine distance from the previous stored fix divided by the seconds between the two `recorded_at` values; null when there is no previous fix or the delta is not positive.
 
-The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`. Carried fixes still take the seq from `event.next_seq`, advance it, and are published to the live object (contracts 7.2). A38's `location_event_position` unique index turns a repeat of any position already in the event into a carried outcome, so a replayed flight loops without growing the recording and the max-gap rule no longer stores a repeat.
+The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`. Carried fixes still take the seq from `event.next_seq`, advance it, and are published to the live object (contracts 7.2). A38's `location_event_position` unique index turns a repeat of any position already in the event into a carried outcome, so a replayed flight loops without growing the recording.
 
 ### 8.3 Heartbeat
 
@@ -1849,7 +1848,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

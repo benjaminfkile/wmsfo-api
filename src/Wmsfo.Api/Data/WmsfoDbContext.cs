@@ -232,7 +232,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.FixesStored).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_stored")
                 .HasComment("Fixes stored as location rows for this beacon.");
             e.Property(x => x.FixesCarried).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_carried")
-                .HasComment("Fixes accepted without a location row (within min distance and max gap).");
+                .HasComment("Fixes accepted without a location row (within min distance, or a repeat of a position already stored in the event).");
             e.Property(x => x.FixesRateLimited).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_rate_limited")
                 .HasComment("Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();

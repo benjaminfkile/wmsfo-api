@@ -14,8 +14,8 @@ namespace Wmsfo.Api.IntegrationTests;
 
 // A38 acceptance: a position is stored at most once per event. The unique
 // (event_id, lat, lng) index carries a repeat regardless of how the min
-// distance / max gap decision came out, and the migration removes any earlier
-// duplicates keeping the lowest seq before the index is created.
+// distance decision came out, and the migration removes any earlier duplicates
+// keeping the lowest seq before the index is created.
 public sealed class A38LocationEventPositionTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -52,8 +52,7 @@ public sealed class A38LocationEventPositionTests : IClassFixture<PostgresFixtur
         await using (var upd = new NpgsqlCommand(@"
 insert into app_setting (key, value, updated_by) values
   ('location_min_interval_ms', '250', 'seed'),
-  ('location_min_distance_m',  '0',   'seed'),
-  ('location_max_gap_s',       '30',  'seed')
+  ('location_min_distance_m',  '0',   'seed')
 on conflict (key) do update set value = excluded.value, updated_by = 'seed', updated_at = now();", conn))
         {
             await upd.ExecuteNonQueryAsync();
@@ -69,9 +68,9 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
     }
 
     // ------------------------------------------------------------------
-    // Same position twice by one beacon with a minute between (past max gap):
-    // stores once and carries once with next_seq advanced twice and the live
-    // object written both times.
+    // Same position twice by one beacon with a minute between: stores once
+    // and carries once with next_seq advanced twice and the live object
+    // written both times.
     // ------------------------------------------------------------------
 
     [Fact]
@@ -91,8 +90,8 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
         var putsAfterStored = _host!.Store.PutCount("live/location.json");
         Assert.True(putsAfterStored >= 1);
 
-        // Rewind the beacon's previous fix past the max gap and rewind the
-        // rate limiter so the second POST is not dropped.
+        // Rewind the beacon's previous fix and the rate limiter so the
+        // second POST is not dropped.
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await conn.OpenAsync();
@@ -104,8 +103,8 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
         }
         _host.RateLimiter.ResetLastAccepted(beaconId);
 
-        // Second send: past max gap but the position already exists in the
-        // event, so A38 carries it.
+        // Second send: the position already exists in the event, so A38
+        // carries it.
         var (s2, d2) = await PostFixAsync(key, 46.87, -114.0);
         Assert.Equal(HttpStatusCode.Created, s2);
         Assert.Equal("carried", d2.RootElement.GetProperty("outcome").GetString());

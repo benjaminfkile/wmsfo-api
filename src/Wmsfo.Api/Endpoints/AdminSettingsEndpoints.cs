@@ -12,10 +12,10 @@ using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Endpoints;
 
-// contracts 4.5 Settings + contracts 6 (`app_setting`). Five keys with the
-// documented defaults; GET returns every key (missing rows fill in the design
-// default with updatedBy = updatedAt = null); PUT is a [snapshot] write that
-// upserts the row after per-key type and range validation.
+// contracts 4.5 Settings + contracts 6 (`app_setting`). Every key of section 6
+// with the documented defaults; GET returns every key (missing rows fill in the
+// design default with updatedBy = updatedAt = null); PUT is a [snapshot] write
+// that upserts the row after per-key type and range validation.
 public static class AdminSettingsEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -40,7 +40,6 @@ public static class AdminSettingsEndpoints
         new("flight_history_max_points",   2000,  100,  50000),
         new("location_min_interval_ms",     250,    0,  60000),
         new("location_min_distance_m",        0,    0,  10000, IsInteger: false),
-        new("location_max_gap_s",            30,    1,   3600),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =
@@ -136,8 +135,8 @@ left join lateral (
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PUT /admin/settings/{key} [snapshot]. 404 for an unknown key; 400 when the
-    // value is not an integer or falls outside the range.
+    // PUT /admin/settings/{key} [snapshot]. 400 validation_failed for an unknown
+    // key, a value of the wrong type, or a value outside the range.
     private static void MapPut(IEndpointRouteBuilder app)
     {
         app.MapPut("/admin/settings/{key}",
@@ -145,7 +144,7 @@ left join lateral (
                    AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
             {
                 if (!ByKey.TryGetValue(key, out var kind))
-                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "unknown setting");
+                    throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed, "unknown setting");
                 if (body.Value.ValueKind != JsonValueKind.Number)
                 {
                     throw new ApiException(StatusCodes.Status400BadRequest,

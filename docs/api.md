@@ -246,7 +246,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /api/health` | none | ready flag and `select 1` with 2 s timeout | |
 | `POST /beacons/enroll` | none (IP-limited) | validate token format; one transaction: lock the token row by hash, check unconsumed and unexpired and the beacon not revoked, decrypt `key_ciphertext`, set `consumed_at`, null the ciphertext; respond with the key and URLs from options | sql.md 8 enroll |
 | `GET /beacons/me` | Beacon | stamp `last_seen_at`; read the live event id | |
-| `POST /locations` | Beacon | validate; the `BeaconRateLimiter` (section 8) drops fixes inside the beacon's effective min interval before any transaction and flushes a per-beacon count to `beacon.fixes_rate_limited` at most every 5 s; the location transaction (7.2) reads the beacon's last stored fix and decides `stored` vs `carried` per `location_min_distance_m` and `location_max_gap_s`; the response body carries `outcome`; then `LiveObjectWriter.WriteForLocation` when `published` (carried publishes just like stored) | contracts 7.2 |
+| `POST /locations` | Beacon | validate; the `BeaconRateLimiter` (section 8) drops fixes inside the beacon's effective min interval before any transaction and flushes a per-beacon count to `beacon.fixes_rate_limited` at most every 5 s; the location transaction (7.2) reads the beacon's last stored fix and decides `stored` vs `carried` per `location_min_distance_m`, and the unique `(event_id, lat, lng)` index carries any repeat of a position already in the event; the response body carries `outcome`; then `LiveObjectWriter.WriteForLocation` when `published` (carried publishes just like stored) | contracts 7.2 |
 | `POST /beacons/heartbeat` | Beacon | validate `sentAt`, the three optional `health` leaves, and the `debug` object's depth and size (section 15); store the body as telemetry, stamp `last_heartbeat_at`, `last_seen_at`, clear `stale_since`; respond with the live event id and `is_active` | |
 | `POST /beacons/logs` | Beacon | `text/plain` only; insert `beacon_log` | |
 | `POST /contact` | none (IP-limited) | validate; insert `contact_message` and outbox `contact.received` in one transaction | |
@@ -298,7 +298,7 @@ public sealed record NodeSnapshot(
     long? ActiveBeaconId,
     PublishedLocation? LatestPublished,      // the location row fields
     IReadOnlyDictionary<long, int> CookieTally,
-    Settings Settings,                        // the five keys
+    Settings Settings,                        // the keys of contracts 6
     DateTimeOffset RefreshedAt);
 ```
 

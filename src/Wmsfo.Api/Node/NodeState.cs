@@ -332,8 +332,7 @@ public sealed record NodeSettings(
     int SponsorLingerMinMs,
     int BeaconStaleAfterS,
     int LocationMinIntervalMs,
-    double LocationMinDistanceM,
-    int LocationMaxGapS)
+    double LocationMinDistanceM)
 {
     public static NodeSettings Defaults { get; } = new(
         PollIntervalMs: 5000,
@@ -342,8 +341,7 @@ public sealed record NodeSettings(
         SponsorLingerMinMs: 2000,
         BeaconStaleAfterS: 45,
         LocationMinIntervalMs: 250,
-        LocationMinDistanceM: 0,
-        LocationMaxGapS: 30);
+        LocationMinDistanceM: 0);
 
     public static NodeSettings FromMap(IReadOnlyDictionary<string, JsonElement> map)
     {
@@ -367,8 +365,7 @@ public sealed record NodeSettings(
             SponsorLingerMinMs: ReadInt("sponsor_linger_min_ms", d.SponsorLingerMinMs),
             BeaconStaleAfterS: ReadInt("beacon_stale_after_s", d.BeaconStaleAfterS),
             LocationMinIntervalMs: ReadInt("location_min_interval_ms", d.LocationMinIntervalMs),
-            LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM),
-            LocationMaxGapS: ReadInt("location_max_gap_s", d.LocationMaxGapS));
+            LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM));
     }
 }
 
