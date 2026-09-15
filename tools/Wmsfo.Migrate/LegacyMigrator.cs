@@ -378,11 +378,19 @@ returning id;", target, tx))
             var sortedTimes = rows.Select(r => (long)r.TimeMs).ToArray();
             var lats = rows.Select(r => r.Lat).ToArray();
             var lngs = rows.Select(r => r.Lng).ToArray();
+            // A38: a position is stored at most once per event (contracts 4.2,
+            // 7.2). Legacy replays can revisit the same coordinates within one
+            // flight; the unique index would raise 23505, so the bulk load uses
+            // `on conflict do nothing`. The unique index does not allow us to
+            // preserve the earlier row_number for the survivor when the source
+            // holds duplicates, but every duplicate lands as a carried fix and
+            // the recording still shows one point per unique position.
             await using (var bulk = new NpgsqlCommand(@"
 insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, published)
 select $1, $2, row_number() over (), to_timestamp(t / 1000.0), to_timestamp(t / 1000.0), lat, lng, true
 from unnest($3::bigint[], $4::float8[], $5::float8[]) with ordinality as p (t, lat, lng, ord)
-order by ord;", target, tx))
+order by ord
+on conflict (event_id, lat, lng) do nothing;", target, tx))
             {
                 bulk.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
                 bulk.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = legacyBeaconId });

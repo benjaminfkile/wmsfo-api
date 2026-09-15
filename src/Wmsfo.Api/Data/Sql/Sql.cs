@@ -29,9 +29,12 @@ where id = @beacon_id;";
 
     public const string LocationInsert = @"
 insert into location (event_id, beacon_id, seq, recorded_at, received_at,
-                      lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m, published)
+                      lat, lng, speed_mps, speed_source,
+                      altitude_m, heading_deg, accuracy_m, published)
 values (@event_id, @beacon_id, @seq, @recorded_at, now(),
-        @lat, @lng, @speed_mps, @altitude_m, @heading_deg, @accuracy_m, @published)
+        @lat, @lng, @speed_mps, @speed_source,
+        @altitude_m, @heading_deg, @accuracy_m, @published)
+on conflict (event_id, lat, lng) do nothing
 returning seq, received_at;";
 
     public const string LocationEventBumpSeq = @"

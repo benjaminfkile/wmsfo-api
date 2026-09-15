@@ -357,6 +357,8 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         // A37: the second call from b1 must be stored (not carried); using a
         // fresh coordinate for it makes the min-distance decision trivially
         // "distance exceeded" so the row lands regardless of the setting.
+        // A38: unique (event_id, lat, lng), so each Send below is a distinct
+        // position and none of them are carried by the conflict rule.
         async Task Send(string key, double lat, double lng)
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "/locations")
@@ -371,7 +373,7 @@ public sealed class A8BeaconEndpointsTests : IClassFixture<PostgresFixture>, IAs
         }
 
         await Send(k1, 1, 1);
-        await Send(k2, 1, 1);
+        await Send(k2, 1, 2);
         await Send(k1, 2, 2);
 
         var counts = await ReadLocationPublishedCountsAsync(evtId);

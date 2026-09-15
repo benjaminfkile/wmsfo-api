@@ -320,6 +320,12 @@ public sealed class WmsfoDbContext : DbContext
             e.HasIndex(x => new { x.EventId, x.BeaconId, x.Seq })
                 .HasDatabaseName("location_event_beacon_seq")
                 .IsDescending(false, false, true);
+            // A38: unique (event_id, lat, lng). A position is stored at most
+            // once per event; the insert uses `on conflict do nothing` and the
+            // conflict lands on the carried outcome (contracts 4.2, 7.2).
+            e.HasIndex(x => new { x.EventId, x.Lat, x.Lng })
+                .HasDatabaseName("location_event_position")
+                .IsUnique();
         });
 
         // 3.21 media_asset (before sponsor since sponsor references it)

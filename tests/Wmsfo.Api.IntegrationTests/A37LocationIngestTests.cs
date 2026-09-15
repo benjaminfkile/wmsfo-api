@@ -149,13 +149,17 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
     }
 
     [Fact]
-    public async Task Repeat_after_max_gap_is_stored()
+    public async Task New_position_after_max_gap_is_stored_even_when_inside_min_distance()
     {
-        // A previously stored fix whose received_at is more than max_gap ago
-        // is stored regardless of distance.
+        // A previous stored fix whose received_at is more than max_gap ago
+        // lets a fix that moved less than min_distance still store, as long
+        // as the position is new to the event (A38: an existing position is
+        // carried whatever the gap).
+        await SetSettingAsync("location_min_distance_m", "50");
+        await _host!.RefreshStateAsync();
+
         var evtId = await SeedEventAsync();
         var (beaconId, key) = await SeedBeaconAsync("gap", isActive: true, minIntervalMs: 0);
-        // Preseed a previous stored fix received 31 s ago.
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await conn.OpenAsync();
@@ -173,7 +177,9 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
                 await upd.ExecuteNonQueryAsync();
             }
         }
-        var (_, doc) = await PostFixAsync(key, 46.87, -114.0);   // exact repeat, but past the gap
+        // ~1.1 m move (inside min_distance 50) but the position is new and
+        // the previous fix is past the gap.
+        var (_, doc) = await PostFixAsync(key, 46.870010, -114.0);
         Assert.Equal("stored", doc.RootElement.GetProperty("outcome").GetString());
     }
 

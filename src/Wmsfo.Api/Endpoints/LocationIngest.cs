@@ -95,7 +95,6 @@ public sealed class LocationIngest
         string outcome;                       // 'stored' or 'carried'
         double? bodySpeed = body.SpeedMps;
         double? derivedSpeed = null;
-        string? speedSource;
 
         await using (var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false))
         {
@@ -202,14 +201,14 @@ from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;"
                 store = distanceExceeded || pastGap;
             }
 
-            outcome = store ? "stored" : "carried";
-
+            bool inserted = false;
             if (store)
             {
                 // A37 3(b): compute derived speed when the body did not carry
                 // one AND we have a previous stored fix with a positive time
                 // delta. speed_source records which source we used.
-                if (bodySpeed is double bs)
+                string? speedSource;
+                if (bodySpeed is double)
                 {
                     derivedSpeed = null;
                     speedSource = "beacon";
@@ -237,9 +236,16 @@ from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;"
 
                 double? storedSpeed = bodySpeed ?? derivedSpeed;
 
+                // A38: unique (event_id, lat, lng). A repeat of any position
+                // already stored in the event goes to the carried outcome; the
+                // insert uses `on conflict do nothing` and returning yields no
+                // rows on conflict (contracts 4.2, 7.2, sql.md 8.2).
+                long? insertedSeq = null;
+                DateTimeOffset? insertedReceivedAt = null;
                 await using (var insert = new NpgsqlCommand(@"
 insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m, published)
 values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12)
+on conflict (event_id, lat, lng) do nothing
 returning seq, received_at;", conn, tx))
                 {
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
@@ -255,51 +261,61 @@ returning seq, received_at;", conn, tx))
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AccuracyM ?? DBNull.Value });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
                     await using var reader = await insert.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                    await reader.ReadAsync(ct).ConfigureAwait(false);
-                    seq = reader.GetInt64(0);
-                    receivedAt = reader.GetFieldValue<DateTimeOffset>(1);
+                    if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                    {
+                        insertedSeq = reader.GetInt64(0);
+                        insertedReceivedAt = reader.GetFieldValue<DateTimeOffset>(1);
+                    }
                 }
-
-                // Bump next_seq, and beacon counters + timestamps for a stored fix.
-                await using (var bump = new NpgsqlCommand(
-                    "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
+                inserted = insertedSeq.HasValue;
+                if (inserted)
                 {
-                    bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-                    await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                    seq = insertedSeq!.Value;
+                    receivedAt = insertedReceivedAt!.Value;
                 }
-                await using (var stamp = new NpgsqlCommand(@"
-update beacon
-set last_seen_at = now(), last_location_at = now(), stale_since = null,
-    fixes_stored = fixes_stored + 1, updated_at = now()
-where id = $1;", conn, tx))
+                else
                 {
-                    stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
-                    await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                    seq = nextSeq;
+                    receivedAt = DateTimeOffset.UtcNow;
                 }
             }
             else
             {
-                // A37 3(b) carried: no row, but next_seq advances and that seq
-                // goes to the live object; beacon fixes_carried += 1,
-                // last_seen_at, stale_since null, last_location_at untouched.
                 seq = nextSeq;
                 receivedAt = DateTimeOffset.UtcNow;
-                speedSource = null;
-                await using (var bump = new NpgsqlCommand(
-                    "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
-                {
-                    bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-                    await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                }
-                await using (var stamp = new NpgsqlCommand(@"
+            }
+
+            outcome = inserted ? "stored" : "carried";
+
+            // next_seq always advances (both outcomes take a seq).
+            await using (var bump = new NpgsqlCommand(
+                "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
+            {
+                bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+
+            if (inserted)
+            {
+                // stored: last_location_at + fixes_stored bumps.
+                await using var stamp = new NpgsqlCommand(@"
+update beacon
+set last_seen_at = now(), last_location_at = now(), stale_since = null,
+    fixes_stored = fixes_stored + 1, updated_at = now()
+where id = $1;", conn, tx);
+                stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                // carried: last_location_at untouched.
+                await using var stamp = new NpgsqlCommand(@"
 update beacon
 set last_seen_at = now(), stale_since = null,
     fixes_carried = fixes_carried + 1, updated_at = now()
-where id = $1;", conn, tx))
-                {
-                    stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
-                    await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                }
+where id = $1;", conn, tx);
+                stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                await stamp.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
 
             // sql.md 8.2 step 6: read the snapshot row so the live object built
@@ -456,6 +472,15 @@ public sealed class BeaconRateLimiter
         s.LastAcceptedAt = now;
         Interlocked.Exchange(ref s.LastSeq, seq);
         s.LastPublished = published;
+    }
+
+    // Test hook: reset `lastAcceptedAt` so a subsequent fix is not dropped by
+    // the min-interval filter, without wiping the beacon's seq / published /
+    // override state.
+    public void ResetLastAccepted(long beaconId)
+    {
+        var s = GetOrAdd(beaconId);
+        s.LastAcceptedAt = DateTimeOffset.MinValue;
     }
 
     public void RecordBeaconMinInterval(long beaconId, int? overrideMs)
