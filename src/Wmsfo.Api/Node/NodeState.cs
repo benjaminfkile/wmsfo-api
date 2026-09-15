@@ -324,36 +324,51 @@ public sealed record PublishedLocation(
     DateTimeOffset RecordedAt,
     DateTimeOffset ReceivedAt);
 
-// contracts 6: the five knobs, with defaults filled in for a missing row.
+// contracts 6: the knobs, with defaults filled in for a missing row.
 public sealed record NodeSettings(
     int PollIntervalMs,
     int CookieLimitPerPerson,
     int SponsorLingerMsPerDollar,
     int SponsorLingerMinMs,
-    int BeaconStaleAfterS)
+    int BeaconStaleAfterS,
+    int LocationMinIntervalMs,
+    double LocationMinDistanceM,
+    int LocationMaxGapS)
 {
     public static NodeSettings Defaults { get; } = new(
         PollIntervalMs: 5000,
         CookieLimitPerPerson: 10,
         SponsorLingerMsPerDollar: 40,
         SponsorLingerMinMs: 2000,
-        BeaconStaleAfterS: 45);
+        BeaconStaleAfterS: 45,
+        LocationMinIntervalMs: 250,
+        LocationMinDistanceM: 0,
+        LocationMaxGapS: 30);
 
     public static NodeSettings FromMap(IReadOnlyDictionary<string, JsonElement> map)
     {
-        int Read(string key, int fallback)
+        int ReadInt(string key, int fallback)
         {
             if (map.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var parsed))
                 return parsed;
             return fallback;
         }
+        double ReadDouble(string key, double fallback)
+        {
+            if (map.TryGetValue(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var parsed))
+                return parsed;
+            return fallback;
+        }
         var d = Defaults;
         return new NodeSettings(
-            PollIntervalMs: Read("poll_interval_ms", d.PollIntervalMs),
-            CookieLimitPerPerson: Read("cookie_limit_per_person", d.CookieLimitPerPerson),
-            SponsorLingerMsPerDollar: Read("sponsor_linger_ms_per_dollar", d.SponsorLingerMsPerDollar),
-            SponsorLingerMinMs: Read("sponsor_linger_min_ms", d.SponsorLingerMinMs),
-            BeaconStaleAfterS: Read("beacon_stale_after_s", d.BeaconStaleAfterS));
+            PollIntervalMs: ReadInt("poll_interval_ms", d.PollIntervalMs),
+            CookieLimitPerPerson: ReadInt("cookie_limit_per_person", d.CookieLimitPerPerson),
+            SponsorLingerMsPerDollar: ReadInt("sponsor_linger_ms_per_dollar", d.SponsorLingerMsPerDollar),
+            SponsorLingerMinMs: ReadInt("sponsor_linger_min_ms", d.SponsorLingerMinMs),
+            BeaconStaleAfterS: ReadInt("beacon_stale_after_s", d.BeaconStaleAfterS),
+            LocationMinIntervalMs: ReadInt("location_min_interval_ms", d.LocationMinIntervalMs),
+            LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM),
+            LocationMaxGapS: ReadInt("location_max_gap_s", d.LocationMaxGapS));
     }
 }
 

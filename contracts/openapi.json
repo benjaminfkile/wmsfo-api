@@ -750,6 +750,35 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "AdminEvents"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/admin/events/{id}/locations/impact": {
+      "get": {
+        "tags": [
+          "AdminEvents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteImpactDto"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/routes": {
@@ -3527,6 +3556,39 @@
           "healthy": {
             "type": "boolean"
           },
+          "minIntervalMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fixesStored": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "fixesCarried": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "fixesRateLimited": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
           "createdBy": {
             "type": "string"
           },
@@ -5358,6 +5420,9 @@
           "serverTime": {
             "type": "string",
             "format": "date-time"
+          },
+          "outcome": {
+            "type": "string"
           }
         }
       },
@@ -5415,6 +5480,12 @@
               "string"
             ],
             "format": "double"
+          },
+          "speedSource": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "altitudeM": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
@@ -5876,6 +5947,22 @@
             ],
             "format": "int64"
           },
+          "locationsCarried": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "locationsRateLimited": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
           "livePutsOk": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -6292,6 +6379,9 @@
               "null",
               "string"
             ]
+          },
+          "minIntervalMs": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },

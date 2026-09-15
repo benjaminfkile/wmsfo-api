@@ -102,6 +102,7 @@ public sealed class A9Host : IAsyncDisposable
         builder.Services.AddSingleton(sp => IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl));
         builder.Services.AddSingleton<SnapshotBuilder>();
         builder.Services.AddSingleton<LiveObjectWriter>();
+        builder.Services.AddSingleton<BeaconRateLimiter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
         builder.Services.AddHttpContextAccessor();

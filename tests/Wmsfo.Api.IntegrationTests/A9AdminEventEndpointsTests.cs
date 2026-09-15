@@ -672,7 +672,7 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         var text = await response.Content.ReadAsStringAsync();
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,altitudeM,headingDeg,accuracyM",
+            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM",
             lines[0]);
         Assert.Equal(6, lines.Length); // 1 header + 5 rows
     }

@@ -119,6 +119,7 @@ public sealed class A14Host : IAsyncDisposable
         builder.Services.AddSingleton<DocumentBuilder>();
         builder.Services.AddSingleton<SnapshotBuilder>();
         builder.Services.AddSingleton<LiveObjectWriter>();
+        builder.Services.AddSingleton<BeaconRateLimiter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
         builder.Services.AddHttpContextAccessor();

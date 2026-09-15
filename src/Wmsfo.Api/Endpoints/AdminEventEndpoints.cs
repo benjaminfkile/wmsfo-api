@@ -36,6 +36,8 @@ public static class AdminEventEndpoints
         MapPatchMessage(app);
         MapDeleteMessage(app);
         MapLocations(app);
+        MapClearLocations(app);
+        MapLocationsImpact(app);
     }
 
     // GET /admin/events → 200 { items: Event[] } ordered by year desc.
@@ -1095,7 +1097,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
     // GET /admin/events/{id}/locations?cursor=&limit=&beaconId=&publishedOnly=false
     // Ordered by seq asc; keyset paging on seq; with Accept: text/csv streams
     // every matching row (paging ignored). Header:
-    //   seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,altitudeM,headingDeg,accuracyM
+    //   seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM
     private static void MapLocations(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/events/{id:long}/locations",
@@ -1160,9 +1162,10 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
                         Lat = reader.GetDouble(5),
                         Lng = reader.GetDouble(6),
                         SpeedMps = reader.IsDBNull(7) ? null : reader.GetDouble(7),
-                        AltitudeM = reader.IsDBNull(8) ? null : reader.GetDouble(8),
-                        HeadingDeg = reader.IsDBNull(9) ? null : reader.GetDouble(9),
-                        AccuracyM = reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                        SpeedSource = reader.IsDBNull(8) ? null : reader.GetString(8),
+                        AltitudeM = reader.IsDBNull(9) ? null : reader.GetDouble(9),
+                        HeadingDeg = reader.IsDBNull(10) ? null : reader.GetDouble(10),
+                        AccuracyM = reader.IsDBNull(11) ? null : reader.GetDouble(11),
                     });
                 }
                 string? nextCursor = null;
@@ -1181,6 +1184,107 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
+    // A37: DELETE /admin/events/{id}/locations?beaconId=. Deletes rows on the
+    // event (or a beacon's rows on the event when beaconId is given). 204;
+    // 409 event_live while the event is live; 404 unknown event. next_seq is
+    // not reset (contracts 4.5). audit action `event.locations_cleared` with
+    // before = { count, byBeacon }. The leader's next tick rewrites the live
+    // object from SQL so the site's marker updates.
+    private static void MapClearLocations(IEndpointRouteBuilder app)
+    {
+        app.MapDelete("/admin/events/{id:long}/locations",
+            async (long id, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+                long? beaconIdFilter = null;
+                var beaconIdText = ctx.Request.Query["beaconId"].ToString();
+                if (!string.IsNullOrEmpty(beaconIdText))
+                {
+                    if (!long.TryParse(beaconIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                        throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed, "beaconId malformed");
+                    beaconIdFilter = parsed;
+                }
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using var tx = await conn.BeginTransactionAsync(ct);
+                short status = 0;
+                await using (var read = new NpgsqlCommand(
+                    "select status_id from event where id = $1 for update;", conn, tx))
+                {
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var r = await read.ExecuteScalarAsync(ct);
+                    if (r is null || r is DBNull) throw NotFound();
+                    status = Convert.ToInt16(r);
+                }
+                if (status == 3)
+                    throw new ApiException(StatusCodes.Status409Conflict, "event_live", "event is live");
+
+                // Read the impact `before` (per-beacon counts) before the delete.
+                var before = await Impact.LocationClearQueries.BeforeAsync(conn, tx, id, beaconIdFilter, ct);
+
+                string sql = beaconIdFilter is null
+                    ? "delete from location where event_id = $1;"
+                    : "delete from location where event_id = $1 and beacon_id = $2;";
+                await using (var del = new NpgsqlCommand(sql, conn, tx))
+                {
+                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    if (beaconIdFilter is not null)
+                        del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconIdFilter.Value });
+                    await del.ExecuteNonQueryAsync(ct);
+                }
+
+                var entityId = beaconIdFilter is null
+                    ? id.ToString(CultureInfo.InvariantCulture)
+                    : id.ToString(CultureInfo.InvariantCulture) + ":" + beaconIdFilter.Value.ToString(CultureInfo.InvariantCulture);
+                await audit.RecordAsync(conn, tx, "locations_cleared", "event",
+                    entityId, before, after: null, ct);
+                await tx.CommitAsync(ct);
+                return Results.NoContent();
+            })
+            .WithTags("AdminEvents")
+            .Produces(StatusCodes.Status204NoContent)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // A37: GET /admin/events/{id}/locations/impact. One group 'locations' per
+    // beacon with the count and the beacon's name; blocked with
+    // 'This event is live. End it first.' while status is 3 (contracts 4.5).
+    private static void MapLocationsImpact(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/events/{id:long}/locations/impact",
+            async (long id, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                short status = 0;
+                bool exists = false;
+                await using (var read = new NpgsqlCommand(
+                    "select status_id from event where id = $1;", conn))
+                {
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var r = await read.ExecuteScalarAsync(ct);
+                    if (r is not null && r is not DBNull)
+                    {
+                        exists = true;
+                        status = Convert.ToInt16(r);
+                    }
+                }
+                if (!exists) throw NotFound();
+                var impact = await Impact.LocationClearQueries.PreviewAsync(conn, null, id, ct);
+                if (status == 3) impact.Blocked = "This event is live. End it first.";
+                return Results.Ok(impact);
+            })
+            .WithTags("AdminEvents")
+            .Produces<DeleteImpactDto>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
     private static string BuildLocationsSql(bool hasCursor, bool hasBeacon, bool publishedOnly)
     {
         var conditions = new List<string> { "event_id = $1" };
@@ -1193,7 +1297,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             conditions.Add("published");
         var limitIdx = next;
         return @"
-select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m
+select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m
 from location
 where " + string.Join(" and ", conditions) + @"
 order by seq
@@ -1230,7 +1334,7 @@ limit $" + limitIdx + ";";
             var ct = httpContext.RequestAborted;
 
             await httpContext.Response.WriteAsync(
-                "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,altitudeM,headingDeg,accuracyM\n", ct);
+                "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM\n", ct);
 
             await using var conn = new NpgsqlConnection(_connections.App);
             await conn.OpenAsync(ct);
@@ -1246,7 +1350,7 @@ limit $" + limitIdx + ";";
                 if (_publishedOnly) conditions.Add("published");
                 var limitIdx = next;
                 var sql = @"
-select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m
+select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m
 from location
 where " + string.Join(" and ", conditions) + @"
 order by seq
@@ -1270,10 +1374,11 @@ limit $" + limitIdx + ";";
                         var lat = reader.GetDouble(5);
                         var lng = reader.GetDouble(6);
                         double? speedMps = reader.IsDBNull(7) ? null : reader.GetDouble(7);
-                        double? altitudeM = reader.IsDBNull(8) ? null : reader.GetDouble(8);
-                        double? headingDeg = reader.IsDBNull(9) ? null : reader.GetDouble(9);
-                        double? accuracyM = reader.IsDBNull(10) ? null : reader.GetDouble(10);
-                        var line = string.Create(CultureInfo.InvariantCulture, $"{seq},{beaconId},{(published ? "true" : "false")},{FormatTs(recordedAt)},{FormatTs(receivedAt)},{Fmt(lat)},{Fmt(lng)},{FmtOpt(speedMps)},{FmtOpt(altitudeM)},{FmtOpt(headingDeg)},{FmtOpt(accuracyM)}\n");
+                        string? speedSource = reader.IsDBNull(8) ? null : reader.GetString(8);
+                        double? altitudeM = reader.IsDBNull(9) ? null : reader.GetDouble(9);
+                        double? headingDeg = reader.IsDBNull(10) ? null : reader.GetDouble(10);
+                        double? accuracyM = reader.IsDBNull(11) ? null : reader.GetDouble(11);
+                        var line = string.Create(CultureInfo.InvariantCulture, $"{seq},{beaconId},{(published ? "true" : "false")},{FormatTs(recordedAt)},{FormatTs(receivedAt)},{Fmt(lat)},{Fmt(lng)},{FmtOpt(speedMps)},{speedSource ?? ""},{FmtOpt(altitudeM)},{FmtOpt(headingDeg)},{FmtOpt(accuracyM)}\n");
                         await httpContext.Response.WriteAsync(line, ct);
                         lastSeq = seq;
                         rowsInBatch++;

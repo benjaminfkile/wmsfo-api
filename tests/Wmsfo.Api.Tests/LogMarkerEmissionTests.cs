@@ -114,19 +114,20 @@ public class LogMarkerEmissionTests
     }
 
     [Fact]
-    public void LocationStored_line_is_wired_in_LocationIngest()
+    public void LocationAccepted_line_is_wired_in_LocationIngest()
     {
-        // api.md 16: the location handler logs `location stored` at Information
-        // with seq, beaconId, eventId, and published. Platform's
-        // `LocationPublished` metric filter keys on that literal message prefix.
+        // api.md 16: the location handler logs `location accepted` at Information
+        // with seq, beaconId, eventId, published, and outcome. Platform's
+        // `LocationPublished` metric filter keys on that literal message prefix
+        // with `outcome=stored`.
         var root = FindRepoRoot();
         var path = Path.Combine(root, "src", "Wmsfo.Api", "Endpoints", "LocationIngest.cs");
         var source = File.ReadAllText(path);
         var pattern = new Regex(
-            @"LogInformation\s*\(\s*""location stored[^""]*\{Seq\}[^""]*\{BeaconId\}[^""]*\{EventId\}[^""]*\{Published\}",
+            @"LogInformation\s*\(\s*(?:@\s*)?""\s*location accepted[^""]*\{Seq\}[^""]*\{BeaconId\}[^""]*\{EventId\}[^""]*\{Published\}[^""]*\{Outcome\}",
             RegexOptions.Singleline);
         Assert.True(pattern.IsMatch(source),
-            "LocationIngest.cs must contain a LogInformation call whose template starts with `location stored ` and includes {Seq}, {BeaconId}, {EventId}, {Published}");
+            "LocationIngest.cs must contain a LogInformation call whose template starts with `location accepted` and includes {Seq}, {BeaconId}, {EventId}, {Published}, {Outcome}");
     }
 
     // ---- Source-code emission proofs ----

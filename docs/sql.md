@@ -186,22 +186,26 @@ comment on column event_message.event_time is 'The time the message is about, as
 
 ```sql
 create table beacon (
-  id                bigint generated always as identity primary key,
-  name              text not null,
-  notes             text not null default '',
-  key_hash          bytea not null unique,
-  key_prefix        text not null,
-  key_version       integer not null default 1,
-  is_active         boolean not null default false,
-  revoked_at        timestamptz,
-  last_seen_at      timestamptz,
-  last_location_at  timestamptz,
-  last_heartbeat_at timestamptz,
-  stale_since       timestamptz,
-  telemetry         jsonb,
-  created_by        text not null,
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now()
+  id                 bigint generated always as identity primary key,
+  name               text not null,
+  notes              text not null default '',
+  key_hash           bytea not null unique,
+  key_prefix         text not null,
+  key_version        integer not null default 1,
+  is_active          boolean not null default false,
+  revoked_at         timestamptz,
+  last_seen_at       timestamptz,
+  last_location_at   timestamptz,
+  last_heartbeat_at  timestamptz,
+  stale_since        timestamptz,
+  telemetry          jsonb,
+  min_interval_ms    integer,
+  fixes_stored       bigint not null default 0,
+  fixes_carried      bigint not null default 0,
+  fixes_rate_limited bigint not null default 0,
+  created_by         text not null,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
 );
 create unique index beacon_one_active on beacon (is_active) where is_active;
 
@@ -216,6 +220,10 @@ comment on column beacon.last_location_at is 'Last stored location, published or
 comment on column beacon.last_heartbeat_at is 'Last stored heartbeat.';
 comment on column beacon.stale_since is 'Set by the stale-beacon chore; cleared by a heartbeat or a stored location.';
 comment on column beacon.telemetry is 'The last heartbeat body, stored as received: sentAt, the optional health core, and the beacon''s own debug object (contracts 4.2).';
+comment on column beacon.min_interval_ms is 'Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2, 7.2).';
+comment on column beacon.fixes_stored is 'Fixes stored as location rows on this beacon.';
+comment on column beacon.fixes_carried is 'Fixes accepted without a location row (within min distance and max gap).';
+comment on column beacon.fixes_rate_limited is 'Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.';
 ```
 
 ### 3.7 `beacon_enrollment_token`
@@ -256,28 +264,31 @@ comment on table beacon_log is 'Red-Nose debug log uploads (admin-role beacons).
 
 ```sql
 create table location (
-  id          bigint generated always as identity primary key,
-  event_id    bigint not null references event (id),
-  beacon_id   bigint not null references beacon (id),
-  seq         bigint not null,
-  recorded_at timestamptz not null,
-  received_at timestamptz not null default now(),
-  lat         double precision not null,
-  lng         double precision not null,
-  speed_mps   double precision,
-  altitude_m  double precision,
-  heading_deg double precision,
-  accuracy_m  double precision,
-  published   boolean not null,
+  id           bigint generated always as identity primary key,
+  event_id     bigint not null references event (id),
+  beacon_id    bigint not null references beacon (id),
+  seq          bigint not null,
+  recorded_at  timestamptz not null,
+  received_at  timestamptz not null default now(),
+  lat          double precision not null,
+  lng          double precision not null,
+  speed_mps    double precision,
+  speed_source text,
+  altitude_m   double precision,
+  heading_deg  double precision,
+  accuracy_m   double precision,
+  published    boolean not null,
   unique (event_id, seq)
 );
 create index location_event_published_seq on location (event_id, seq desc) where published;
+create index location_event_beacon_seq    on location (event_id, beacon_id, seq desc);
 
 comment on table location is 'Every stored fix. Kept forever; exported by admins; never read by the public site.';
 comment on column location.seq is 'Arrival order within the event, from event.next_seq. The only order that exists.';
 comment on column location.recorded_at is 'The fix time the beacon sent. Informational; it never decides anything.';
 comment on column location.received_at is 'When the API stored the row.';
 comment on column location.published is 'beacon.is_active at the moment of the insert. Only published rows reach the live object.';
+comment on column location.speed_source is 'beacon when the body carried speedMps, derived when the API computed it from the previous stored fix, null otherwise (contracts 7.2).';
 ```
 
 ### 3.10 `sponsor`
@@ -451,7 +462,10 @@ insert into app_setting (key, value, updated_by) values
   ('cookie_limit_per_person',      '10',   'seed'),
   ('sponsor_linger_ms_per_dollar', '40',   'seed'),
   ('sponsor_linger_min_ms',        '2000', 'seed'),
-  ('beacon_stale_after_s',         '45',   'seed')
+  ('beacon_stale_after_s',         '45',   'seed'),
+  ('location_min_interval_ms',     '250',  'seed'),
+  ('location_min_distance_m',      '0',    'seed'),
+  ('location_max_gap_s',           '30',   'seed')
 on conflict (key) do nothing;
 ```
 
@@ -747,6 +761,7 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `location_pkey` | pk `(id)` | |
 | `location_event_id_seq_key` | unique `(event_id, seq)` | the export (`order by seq asc`, keyset on `seq`); the guarantee that `next_seq` never hands out a duplicate |
 | `location_event_published_seq` | `(event_id, seq desc) where published` | the reconcile tick's latest published location (`limit 1`); the export with `publishedOnly=true` |
+| `location_event_beacon_seq` | `(event_id, beacon_id, seq desc)` | the location transaction's per-beacon latest-fix lookup (contracts 7.2) |
 | `sponsor_pkey` | pk `(id)` | |
 | `sponsor_logo_media` | `(logo_media_id) where logo_media_id is not null` | media usage and the orphan chore's referenced set; `409 media_in_use` |
 | `sponsor_year_pkey` | pk `(id)` | |
@@ -933,23 +948,47 @@ returning id;
 
 ### 8.2 Location insert (REST door and hub door)
 
+Before the transaction (per-node, in memory): drop the fix when `now - lastAcceptedAt[$beacon] < effective_min_interval`, where `effective_min_interval = beacon.min_interval_ms when set else location_min_interval_ms`. The drop increments a per-beacon counter that flushes to `beacon.fixes_rate_limited` at most every 5 s per beacon. The response is `201 { seq, published, receivedAt, serverTime, outcome: "dropped" }` (contracts 4.2).
+
 ```sql
 begin;
 select id, status_id, next_seq from event where status_id = 3 for update;     -- none: rollback, 409 no_live_event
-select is_active, revoked_at, key_version from beacon where id = $beacon;      -- revoked or stale key_version: rollback, 401 (REST) or 403 (message path)
+select is_active, revoked_at, key_version, min_interval_ms from beacon where id = $beacon;   -- revoked or stale key_version: rollback, 401 (REST) or 403 (message path)
+select seq, lat, lng, recorded_at, received_at from location
+  where event_id = $event and beacon_id = $beacon order by seq desc limit 1;  -- new index location_event_beacon_seq (event_id, beacon_id, seq desc)
+-- Store when: no previous fix; the haversine distance from it is at least location_min_distance_m
+-- (with 0 meaning lat or lng differs at all); or now - its received_at is at least location_max_gap_s. Otherwise carry.
+
+-- stored:
 insert into location (event_id, beacon_id, seq, recorded_at, received_at,
-                      lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m, published)
+                      lat, lng, speed_mps, speed_source,
+                      altitude_m, heading_deg, accuracy_m, published)
 values ($event, $beacon, $next_seq, $recorded_at, now(),
-        $lat, $lng, $speed_mps, $altitude_m, $heading_deg, $accuracy_m, $is_active)
+        $lat, $lng,
+        coalesce($body_speed_mps, $derived_speed_mps),
+        case when $body_speed_mps is not null then 'beacon'
+             when $derived_speed_mps is not null then 'derived'
+             else null end,
+        $altitude_m, $heading_deg, $accuracy_m, $is_active)
 returning seq, received_at;
 update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
-update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null, updated_at = now()
+update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
+                  fixes_stored = fixes_stored + 1, updated_at = now()
   where id = $beacon;
+
+-- carried (no row):
+update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
+update beacon set last_seen_at = now(), stale_since = null,
+                  fixes_carried = fixes_carried + 1, updated_at = now()
+  where id = $beacon;
+
 select version, url from snapshot where id = 1;                               -- carried into the live object
 commit;
 ```
 
-The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`.
+Derived speed is the haversine distance from the previous stored fix divided by the seconds between the two `recorded_at` values; null when there is no previous fix or the delta is not positive.
+
+The event row lock serializes seq assignment across nodes. The lock is held for the duration of the insert only; the CDN PUT and the hub publish happen after commit and outside any transaction. On the REST door the beacon was resolved before the transaction by `select id, role, is_active, revoked_at from beacon where key_hash = $hash` (revoked or unknown: `401`); the in-transaction re-read of `is_active` is what decides `published`. Carried fixes still take the seq from `event.next_seq`, advance it, and are published to the live object (contracts 7.2).
 
 ### 8.3 Heartbeat
 
@@ -1801,7 +1840,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

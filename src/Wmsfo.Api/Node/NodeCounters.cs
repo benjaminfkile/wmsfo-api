@@ -9,6 +9,8 @@ public sealed class NodeCounters
 {
     private long _locationsStored;
     private long _locationsPublished;
+    private long _locationsCarried;
+    private long _locationsRateLimited;
     private long _livePutsOk;
     private long _livePutsFailed;
     private long _publishesOk;
@@ -27,6 +29,8 @@ public sealed class NodeCounters
 
     public void IncrementLocationStored() => Interlocked.Increment(ref _locationsStored);
     public void IncrementLocationPublished() => Interlocked.Increment(ref _locationsPublished);
+    public void IncrementLocationCarried() => Interlocked.Increment(ref _locationsCarried);
+    public void IncrementLocationsRateLimited() => Interlocked.Increment(ref _locationsRateLimited);
     public void IncrementLivePutOk() => Interlocked.Increment(ref _livePutsOk);
     public void IncrementLivePutFailed() => Interlocked.Increment(ref _livePutsFailed);
     public void IncrementPublishOk() => Interlocked.Increment(ref _publishesOk);
@@ -57,6 +61,8 @@ public sealed class NodeCounters
     {
         LocationsStored = Interlocked.Read(ref _locationsStored),
         LocationsPublished = Interlocked.Read(ref _locationsPublished),
+        LocationsCarried = Interlocked.Read(ref _locationsCarried),
+        LocationsRateLimited = Interlocked.Read(ref _locationsRateLimited),
         LivePutsOk = Interlocked.Read(ref _livePutsOk),
         LivePutsFailed = Interlocked.Read(ref _livePutsFailed),
         PublishesOk = Interlocked.Read(ref _publishesOk),
@@ -81,6 +87,8 @@ public sealed class NodeCountersSnapshot
 {
     public long LocationsStored { get; set; }
     public long LocationsPublished { get; set; }
+    public long LocationsCarried { get; set; }
+    public long LocationsRateLimited { get; set; }
     public long LivePutsOk { get; set; }
     public long LivePutsFailed { get; set; }
     public long PublishesOk { get; set; }

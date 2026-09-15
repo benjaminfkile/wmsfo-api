@@ -227,6 +227,14 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Set by the stale-beacon chore; cleared by a heartbeat or a stored location.");
             e.Property(x => x.Telemetry).HasColumnType("jsonb")
                 .HasComment("The last heartbeat body, stored as received.");
+            e.Property(x => x.MinIntervalMs).HasColumnType("integer").HasColumnName("min_interval_ms")
+                .HasComment("Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2 / 6).");
+            e.Property(x => x.FixesStored).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_stored")
+                .HasComment("Fixes stored as location rows for this beacon.");
+            e.Property(x => x.FixesCarried).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_carried")
+                .HasComment("Fixes accepted without a location row (within min distance and max gap).");
+            e.Property(x => x.FixesRateLimited).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_rate_limited")
+                .HasComment("Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
@@ -291,6 +299,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Lat).HasColumnType("double precision").IsRequired();
             e.Property(x => x.Lng).HasColumnType("double precision").IsRequired();
             e.Property(x => x.SpeedMps).HasColumnType("double precision");
+            e.Property(x => x.SpeedSource).HasColumnType("text").HasColumnName("speed_source")
+                .HasComment("'beacon' when the body carried speedMps, 'derived' when the API computed it from the previous stored fix, null otherwise (contracts 7.2).");
             e.Property(x => x.AltitudeM).HasColumnType("double precision");
             e.Property(x => x.HeadingDeg).HasColumnType("double precision");
             e.Property(x => x.AccuracyM).HasColumnType("double precision");
@@ -305,6 +315,11 @@ public sealed class WmsfoDbContext : DbContext
                 .HasDatabaseName("location_event_published_seq")
                 .IsDescending(false, true)
                 .HasFilter("published");
+            // A37: index on (event_id, beacon_id, seq desc) so the location
+            // transaction's per-beacon latest lookup lands on an index.
+            e.HasIndex(x => new { x.EventId, x.BeaconId, x.Seq })
+                .HasDatabaseName("location_event_beacon_seq")
+                .IsDescending(false, false, true);
         });
 
         // 3.21 media_asset (before sponsor since sponsor references it)

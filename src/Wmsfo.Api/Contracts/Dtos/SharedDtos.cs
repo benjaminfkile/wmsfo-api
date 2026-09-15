@@ -96,6 +96,12 @@ public sealed class BeaconDto
     public JsonElement? Telemetry { get; set; }
     public bool? HubConnected { get; set; }
     public bool Healthy { get; set; }
+    // A37: per-beacon min-interval override (null means the setting) plus the
+    // three fix counters kept on the row (contracts 4.2, 5, 7.2).
+    public int? MinIntervalMs { get; set; }
+    public long FixesStored { get; set; }
+    public long FixesCarried { get; set; }
+    public long FixesRateLimited { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -301,6 +307,7 @@ public sealed class LocationRowDto
     public double Lat { get; set; }
     public double Lng { get; set; }
     public double? SpeedMps { get; set; }
+    public string? SpeedSource { get; set; }
     public double? AltitudeM { get; set; }
     public double? HeadingDeg { get; set; }
     public double? AccuracyM { get; set; }

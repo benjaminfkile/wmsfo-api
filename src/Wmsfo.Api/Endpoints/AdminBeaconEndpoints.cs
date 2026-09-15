@@ -153,6 +153,29 @@ order by b.name asc, b.id asc;", conn))
                     v.Field("name", "must be 1 to 100 characters");
                 if (body.Notes is not null && body.Notes.Length > 2000)
                     v.Field("notes", "must be 0 to 2000 characters");
+                // A37: minIntervalMs. Null clears the override, a number sets
+                // it (0..60000), absent (JsonValueKind.Undefined) leaves the
+                // row untouched.
+                int? minIntervalValue = null;
+                bool minIntervalClear = false;
+                var el = body.MinIntervalMs;
+                switch (el.ValueKind)
+                {
+                    case System.Text.Json.JsonValueKind.Undefined:
+                        break;
+                    case System.Text.Json.JsonValueKind.Null:
+                        minIntervalClear = true;
+                        break;
+                    case System.Text.Json.JsonValueKind.Number when el.TryGetInt32(out var mi):
+                        if (mi < 0 || mi > 60000)
+                            v.Field("minIntervalMs", "must be between 0 and 60000");
+                        else
+                            minIntervalValue = mi;
+                        break;
+                    default:
+                        v.Field("minIntervalMs", "must be an integer or null");
+                        break;
+                }
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -175,6 +198,15 @@ order by b.name asc, b.id asc;", conn))
                 {
                     sets.Add($"notes = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Notes });
+                }
+                if (minIntervalClear)
+                {
+                    sets.Add("min_interval_ms = null");
+                }
+                else if (minIntervalValue is int mi2)
+                {
+                    sets.Add($"min_interval_ms = ${next++}");
+                    parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = mi2 });
                 }
                 if (sets.Count > 0)
                 {
@@ -605,7 +637,8 @@ returning expires_at;", conn, tx))
 select b.id, b.name, b.notes, b.key_prefix, b.key_version, b.is_active, b.revoked_at,
        b.last_seen_at, b.last_location_at, b.last_heartbeat_at, b.stale_since,
        b.telemetry, b.created_by, b.created_at, b.updated_at,
-       a.action, a.actor, a.at
+       a.action, a.actor, a.at,
+       b.min_interval_ms, b.fixes_stored, b.fixes_carried, b.fixes_rate_limited
 from beacon b
 left join lateral (
   select action, actor, at from audit_log
@@ -676,6 +709,10 @@ left join lateral (
                 At = reader.GetFieldValue<DateTimeOffset>(17),
             };
         }
+        dto.MinIntervalMs = reader.IsDBNull(18) ? null : reader.GetInt32(18);
+        dto.FixesStored = reader.GetInt64(19);
+        dto.FixesCarried = reader.GetInt64(20);
+        dto.FixesRateLimited = reader.GetInt64(21);
         return (dto, keyVersion);
     }
 
