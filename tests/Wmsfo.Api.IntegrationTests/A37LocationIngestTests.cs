@@ -279,12 +279,12 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
         Assert.Equal("carried", d2.RootElement.GetProperty("outcome").GetString());
         var seqCarried = d2.RootElement.GetProperty("seq").GetInt64();
         Assert.Equal(d1.RootElement.GetProperty("seq").GetInt64() + 1, seqCarried);
-        // The writer was invoked; wait briefly for the async publish.
-        for (var i = 0; i < 50 && _host!.Store.PutCount("live/location.json") == 0; i++)
+        // Both fixes PUT the live object, so waiting on PutCount alone races
+        // with the stored fix's write: wait for the carried fix's own seq.
+        var writer = _host!.Writer;
+        for (var i = 0; i < 300 && writer.LastWrittenObject?.Seq != seqCarried; i++)
             await Task.Delay(10);
-        Assert.True(_host!.Store.PutCount("live/location.json") >= 1);
-        // The last written live object should carry the carried fix's seq.
-        var writer = _host.Writer;
+        Assert.True(_host.Store.PutCount("live/location.json") >= 1);
         Assert.NotNull(writer.LastWrittenObject);
         Assert.Equal(seqCarried, writer.LastWrittenObject!.Seq);
     }
