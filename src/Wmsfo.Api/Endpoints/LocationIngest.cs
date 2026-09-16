@@ -299,10 +299,11 @@ where id = $1;", conn, tx);
             }
             else
             {
-                // carried: last_location_at untouched.
+                // carried: the beacon delivered a fix, so last_location_at is
+                // stamped like a stored one. Only the row is missing.
                 await using var stamp = new NpgsqlCommand(@"
 update beacon
-set last_seen_at = now(), stale_since = null,
+set last_seen_at = now(), last_location_at = now(), stale_since = null,
     fixes_carried = fixes_carried + 1, updated_at = now()
 where id = $1;", conn, tx);
                 stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });

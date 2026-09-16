@@ -1922,8 +1922,8 @@ update beacon set last_seen_at = now(), last_location_at = now(), stale_since = 
 --
 -- carried branch (filter carried, or the insert conflicted): no row.
 update event  set next_seq = next_seq + 1 where id = $event;               -- next_seq still advances; that seq goes to the live object
-update beacon set last_seen_at = now(), stale_since = null,
-                  fixes_carried = fixes_carried + 1 where id = $beacon;   -- last_location_at untouched
+update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
+                  fixes_carried = fixes_carried + 1 where id = $beacon;   -- the beacon did deliver a fix
 --
 select version, url from snapshot where id = 1;                            -- carried into the live object
 commit;

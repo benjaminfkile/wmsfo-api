@@ -135,6 +135,42 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
     // ------------------------------------------------------------------
 
     [Fact]
+    public async Task Carried_fix_stamps_last_location_at_like_a_stored_one()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("carried-alive", isActive: true, minIntervalMs: 0);
+
+        var (s1, d1) = await PostFixAsync(key, 46.5, -114.5);
+        Assert.Equal(HttpStatusCode.Created, s1);
+        Assert.Equal("stored", d1.RootElement.GetProperty("outcome").GetString());
+
+        // Age the stamp: without the carried branch stamping it, a looping
+        // replay reads as "no recent fix" on the panel while it is delivering.
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var age = new NpgsqlCommand("update beacon set last_location_at = now() - interval '2 hours' where id = $1;", conn);
+            age.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+            await age.ExecuteNonQueryAsync();
+        }
+        _host!.RateLimiter.ResetLastAccepted(beaconId);
+
+        var (s2, d2) = await PostFixAsync(key, 46.5, -114.5);
+        Assert.Equal(HttpStatusCode.Created, s2);
+        Assert.Equal("carried", d2.RootElement.GetProperty("outcome").GetString());
+
+        await using (var read = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await read.OpenAsync();
+            await using var cmd = new NpgsqlCommand("select last_location_at from beacon where id = $1;", read);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+            var stamped = Convert.ToDateTime(await cmd.ExecuteScalarAsync()).ToUniversalTime();
+            Assert.True(DateTime.UtcNow - stamped < TimeSpan.FromMinutes(1),
+                "a carried fix stamps last_location_at so health does not read the beacon as dead");
+        }
+    }
+
+    [Fact]
     public async Task Same_position_from_two_beacons_stores_once()
     {
         var evtId = await SeedEventAsync();
