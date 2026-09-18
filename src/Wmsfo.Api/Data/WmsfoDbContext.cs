@@ -201,7 +201,7 @@ public sealed class WmsfoDbContext : DbContext
         {
             e.ToTable("beacon", t =>
             {
-                t.HasComment("A trusted sender. Rows are never deleted; revoke is permanent.");
+                t.HasComment("A trusted sender: a key and nothing more. Rows are never deleted; revoke is permanent.");
             });
             e.HasKey(x => x.Id).HasName("beacon_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
@@ -220,13 +220,13 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.LastSeenAt).HasColumnType("timestamptz")
                 .HasComment("Any authenticated contact: REST call, hub authorize, hub message.");
             e.Property(x => x.LastLocationAt).HasColumnType("timestamptz")
-                .HasComment("Last stored location, published or not.");
+                .HasComment("Last location the beacon delivered, published or not, stored as a row or carried (contracts 7.2). Health reads this: a beacon whose every fix repeats a stored position is still alive.");
             e.Property(x => x.LastHeartbeatAt).HasColumnType("timestamptz")
                 .HasComment("Last stored heartbeat.");
             e.Property(x => x.StaleSince).HasColumnType("timestamptz")
                 .HasComment("Set by the stale-beacon chore; cleared by a heartbeat or a stored location.");
             e.Property(x => x.Telemetry).HasColumnType("jsonb")
-                .HasComment("The last heartbeat body, stored as received.");
+                .HasComment("The last heartbeat body, stored as received: sentAt, the optional health core, and the beacon's own debug object (contracts 4.2).");
             e.Property(x => x.MinIntervalMs).HasColumnType("integer").HasColumnName("min_interval_ms")
                 .HasComment("Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2 / 6).");
             e.Property(x => x.HubAllowed).HasColumnType("boolean").IsRequired().HasDefaultValue(true).HasColumnName("hub_allowed")
@@ -384,7 +384,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.FbUrl).HasColumnType("text");
             e.Property(x => x.IgUrl).HasColumnType("text");
             e.Property(x => x.LogoMediaId).HasColumnType("uuid")
-                .HasComment("A ready media_asset chosen from the library; null when no logo. The API refuses to delete a referenced asset (409 media_in_use).");
+                .HasComment("A ready media_asset chosen from the library; null when no logo.");
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.LogoMediaId)
@@ -500,7 +500,7 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<CookieType>(e =>
         {
             e.ToTable("cookie_type", t =>
-                t.HasComment("Admin-managed. Locked (409 event_live) while any event has status 3. No delete; active = false removes a type from the snapshot."));
+                t.HasComment("Admin-managed. Locked (409 event_live) while any event has status 3. A delete takes the type's cookies with it; active = false removes a type from the snapshot without deleting it."));
             e.HasKey(x => x.Id).HasName("cookie_type_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.Name).HasColumnType("text").IsRequired();
@@ -523,10 +523,10 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.PersonId).HasColumnType("bigint").IsRequired();
             e.Property(x => x.CookieTypeId).HasColumnType("bigint").IsRequired();
             e.Property(x => x.Note).HasColumnType("text")
-                .HasComment("Never public. Visible to admins only.");
+                .HasComment("Never shown anywhere; stored for the record.");
             e.Property(x => x.LeftAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.HiddenAt).HasColumnType("timestamptz")
-                .HasComment("Soft delete for moderation. Hidden cookies leave the tally but still count toward the per-person limit.");
+                .HasComment("Always null. Moderation was removed; the column and the partial index stay so the tally query is unchanged.");
             e.Property(x => x.HiddenBy).HasColumnType("text");
             e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
                 .HasConstraintName("cookie_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
@@ -773,7 +773,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Entity).HasColumnType("text").IsRequired()
                 .HasComment("The entity kind (4.5 Audit).");
             e.Property(x => x.EntityId).HasColumnType("text").IsRequired()
-                .HasComment("The row's id as text (uuid for media, a setting's key, the year for a sponsor order).");
+                .HasComment("The row's id as text so uuids, setting keys, sponsor-year pairs (sponsorId:year), and a sponsor order's year share one index.");
             e.Property(x => x.Before).HasColumnType("jsonb")
                 .HasComment("The resource before the write, null on create.");
             e.Property(x => x.After).HasColumnType("jsonb")

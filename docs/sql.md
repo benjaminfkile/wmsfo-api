@@ -139,6 +139,7 @@ comment on column event.ended_at is 'Stamped now() on every entry into status 4;
 comment on column event.funds_percent is 'Cheer meter, 0 to 100.';
 comment on column event.route_id is 'Route shown for this event; null when unlinked.';
 comment on column event.route_image_media_id is 'The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.';
+comment on column event.status_notified_at is 'When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.';
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
 ```
 
@@ -224,9 +225,10 @@ comment on column beacon.last_location_at is 'Last location the beacon delivered
 comment on column beacon.last_heartbeat_at is 'Last stored heartbeat.';
 comment on column beacon.stale_since is 'Set by the stale-beacon chore; cleared by a heartbeat or a stored location.';
 comment on column beacon.telemetry is 'The last heartbeat body, stored as received: sentAt, the optional health core, and the beacon''s own debug object (contracts 4.2).';
-comment on column beacon.min_interval_ms is 'Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2, 7.2).';
-comment on column beacon.fixes_stored is 'Fixes stored as location rows on this beacon.';
-comment on column beacon.fixes_carried is 'Fixes accepted without a location row (within min distance, or a repeat of a position already stored in the event).';
+comment on column beacon.min_interval_ms is 'Per-beacon override of location_min_interval_ms; null means the setting (contracts 4.2 / 6).';
+comment on column beacon.hub_allowed is 'Whether this beacon may join the hub (contracts 2.4); false denies the join and the beacon sends over HTTP.';
+comment on column beacon.fixes_stored is 'Fixes stored as location rows for this beacon.';
+comment on column beacon.fixes_carried is 'Fixes accepted without a location row (within min distance, or a repeat of a position already stored in the event); these stamp last_location_at like a stored fix.';
 comment on column beacon.fixes_rate_limited is 'Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.';
 ```
 
@@ -261,7 +263,7 @@ create table beacon_log (
 );
 create index beacon_log_beacon on beacon_log (beacon_id, received_at desc);
 
-comment on table beacon_log is 'Red-Nose debug log uploads (admin-role beacons). Up to 2 MB each. 30-day retention.';
+comment on table beacon_log is 'Beacon debug log uploads. Up to 2 MB each. 30-day retention.';
 ```
 
 ### 3.9 `location`
@@ -293,7 +295,7 @@ comment on column location.seq is 'Arrival order within the event, from event.ne
 comment on column location.recorded_at is 'The fix time the beacon sent. Informational; it never decides anything.';
 comment on column location.received_at is 'When the API stored the row.';
 comment on column location.published is 'beacon.is_active at the moment of the insert. Only published rows reach the live object.';
-comment on column location.speed_source is 'beacon when the body carried speedMps, derived when the API computed it from the previous stored fix, null otherwise (contracts 7.2).';
+comment on column location.speed_source is '''beacon'' when the body carried speedMps, ''derived'' when the API computed it from the previous stored fix, null otherwise (contracts 7.2).';
 ```
 
 `location_event_position` (A38, sql.md 14) is the guarantee that a position is stored at most once per event: the ingest insert uses `on conflict (event_id, lat, lng) do nothing`, so a repeat lands on the carried outcome (contracts 4.2, 7.2). Not an error, so not in 4.3.
@@ -581,7 +583,7 @@ create table media_asset (
 );
 create index media_asset_state_created on media_asset (state, created_at);
 
-comment on column media_asset.dzi_key is 'media/{id}/dzi/poster.dzi when confirm cut a Deep Zoom pyramid (raster, longest side 2048 px or more); null otherwise. The tiles sit under media/{id}/dzi/poster_files/.';
+comment on column media_asset.dzi_key is 'media/<id>/dzi/poster.dzi when a Deep Zoom tile pyramid exists (contracts 1.3b): a raster whose longest side is 2048 px or more.';
 
 comment on table media_asset is 'The media library. pending: ticket issued, bytes may or may not be in the bucket. ready: confirmed. orphaned: unreferenced for 30 days, objects tagged for lifecycle expiry; the row is deleted 8 days later.';
 comment on column media_asset.id is 'Minted by the API (UUID v4) when the upload ticket is issued; it is the key segment media/{id}/.';
@@ -732,12 +734,13 @@ create table audit_log (
 create index audit_log_entity on audit_log (entity, entity_id, id desc);
 create index audit_log_action on audit_log (action, id desc);
 
-comment on table audit_log is 'One row per admin write, inserted in the write''s own transaction (contracts 4.5 Audit). Never pruned.';
-comment on column audit_log.actor is 'person:<email> for an ID token, key:<name> for an API key.';
-comment on column audit_log.action is 'create, update, delete, or the endpoint''s verb.';
-comment on column audit_log.entity_id is 'The row''s id as text so uuids, setting keys, and sponsor-year pairs (sponsorId:year) share one index.';
-comment on column audit_log.before is 'The resource as the API answered it before the write; null on create.';
-comment on column audit_log.after is 'The resource after the write; null on delete.';
+comment on table audit_log is 'One row per admin write. Actor is person:<email> or key:<name>; action is create/update/delete or the endpoint verb; entity is the kind and entity_id is the row id as text; before and after are the endpoint response shapes (4.5 Audit). Read by GET /admin/audit and by the audit stamp on every DTO that carries one.';
+comment on column audit_log.actor is 'person:<email> or key:<name>.';
+comment on column audit_log.action is 'create, update, delete, or the endpoint''s verb (4.5 Audit).';
+comment on column audit_log.entity is 'The entity kind (4.5 Audit).';
+comment on column audit_log.entity_id is 'The row''s id as text so uuids, setting keys, sponsor-year pairs (sponsorId:year), and a sponsor order''s year share one index.';
+comment on column audit_log.before is 'The resource before the write, null on create.';
+comment on column audit_log.after is 'The resource after the write, null on delete.';
 ```
 
 ### 3.29a `api_key`
@@ -759,13 +762,26 @@ create table api_key (
 create unique index api_key_name_ux on api_key (name) where revoked_at is null;
 
 comment on table api_key is 'Bearer keys with capability sets and an optional expiry. Lookup is by sha256(key).';
+comment on column api_key.key_prefix is 'First 12 characters of the key, for display.';
+comment on column api_key.key_hash is 'sha256 of the plaintext key, 32 bytes. The plaintext is never stored.';
+comment on column api_key.expires_at is 'Null (never) or rfc3339. Past it the key answers 401 unauthenticated.';
+comment on column api_key.revoked_at is 'Set once by revoke. A revoked key never authenticates again.';
 ```
 
 The plaintext is shown once at mint and never stored; `key_prefix` is its first 12 characters for display. A revoked name is free to reuse (the unique index covers unrevoked rows only). `last_used_at` is stamped at most once a minute per key (api.md 6.4).
 
 ### 3.30 `place`, `qr_code`, `qr_attachment`, `qr_scan`
 
-The DDL of contracts 5 (the four tables and their indexes) verbatim. Comments: `place.parent_id` cascades, so deleting a place takes its subtree; `qr_attachment.place_id` sets null on delete, so a stay outlives its place (the API answers `placeId` null and an empty `placePath`); `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
+The DDL of contracts 5 (the four tables and their indexes) verbatim. Table comments:
+
+```sql
+comment on table place is 'A place a printed QR code hangs in. Tree of friendly names with an optional pin and opens override; the snapshot resolves each active code through the tree.';
+comment on table qr_code is 'A printed sticker''s permanent tag (qr-001, sequential). Its opens setting overrides the place it hangs in; the snapshot resolves it.';
+comment on table qr_attachment is 'One row per stay of a code in a place. Open row (to_at is null) is unique per code; attach closes the open row and opens a new one.';
+comment on table qr_scan is 'A public visit to a printed address. Salted IP hash and bot/repeat markers make the counts safe; unflagged rows are ''people''.';
+```
+
+On the columns: `place.parent_id` cascades, so deleting a place takes its subtree; `qr_attachment.place_id` sets null on delete, so a stay outlives its place (the API answers `placeId` null and an empty `placePath`); `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
 
 
 ## 4. Indexes
@@ -1896,7 +1912,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
