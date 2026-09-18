@@ -31,8 +31,8 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | Item | dev | prod |
 |---|---|---|
 | Manifest service, hub channel prefix, `WMSFO_SERVICE_NAME` | `wmsfo-api-dev` | `wmsfo-api` |
-| Beacon services on the fleet (section 3.6) | `simulator-beacon-dev`, `legacy-beacon-dev` | `simulator-beacon`, `legacy-beacon` |
-| Simulator control page | `<simulator-dev-domain>` (Vercel, from `dev`) | `<simulator-domain>` (Vercel, from `main`) |
+| Beacon services on the fleet (section 3.6) | `simulator-beacon-dev`, `legacy-beacon-dev` | `legacy-beacon`; the simulator is never registered in prod |
+| Simulator control page | `<simulator-domain>` (Vercel, from `main`): the only one, driving the dev simulator | none |
 | Git branch that deploys it | `dev` | `main` |
 | GitHub Actions environment | `dev` | `prod` |
 | Image tag | `<sha>-dev` | `<sha>-prod` |
@@ -432,7 +432,7 @@ The simulator beacon and the legacy beacon (contracts 9.5) are two more manifest
 
 | Entry | Image | Port | Secret keys (flat JSON, one secret per environment) |
 |---|---|---|---|
-| `simulator-beacon` / `simulator-beacon-dev` | `<account-id>.dkr.ecr.<region>.amazonaws.com/simulator-beacon:<sha>-<env>` | 3000 | `SIM_ENV`, `SIM_API_BASE_URL` (the WMSFO API), `SIM_API_KEY` (a `wak_` key with the `events` capability, minted in the panel), `SIM_BEACON_KEY` (the `wbk_` key of the beacon named `simulator`), `SIM_HUB_URL`, `SIM_INGEST_CHANNEL`, `SIM_GATEWAY_INTERNAL_URL`, `SIM_DB_CONNECTION` (a libpq URI with `sslmode=verify-full`; its own tiny state: one row, sql in its design), `SIM_COGNITO_ISSUER` (the admin pool), `SIM_COGNITO_CLIENT_IDS` (`wmsfo-simulator`), `SIM_ADMIN_GROUP`, `SIM_CORS_ORIGINS` (the control page origins), `SIM_LOG_LEVEL` |
+| `simulator-beacon-dev` (no prod entry: the simulator is a test beacon and is never registered in prod) | `<account-id>.dkr.ecr.<region>.amazonaws.com/simulator-beacon:<sha>-dev` | 3000 | `SIM_ENV`, `SIM_API_BASE_URL` (the WMSFO API), `SIM_API_KEY` (a `wak_` key with the `events` capability, minted in the panel), `SIM_BEACON_KEY` (the `wbk_` key of the beacon named `simulator`), `SIM_HUB_URL`, `SIM_INGEST_CHANNEL`, `SIM_GATEWAY_INTERNAL_URL`, `SIM_DB_CONNECTION` (a libpq URI with `sslmode=verify-full`; its own tiny state: one row, sql in its design), `SIM_COGNITO_ISSUER` (the admin pool), `SIM_COGNITO_CLIENT_IDS` (`wmsfo-simulator`), `SIM_ADMIN_GROUP`, `SIM_CORS_ORIGINS` (the control page origins), `SIM_LOG_LEVEL` |
 | `legacy-beacon` / `legacy-beacon-dev` | `<account-id>.dkr.ecr.<region>.amazonaws.com/legacy-beacon:<sha>-<env>` | 3000 | `LB_ENV`, `LB_API_BASE_URL`, `LB_BEACON_KEY` (the beacon named `legacy-tracker`), `LB_HUB_URL`, `LB_INGEST_CHANNEL`, `LB_GATEWAY_INTERNAL_URL`, `LB_SOURCE_URL` (`https://santatracker-api.herokuapp.com/get?id=406santa`), `LB_POLL_MS` (`1000`), `LB_LOG_LEVEL` |
 
 `GATEWAY_REALTIME_TOKEN` is injected into both by the gateway once their entries have been upserted from the dashboard; they use it only for `/internal/leader`. Health: `GET /api/health` on each, `200` once the worker loop is running (leader or follower). The simulator needs one Postgres table; it lives in a small database `wmsfo_sim_<env>` on the shared instance with the same two-role pattern (its design document has the DDL and the bootstrap), never in the API's database.
@@ -468,9 +468,9 @@ Per contracts 3.1. `wmsfo-site` lives on the people pool, `wmsfo-admin` on the a
 |---|---|---|---|
 | `wmsfo-site` | none needed: the site signs in through the Cognito API (SRP), never the hosted UI; the registered URLs stay harmless | none | 30 days |
 | `wmsfo-admin` | prod: `https://<admin-domain>/auth/callback`; dev: `https://<admin-dev-domain>/auth/callback`, `http://localhost:5174/auth/callback` | same pattern | 1 day |
-| `wmsfo-simulator` (admin pool) | prod: `https://<simulator-domain>/auth/callback`; dev: `https://<simulator-dev-domain>/auth/callback`, `http://localhost:5175/auth/callback` | same pattern | 1 day |
+| `wmsfo-simulator` (the dev admin pool, until the prod admin pool exists) | `https://<simulator-domain>/auth/callback`, `http://localhost:5175/auth/callback` | same pattern | 1 day |
 
-ID and access tokens 60 minutes. The `wmsfo-admin` client also carries scope `aws.cognito.signin.user.admin` for the panel's in-place TOTP enrolment. The `wmsfo-simulator` client is a second public client on the admin pool for the simulator beacon's control page; only members of `admin` may use it, which the simulator checks on the token's groups.
+ID and access tokens 60 minutes. The `wmsfo-admin` client also carries scope `aws.cognito.signin.user.admin` for the panel's in-place TOTP enrolment. The `wmsfo-simulator` client is a second public client on the admin pool for the simulator beacon's control page; only members of `admin` may use it, which the simulator checks on the token's groups. There is one control page, so there is one such client. The prod admin pool does not exist yet, so the page and the service's token check use the dev admin pool. When the prod admin pool is created, create the `wmsfo-simulator` client on it and switch the page's `VITE_COGNITO_*` values and the service's `SIM_COGNITO_ISSUER` and `SIM_COGNITO_CLIENT_IDS` over to it (section 18).
 
 ### 4.3 Operator procedure for admins
 
@@ -561,8 +561,7 @@ Each host has its own ACM certificate attached to the HTTPS listener. Idle timeo
 | Public site, preview | `santa`, `dev` (a second project with `dev` as its production branch) | Vite | contracts 8.3 dev set |
 | Admin panel | `wmsfo-admin-panel`, `main` | Vite | contracts 8.4 prod set |
 | Admin panel, dev | `wmsfo-admin-panel`, `dev` (a second project with `dev` as its production branch) | Vite | contracts 8.4 dev set |
-| Simulator control page | `simulator-beacon`, `main` (root `web/`) | Vite | its design's `VITE_` set: the simulator's API base URL, the admin pool authority, domain, and `wmsfo-simulator` client id |
-| Simulator control page, dev | `simulator-beacon`, `dev` (root `web/`) | Vite | the dev set |
+| Simulator control page | `simulator-beacon`, `main` (root `web/`); the only one, there is no dev page | Vite | its design's `VITE_` set: the dev simulator's API base URL, the admin pool authority, domain, and `wmsfo-simulator` client id (the dev admin pool until the prod one exists) |
 
 Settings on every project: framework preset Vite, output `dist`, SPA rewrite (`/(.*)` to `/index.html`) in `vercel.json`, headers `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin`, no serverless functions, no Vercel analytics injection. Preview deployments for pull requests are on; their origins are not in any allow list, so the hub and CDN CORS refuse them and the API refuses their `Authorization` origins. That is intended: pull request previews render from the CDN objects only.
 
@@ -582,7 +581,7 @@ Vercel git integration; no workflow file is required. Each repository has a `ci.
 
 ### 9.2a The beacon services
 
-`simulator-beacon/.github/workflows/deploy.yml` and `legacy-beacon/.github/workflows/deploy.yml` mirror the API's: `npm ci`, the contracts check, `npm test`, `tsc --noEmit`, OIDC assume role, `docker buildx build --platform linux/arm64,linux/amd64` pushed as `<repo>:<sha>-<env>`, then the gateway `deploy` call and the wait. The simulator's `web/` is deployed by Vercel's git integration like the admin panel.
+`simulator-beacon/.github/workflows/deploy.yml` and `legacy-beacon/.github/workflows/deploy.yml` mirror the API's: `npm ci`, the contracts check, `npm test`, `tsc --noEmit`, OIDC assume role, `docker buildx build --platform linux/arm64,linux/amd64` pushed as `<repo>:<sha>-<env>`, then the gateway `deploy` call and the wait. The simulator has a dev service only. Its `web/` is deployed by Vercel's git integration from `main`, one project.
 
 ### 9.3 Red-Nose
 
@@ -787,7 +786,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Alarms in prod only; dev has metric filters for the dashboard.
 - The no-location alarm is toggled by the runbook rather than reading the event status.
 - The legacy database is kept 90 days after cut-over.
-- The simulator beacon and the legacy beacon are manifest services with their own secrets and ECR repositories, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12).
+- The simulator beacon and the legacy beacon are manifest services with their own secrets and ECR repositories, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12). The simulator is a test beacon: never registered in prod, one fleet service against the dev API, one control page from `main` (2026-09-18).
 - The people pool's hosted UI is unused: the site signs people in through the Cognito API (2026-09-12).
 
 ## 17. Needs a decision
@@ -797,5 +796,6 @@ Nothing at the moment. Add here as it comes up.
 ## 18. Operator to-do
 
 - **Google Maps browser key.** The site and the admin panel share one key per environment (`VITE_GOOGLE_MAPS_KEY`); the panel uses it for the places map, the pin drag, and Places Autocomplete (admin.md 6.24). Dev has its key: HTTP referrers limited to the dev site and dev panel origins, APIs limited to Maps JavaScript and Places. Local runs on `http://localhost:5173` and `http://localhost:5174` are not in its referrers; add them when local map work needs them. Prod needs its own key at cut-over with the same API limits and the production site and panel origins as referrers.
+- **Simulator page on the prod admin pool.** The control page and the simulator's token check use the dev admin pool because the prod admin pool does not exist yet. When it does: create the `wmsfo-simulator` client on it (callback `https://<simulator-domain>/auth/callback`), set `VITE_COGNITO_AUTHORITY`, `VITE_COGNITO_DOMAIN`, and `VITE_COGNITO_CLIENT_ID` on the Vercel project to it and redeploy, set `SIM_COGNITO_ISSUER` and `SIM_COGNITO_CLIENT_IDS` in the simulator's secret to it, then delete the client on the dev pool.
 - **SES daily quota.** Raise the account's daily sending quota above 100,000 before the event (section 5); it is 50,000.
 - **Dev metric filters and dashboard.** The metric filters of 10.2 and the `wmsfo-dev` dashboard of 10.4 are not created yet; the log groups exist with 30-day retention.
