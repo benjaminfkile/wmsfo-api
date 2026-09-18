@@ -32,43 +32,62 @@ Repository `wmsfo-api`, branch flow `dev` and `main`.
 
 ```
 wmsfo-api/
-  Wmsfo.sln
+  Wmsfo.slnx
   Dockerfile
+  compose.yaml  dev/                  # local Postgres with both roles and the static file server (section 20)
   .github/workflows/deploy.yml
-  contracts/                          # section 21: openapi.json, schema/ (incl. primitives, sections/<kind>, site-settings, content-document), kinds.json, starter-content.json, fixtures/, admin-thresholds.json, CONTRACTS_VERSION
+  contracts/                          # section 21: openapi.json, schema/ (incl. primitives, sections/<kind>, site-settings, content-document), kinds.json, starter-content.json, fixtures/, icons/, admin-thresholds.json, CONTRACTS_VERSION
   icons/                              # the icon library: <id>.svg files plus library.json (id, name, tags)
   templates/email/                    # <name>.html and <name>.txt per contracts 7.8
   src/Wmsfo.Api/
-    Program.cs                        # composition root, pipeline order (section 5)
+    Program.cs                        # composition root, startup order (section 3), readiness, GET /api/health
     Config/WmsfoOptions.cs            # every WMSFO_* key, validated on boot (section 4)
     Config/ConnectionStrings.cs       # NpgsqlConnectionStringBuilder per sql.md 13
-    Data/WmsfoDbContext.cs            # one entity per table (sql.md 14.2)
+    Config/WmsfoReadinessGate.cs      # the ready flag the migrator flips; read by the readiness middleware and the health probe
+    Data/WmsfoDbContext.cs  Entities.cs   # one entity per table (sql.md 14.2)
+    Data/DesignTimeDbContextFactory.cs    # for dotnet ef
     Data/Migrations/                  # EF Core migrations
-    Data/Sql/                         # the raw recipes as string constants, one file per recipe
-    Data/DatabaseMigrator.cs          # advisory lock, migrate, starter content, icon library, content version 1, snapshot version 1 (sql.md 8.16)
-    Http/ErrorHandling.cs             # ApiException, error shape, exception handler
+    Data/Sql/Sql.cs                   # the raw recipes of sql.md 8 and 9 as string constants
+    Data/DatabaseMigrator.cs          # advisory lock, migrate, then the first-boot steps (sql.md 8.16)
+    Http/WmsfoPipeline.cs             # the middleware order of section 5 as one extension, shared with the test hosts
+    Http/ApiException.cs  ErrorHandling.cs      # the error shape and the exception handler
     Http/RequestValidation.cs         # validators returning details.fields
+    Http/ConstraintErrorMapping.cs    # 23505 constraint names to error codes (sql.md 4.3)
     Http/ForwardedHeaders.cs          # client IP from X-Forwarded-For with WMSFO_TRUSTED_PROXY_HOPS
+    Http/BothAuthHeadersGuard.cs      # Authorization plus X-Beacon-Key is 400
     Http/RateLimits.cs                # token buckets per contracts 4.0
+    Http/BodyLimits.cs  CorsPolicy.cs  NoStore.cs  ServerTimeFilter.cs
+    Http/JsonConsoleLogging.cs  LogMarkers.cs  HealthMarkerLogger.cs   # sections 16 and 17
+    Auth/AuthConstants.cs             # scheme and policy names
     Auth/BeaconKeyAuthHandler.cs      # X-Beacon-Key scheme
-    Auth/CognitoAuth.cs               # JwtBearer options, admin policy, person upsert
+    Auth/CognitoAuth.cs               # the two JwtBearer schemes, the policies, person upsert
     Auth/AdminTotpGate.cs             # section 6.3
-    Auth/ApiKeyAuthHandler.cs         # section 6.4: wak_ bearer scheme, capability requirement, DenyApiKeys
-    Endpoints/Health.cs
-    Endpoints/Beacons.cs              # enroll, me, locations, heartbeat, logs
-    Endpoints/PublicWrites.cs         # contact, subscriptions verify and unsubscribe
-    Endpoints/Me.cs                   # me, subscriptions, cookies
-    Endpoints/Admin/Events.cs  Routes.cs  Beacons.cs  Sponsors.cs  CookieTypes.cs  ApiKeys.cs
-    Endpoints/Admin/Settings.cs  Inbox.cs (contact, subscribers, people)  Diagnostics.cs (snapshot, live)
-    Endpoints/Admin/Pages.cs  Sections.cs (sections, items, order, move, duplicate)  SiteSettings.cs
-    Endpoints/Admin/Content.cs (kinds, status, draft, publish, versions, restore, preview token)  Media.cs  Icons.cs
-    Endpoints/Preview.cs              # GET /preview/document
-    Endpoints/Realtime.cs             # /realtime/authorize, /realtime/message
+    Auth/ApiKeyAuthHandler.cs         # section 6.4: wak_ bearer scheme
+    Auth/CapabilityAuthorization.cs   # RequireCapability, DenyApiKeys, CapabilityOrGroup
+    Auth/DevStaticTokens.cs           # WMSFO_DEV_STATIC_TOKENS (section 20)
+    Endpoints/BeaconEndpoints.cs      # enroll, me, locations, heartbeat, logs
+    Endpoints/LocationIngest.cs       # the validate-and-store path shared by POST /locations and the hub message path (contracts 7.2)
+    Endpoints/PublicWriteEndpoints.cs # contact, subscriptions verify and unsubscribe
+    Endpoints/MeEndpoints.cs          # me, subscriptions, cookies, alerts
+    Endpoints/RealtimeEndpoints.cs    # /realtime/authorize, /realtime/message
+    Endpoints/AdminEventEndpoints.cs  AdminRouteEndpoints.cs  AdminBeaconEndpoints.cs  AdminSponsorEndpoints.cs
+    Endpoints/AdminCookieTypeEndpoints.cs  AdminApiKeyEndpoints.cs  AdminSettingsEndpoints.cs
+    Endpoints/AdminInboxEndpoints.cs  # contact messages, subscribers, people
+    Endpoints/AdminContentEndpoints.cs    # pages, sections, items, site settings, kinds, status, draft, publish, versions, restore, preview token, GET /preview/document
+    Endpoints/AdminMediaEndpoints.cs  # list, ticket (presign), confirm, usage, patch, delete
+    Endpoints/AdminIconEndpoints.cs
+    Endpoints/AdminAuditEndpoints.cs  AuditRecorder.cs     # section 5a
+    Endpoints/AdminImpactEndpoints.cs  Impact/             # section 5b: one <Resource>ImpactQueries per resource, LocationClearQueries, ImpactHelpers, ImpactBefore
+    Endpoints/QrEndpoints.cs  QrRead.cs  PlaceEndpoints.cs  PlaceRead.cs   # section 11b
+    Endpoints/AdminHelpers.cs         # the audit email, the [snapshot] frame, shared plumbing
     Node/NodeState.cs                 # in-memory state (contracts 7.1)
+    Node/NodeCounters.cs              # per-node counters on GET /admin/live
     Node/ReconcileTick.cs             # hosted service (contracts 7.4)
     Node/LeaderMonitor.cs             # hosted service (contracts 7.5)
     Node/LiveObjectWriter.cs          # build, PUT, publish, live_state (contracts 1.8)
     Node/SnapshotBuilder.cs           # inside the admin transaction (contracts 7.3); embeds the content document, media map, icon map
+    Node/SnapshotBootstrap.cs  FleetFirstBootHook.cs   # the first-boot steps of sql.md 8.16
+    Node/AdminDiagnosticsEndpoints.cs # snapshot, rebuild, live, republish (section 10.3)
     Content/KindRegistry.cs           # loads contracts/kinds.json and the kind schemas; KindInfo for the panel
     Content/SchemaValidator.cs        # publish-level and draft-level validation, Problem lists with JSON pointers
     Content/ReferenceChecker.cs       # media readiness, library icon ids, href rule, page-slug links, anchors, map-on-live
@@ -79,20 +98,21 @@ wmsfo-api/
     Content/StarterContent.cs         # first-boot seed from contracts/starter-content.json
     Icons/IconLibrary.cs              # loads icons/, hashes, writes to the bucket, builds the icons map
     Chores/ChoreHost.cs               # runs chores while leader
-    Chores/OutboxPublisher.cs  AlertSender.cs  StaleBeaconFlagger.cs  MediaOrphanCollector.cs  NightlyCleanup.cs
-    Objects/IObjectStore.cs           # PutObject, DeleteObject, ListPrefix, CopyObjectWithHeaders
+    Chores/OutboxPublisher.cs  AlertSender.cs  StaleBeaconFlagger.cs  MediaOrphanCollector.cs  NightlyCleanup.cs  IChoreClock.cs
+    Objects/IObjectStore.cs           # put, delete, list, copy with headers, presign
     Objects/S3ObjectStore.cs  LocalObjectStore.cs
     Objects/CanonicalJson.cs          # the serializer options and sha256 helper (contracts 1.6)
-    Objects/CdnObjects.cs             # LiveObject, Snapshot, Route DTOs in contract key order
-    Realtime/GatewayInternalClient.cs # publish and leader calls with the injected token
-    Media/ImageSniffer.cs  SvgValidator.cs  VariantDeriver.cs  DeepZoomTiler.cs  Presigner.cs  MediaConfirm.cs  MediaUsage.cs
-    Security/Keys.cs                  # wbk_, wet_, wsv_, wsu_, wpv_ minting, hashing, AES-GCM
+    Objects/CdnObjects.cs  ContentDocument.cs   # LiveObject, Snapshot, Route, and the content document DTOs in contract key order
+    Realtime/GatewayInternalClient.cs # publish, leader, and presence calls with the injected token
+    Media/ImageSniffer.cs  SvgValidator.cs  VariantDeriver.cs  DeepZoomTiler.cs  MediaUsage.cs  FilenameSanitizer.cs
+    Security/Keys.cs                  # key and token minting, hashing, AES-GCM
     Security/QrRenderer.cs
-    Email/SesSender.cs  Templates.cs
-    Contracts/OpenApiExport.cs        # writes contracts/openapi.json at build (section 21)
+    Email/SesSender.cs  EmailTemplates.cs
+    Contracts/Dtos/                   # request and response DTOs per resource family
+    Contracts/OpenApiExport.cs  SchemaExport.cs  FixtureExport.cs  FixtureData.cs  StarterContentBuilder.cs  AdminThresholds.cs  EndpointStubs.cs   # the export-contracts mode (section 21)
   tools/Wmsfo.Migrate/                # the one-off legacy migration tool (sql.md 15, platform.md 12)
   tests/Wmsfo.Api.Tests/              # unit + contract tests
-  tests/Wmsfo.Api.IntegrationTests/   # Testcontainers Postgres, full pipeline
+  tests/Wmsfo.Api.IntegrationTests/   # Postgres-backed, full pipeline
 ```
 
 ---
@@ -140,6 +160,8 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | string | the admin pool id for `AdminGetUser`; required with the admin issuer |
 | `WMSFO_ADMIN_GROUP` | string | default `admin` |
 | `WMSFO_EDITOR_GROUP` | string | default `editor` |
+| `WMSFO_CANVASSER_GROUP` | string | default `canvasser`, a slug; the admin-pool group admitted to the QR codes and places endpoints (section 11b) |
+| `WMSFO_SCAN_SALT` | string | required, non-empty; salts `qr_scan.ip_hash` (section 11b) |
 | `WMSFO_SES_FROM_ADDRESS` | mailbox | `Name <address>` or bare address |
 | `WMSFO_SES_CONFIGURATION_SET` | string | may be empty |
 | `WMSFO_CONTACT_NOTIFY_EMAIL` | address | valid |
@@ -149,6 +171,8 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `WMSFO_LOG_LEVEL` | level | `Debug`, `Information`, `Warning` |
 | `WMSFO_FORCE_LEADER` | bool | local only; refused (boot failure) when `WMSFO_ENV` is `prod` |
 | `WMSFO_OBJECT_STORE_DIR` | path | local only; when set the object store writes to this directory and `WMSFO_CDN_BASE_URL` may point at a local static server |
+| `WMSFO_DEV_STATIC_TOKENS` | bool | local and tests only (section 20); refused when `WMSFO_ENV` is `prod` |
+| `WMSFO_SES_DRY_RUN` | bool | local only: logs the rendered message instead of sending (section 20); refused when `WMSFO_ENV` is `prod` |
 
 `WMSFO_DB_MIGRATION_CONNECTION` follows `sql.md` 12 and 13 (two roles).
 
@@ -265,7 +289,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `/admin/qr-codes*`, `/admin/places*` | Canvasser (`qr`); the two deletes Admin | codes: list, mint a batch, detail with history and daily counts, patch, attach, detach, delete; places: tree, create, patch (with the cycle check), location put and delete, delete, the map | section 11b |
 | `/qr-codes/{tag}/scans` | none; rate limited like `/contact` | the scan beacon, always 204 | section 11b |
 | `/me/alerts` | Person | the alert emails sent to the caller's subscriptions, newest first, 100 at most (contracts 4.4) | |
-| `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard on every write; delete answers `409 cookie_type_in_use` while any cookie references the type (sql.md 8.10) | [snapshot] |
+| `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard on every write, the delete included; a delete takes the type's cookies with it (sql.md 8.10) | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
 | `/admin/site-settings` | Editor | read and replace the single row; draft validation | sql.md 8.21 |
 | `GET /admin/content/kinds` | Editor | the registry as `KindInfo[]` with schemas inlined | section 11a.1 |
@@ -274,7 +298,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /admin/content/versions*`, `POST .../restore` | Editor | list, get, restore (11a.5) | sql.md 8.20 |
 | `POST /admin/content/preview-token` | Editor | mint `wpv_`, insert the hash, answer the site URL | sql.md 8.23 |
 | `GET /preview/document` | none (IP-limited) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
-| `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (alt and title, [snapshot]), delete with the usage guard | section 11.2 to 11.5 |
+| `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (alt and title, [snapshot]), delete with every reference cleared | section 11.2 to 11.5 |
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
 | `/admin/contact-messages*`, `/admin/subscribers*`, `/admin/people*` | Admin | paged lists, deletes, summary | |
@@ -363,7 +387,7 @@ First boot (`SnapshotBootstrap.EnsureVersionOneAsync`): the same steps with no w
 
 ### 11.1 Routes
 
-`POST /admin/routes`: read the body (5 MB limit is enforced first), deserialize into `RouteUpload { name, points[] }` with unknown keys rejected, validate per contracts 1.4, build `CdnObjects.Route` (adds `schemaVersion: 1`), canonicalize, hash, `select ... from route where s3_key = $key` (found: `200` that row), PUT with the immutable header (3 s, one attempt, else `502 route_write_failed`), insert; on `23505` on `s3_key` re-read and answer `200`. `POST /admin/routes/from-event/{eventId}` streams `select lat, lng, recorded_at from location where event_id = $id and published order by seq` into the same `RouteUpload` shape (`404` for an unknown event, `400` under 2 points, `413` over 50,000) and continues identically. `DELETE` checks `event.route_id` references (`409 route_in_use`), deletes the row, then the object (a failed delete of the object is logged; the row is already gone).
+`POST /admin/routes`: read the body (5 MB limit is enforced first), deserialize into `RouteUpload { name, points[] }` with unknown keys rejected, validate per contracts 1.4, build `CdnObjects.Route` (adds `schemaVersion: 1`), canonicalize, hash, `select ... from route where s3_key = $key` (found: `200` that row), PUT with the immutable header (3 s, one attempt, else `502 route_write_failed`), insert; on `23505` on `s3_key` re-read and answer `200`. `POST /admin/routes/from-event/{eventId}` streams `select lat, lng, recorded_at from location where event_id = $id and published order by seq` into the same `RouteUpload` shape (`404` for an unknown event, `400` under 2 points, `413` over 50,000) and continues identically. `DELETE` deletes the row (the foreign key unlinks the events that used it, section 5b), then the object (a failed delete of the object is logged; the row is already gone).
 
 ### 11.2 Media tickets and presigned uploads
 
@@ -388,7 +412,7 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 
 ### 11.5 Usage, patch, delete, orphans
 
-`MediaUsage.ForAsync(id)` runs the five usage statements of sql.md 8.22 and returns `MediaUsage`. `DELETE /admin/media/{id}` runs it first and answers `409 media_in_use` with the usage in `details` when anything references the asset; otherwise `ListObjectsV2` under `media/{id}/`, `DeleteObjects`, then the row delete. `PATCH` (alt, title) runs the [snapshot] frame because `alt` rides in the snapshot's media map. `MediaOrphanCollector` (section 13) is the only other writer of media state.
+`MediaUsage.ForAsync(id)` runs the five usage statements of sql.md 8.22 and returns `MediaUsage`. `DELETE /admin/media/{id}` never refuses for a reference: in one transaction it clears every reference (section 5b: the content JSON of sections, items, and site settings, cookie type icons, and the `media_ids` of content versions; sponsor logos and event posters go null through their foreign keys), deletes the row, then `ListObjectsV2` under `media/{id}/` and `DeleteObjects`. `PATCH` (alt, title) runs the [snapshot] frame because `alt` rides in the snapshot's media map. `MediaOrphanCollector` (section 13) is the only other writer of media state.
 
 ## 11a. Content
 
@@ -557,7 +581,7 @@ Multi-arch (`linux/arm64` for the fleet, `linux/amd64` for local runs). No envir
 
 ## 19. CI
 
-`.github/workflows/deploy.yml`, on push to `dev` (environment `dev`, service `wmsfo-api-dev`, tag `<sha>-dev`) and `main` (environment `prod`, `wmsfo-api`, `<sha>-prod`):
+`.github/workflows/deploy.yml`, on push to `dev` (environment `dev`, service `wmsfo-api-dev`, tag `<sha>-dev`) and `main` (environment `prod`, `wmsfo-api`, `<sha>-prod`). The test job (steps 1 and 2, plus a verify-only image build) runs on every push and pull request; the deploy job (steps 3 and 4) runs for `dev` only until the prod manifest entry and the prod environment secrets exist (platform.md 13):
 
 1. `dotnet test` for both test projects, with a Postgres service container for the integration tests.
 2. Contract check: build, run `dotnet run --project src/Wmsfo.Api -- export-contracts contracts` (which writes the OpenAPI document, the JSON Schemas, the fixtures, `starter-content.json`, and `admin-thresholds.json` in one pass), then `git diff --exit-code contracts/`; run `dotnet ef migrations has-pending-model-changes`; the schema tests (every kind in `kinds.json` has a schema file, every schema compiles, the fixtures and the starter content validate at the publish level, every library icon passes the SVG validator).
@@ -598,7 +622,7 @@ Tests:
 | Suite | Covers |
 |---|---|
 | Unit | key minting and hashing, AES-GCM round trip, canonical JSON byte equality against every fixture, SVG validator cases (and every library icon), image sniffing, variant width selection (700 px source yields 480 only), filename sanitizing, validation tables (every rule, one case each), the inline grammar (each token, malformed constructs, reference extraction), the reference walker over every kind's `defaults`, draft-schema derivation, apply-order of the live object builder, template substitution |
-| Integration (Postgres from `WMSFO_TEST_DB_CONNECTION` when set, else the libpq environment variables `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` when `PGHOST` is set, the grunt runner exports these against its local cluster, else Testcontainers when Docker is available; local object store; fake gateway client) | every endpoint's success and every listed error code; the location transaction under concurrency (two beacons, one active); `seq` monotonic across 1,000 concurrent inserts; the snapshot transaction rollback on a failing PUT; partial unique indexes (`23505` on the three); the tick rewrite rule; leader gating of chores with an overlapping leader; outbox and alert idempotency; nightly cleanup counts; the callback guard on forwarded headers; rate limits; the media pipeline end to end against the local store (ticket, PUT, confirm, variants, tag removal, usage, `409 media_in_use`, delete); publish with problems, unchanged, and success (version pruned at 51, snapshot embeds the document, media map contains exactly the referenced assets); restore recreates six role pages; preview token expiry; the orphan collector's four transitions with a clock stub; `Editor` and `Admin` policy matrix over every `/admin/*` route, and the API-key matrix over the same routes (all capabilities, one capability, the wrong capability, expired, revoked, a key on the key endpoints); sponsor order rewrite and `pinned_position_taken`; route image linking and its two rejections |
+| Integration (Postgres from `WMSFO_TEST_DB_CONNECTION` when set, else the libpq environment variables `PGHOST` / `PGPORT` / `PGUSER` / `PGPASSWORD` / `PGDATABASE` when `PGHOST` is set, the grunt runner exports these against its local cluster, else Testcontainers when Docker is available; local object store; fake gateway client) | every endpoint's success and every listed error code; the location transaction under concurrency (two beacons, one active); `seq` monotonic across 1,000 concurrent inserts; the snapshot transaction rollback on a failing PUT; partial unique indexes (`23505` on the three); the tick rewrite rule; leader gating of chores with an overlapping leader; outbox and alert idempotency; nightly cleanup counts; the callback guard on forwarded headers; rate limits; the media pipeline end to end against the local store (ticket, PUT, confirm, variants, tag removal, usage, delete with its references cleared); publish with problems, unchanged, and success (version pruned at 51, snapshot embeds the document, media map contains exactly the referenced assets); restore recreates six role pages; preview token expiry; the orphan collector's four transitions with a clock stub; `Editor` and `Admin` policy matrix over every `/admin/*` route, and the API-key matrix over the same routes (all capabilities, one capability, the wrong capability, expired, revoked, a key on the key endpoints); sponsor order rewrite and `pinned_position_taken`; route image linking and its two rejections |
 | Contract | `openapi.json` up to date; schemas validate the fixtures; the migration has no pending model changes; templates contain their required substitutions |
 
 ---

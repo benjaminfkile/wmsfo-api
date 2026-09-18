@@ -39,12 +39,13 @@ This document is the technical design of the Postgres schema and the data layer 
 | `location` | Every stored fix, published or not | Location transaction; migration tool | about 10k per event (1 per second for a few hours) plus spares; kept forever |
 | `sponsor` | Sponsor master data, logo as a media reference | Editor writes; migration tool | tens |
 | `sponsor_year` | Sponsor participation per year | Admin writes; migration tool | hundreds |
+| `api_key` | Bearer keys for scripts and agents: hashed key, capability set, optional expiry | `POST /admin/api-keys`, revoke; the key scheme's `last_used_at` stamp | tens |
 | `person` | Registered people, keyed by Cognito `sub` | Upsert on every authenticated request | about 20k |
 | `subscriber` | Alert subscriptions | Person and admin writes; nightly cleanup | about 20k |
 | `cookie_type` | Admin-managed cookie types with an icon value | Admin writes; migration seed | tens |
 | `cookie` | Cookies left during live events | `POST /cookies` | up to `cookie_limit_per_person` × people per event |
 | `contact_message` | Contact form submissions | `POST /contact`; migration tool | tens per year |
-| `app_setting` | The five admin knobs, one row per key | `PUT /admin/settings/{key}`; seed; migration tool | 5 |
+| `app_setting` | The admin knobs of contracts 6, one row per key | `PUT /admin/settings/{key}`; seed; migration tool | 9 |
 | `media_asset` | The media library: one row per upload, state, dimensions, variants | Upload ticket, confirm, patch, delete; orphan chore; migration tool | hundreds |
 | `page` | Site pages: six role pages plus ordinary pages | Editor writes; seed; restore | tens |
 | `section` | Typed sections on a page, `data` and `presentation` JSON | Editor writes; seed; restore | hundreds |
@@ -117,7 +118,8 @@ create table event (
   went_live_at  timestamptz,
   ended_at      timestamptz,
   funds_percent integer not null default 0 check (funds_percent between 0 and 100),
-  route_id      bigint references route (id),
+  route_id      bigint references route (id) on delete set null,
+  route_image_media_id uuid references media_asset (id) on delete set null,
   final_cookie_tally jsonb,
   status_notified_at timestamptz,
   next_seq      bigint not null default 1,
@@ -136,6 +138,7 @@ comment on column event.went_live_at is 'Stamped now() on every entry into statu
 comment on column event.ended_at is 'Stamped now() on every entry into status 4; admin-patchable.';
 comment on column event.funds_percent is 'Cheer meter, 0 to 100.';
 comment on column event.route_id is 'Route shown for this event; null when unlinked.';
+comment on column event.route_image_media_id is 'The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.';
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
 ```
 
@@ -266,7 +269,7 @@ comment on table beacon_log is 'Red-Nose debug log uploads (admin-role beacons).
 ```sql
 create table location (
   id           bigint generated always as identity primary key,
-  event_id     bigint not null references event (id),
+  event_id     bigint not null references event (id) on delete cascade,
   beacon_id    bigint not null references beacon (id),
   seq          bigint not null,
   recorded_at  timestamptz not null,
@@ -308,14 +311,14 @@ create table sponsor (
   website_url       text,
   fb_url            text,
   ig_url            text,
-  logo_media_id     uuid references media_asset (id),
+  logo_media_id     uuid references media_asset (id) on delete set null,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
 create index sponsor_logo_media on sponsor (logo_media_id) where logo_media_id is not null;
 
 comment on table sponsor is 'Sponsor master data. contact_person, email, phone, and address are admin-only and never reach the snapshot.';
-comment on column sponsor.logo_media_id is 'A ready media_asset chosen from the library; null when no logo. The API refuses to delete a referenced asset (409 media_in_use).';
+comment on column sponsor.logo_media_id is 'A ready media_asset chosen from the library; null when no logo.';
 ```
 
 ### 3.11 `sponsor_year`
@@ -330,11 +333,16 @@ create table sponsor_year (
   can_advertise  boolean not null default true,
   anonymous      boolean not null default false,
   registered_at  timestamptz not null default now(),
+  pinned_position    integer check (pinned_position between 1 and 1000),
+  linger_ms_override integer check (linger_ms_override between 0 and 600000),
   unique (sponsor_id, event_year)
 );
+create unique index sponsor_year_pinned_ux on sponsor_year (event_year, pinned_position) where pinned_position is not null;
 
 comment on table sponsor_year is 'A sponsor''s participation in one year. Upserted on (sponsor_id, event_year).';
 comment on column sponsor_year.amount_donated is 'Admin-only. Drives lingerMs; never appears in a public object.';
+comment on column sponsor_year.pinned_position is '1..1000, pins the sponsor''s slot for this year. Snapshot orders pinned rows first, pinned_position asc.';
+comment on column sponsor_year.linger_ms_override is '0..600000, overrides the computed lingerMs for this year. Snapshot exposes only lingerMs; whether it was overridden is not revealed.';
 ```
 
 ### 3.12 `person`
@@ -390,7 +398,7 @@ create table cookie_type (
   updated_at timestamptz not null default now()
 );
 
-comment on table cookie_type is 'Admin-managed. Locked (409 event_live) while any event has status 3. Deleted only while no cookie references it (409 cookie_type_in_use); active = false removes a type from the snapshot without deleting it.';
+comment on table cookie_type is 'Admin-managed. Locked (409 event_live) while any event has status 3. A delete takes the type''s cookies with it; active = false removes a type from the snapshot without deleting it.';
 comment on column cookie_type.icon is 'Icon value (contracts 1.3a): {"source":"library","id":"cookie"} or {"source":"media","id":"<uuid of a ready svg media_asset>"}; null until chosen.';
 ```
 
@@ -414,7 +422,7 @@ create table cookie (
   id             bigint generated always as identity primary key,
   event_id       bigint not null references event (id) on delete cascade,
   person_id      bigint not null references person (id) on delete cascade,
-  cookie_type_id bigint not null references cookie_type (id),
+  cookie_type_id bigint not null references cookie_type (id) on delete cascade,
   note           text,
   left_at        timestamptz not null default now(),
   hidden_at      timestamptz,
@@ -467,6 +475,7 @@ insert into app_setting (key, value, updated_by) values
   ('sponsor_linger_ms_per_dollar', '40',   'seed'),
   ('sponsor_linger_min_ms',        '2000', 'seed'),
   ('beacon_stale_after_s',         '45',   'seed'),
+  ('flight_history_max_points',    '2000', 'seed'),
   ('location_min_interval_ms',     '250',  'seed'),
   ('location_min_distance_m',      '0',    'seed'),
   ('hub_enabled',                  'true', 'seed')
@@ -731,6 +740,29 @@ comment on column audit_log.before is 'The resource as the API answered it befor
 comment on column audit_log.after is 'The resource after the write; null on delete.';
 ```
 
+### 3.29a `api_key`
+
+```sql
+create table api_key (
+  id               bigint generated always as identity primary key,
+  name             text not null,
+  key_prefix       text not null,
+  key_hash         bytea not null unique,
+  all_capabilities boolean not null default false,
+  capabilities     text[] not null default '{}',
+  expires_at       timestamptz,
+  created_by       text not null,
+  created_at       timestamptz not null default now(),
+  last_used_at     timestamptz,
+  revoked_at       timestamptz
+);
+create unique index api_key_name_ux on api_key (name) where revoked_at is null;
+
+comment on table api_key is 'Bearer keys with capability sets and an optional expiry. Lookup is by sha256(key).';
+```
+
+The plaintext is shown once at mint and never stored; `key_prefix` is its first 12 characters for display. A revoked name is free to reuse (the unique index covers unrevoked rows only). `last_used_at` is stamped at most once a minute per key (api.md 6.4).
+
 ### 3.30 `place`, `qr_code`, `qr_attachment`, `qr_scan`
 
 The DDL of contracts 5 (the four tables and their indexes) verbatim. Comments: `place.parent_id` cascades, so deleting a place takes its subtree; `qr_attachment.place_id` sets null on delete, so a stay outlives its place (the API answers `placeId` null and an empty `placePath`); `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
@@ -771,6 +803,9 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `sponsor_logo_media` | `(logo_media_id) where logo_media_id is not null` | media usage and the orphan chore's referenced set; `409 media_in_use` |
 | `sponsor_year_pkey` | pk `(id)` | |
 | `sponsor_year_sponsor_id_event_year_key` | unique `(sponsor_id, event_year)` | the year upsert (`on conflict`); the snapshot builder's year join; cascade from `sponsor` |
+| `sponsor_year_pinned_ux` | unique `(event_year, pinned_position) where pinned_position is not null` | one sponsor per pinned slot per year; `409 pinned_position_taken` |
+| `api_key_pkey`, `api_key_key_hash_key` | pk `(id)`, unique `(key_hash)` | revoke; the bearer lookup of the key scheme (api.md 6.4) |
+| `api_key_name_ux` | unique `(name) where revoked_at is null` | `409 name_taken` among unrevoked keys |
 | `person_pkey` | pk `(id)` | the `for update` in the cookie transaction; every person join |
 | `person_cognito_sub_key` | unique `(cognito_sub)` | the per-request upsert (`on conflict (cognito_sub)`) |
 | `subscriber_pkey` | pk `(id)` | |
@@ -803,6 +838,11 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `alert_delivery_pkey` | pk `(id)` | mark sent |
 | `alert_delivery_subscriber_id_outbox_id_key` | unique `(subscriber_id, outbox_id)` | fan-out `on conflict do nothing`; cascade from `subscriber` |
 | `alert_delivery_unsent` | `(id) where sent_at is null` | the alert send chore: oldest unsent first |
+| `qr_attachment_open` | unique `(qr_code_id) where to_at is null` | one open attachment per code; attach and detach |
+| `qr_attachment_place` | `(place_id, from_at desc)` | a place's attachment history; the subtree roll-up |
+| `qr_scan_code_at` | `(qr_code_id, at desc)` | a code's scan counts and daily series |
+| `qr_scan_attachment` | `(attachment_id, at desc)` | scans per stay |
+| `qr_scan_event` | `(event_id, at desc)` | scans per event |
 | `alert_delivery_outbox` | `(outbox_id)` | cascade from `outbox`: the nightly cleanup deletes every outbox row published 30 days earlier, and after an event that is thousands of `subscription.verify` rows in one night, each of which would otherwise scan `alert_delivery`; per-alert progress queries |
 
 ### 4.2 Partial unique indexes and how the writers use them
@@ -843,22 +883,29 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | Column | References | On delete | Reason |
 |---|---|---|---|
 | `event.status_id` | `event_status.id` | no action | lookup rows are never deleted |
-| `event.route_id` | `route.id` | no action | `DELETE /admin/routes/{id}` answers `409 route_in_use` while any event references the route |
+| `event.route_id` | `route.id` | set null | a deleted flight recording unlinks from its events (the delete impact lists them) |
+| `event.route_image_media_id` | `media_asset.id` | set null | a deleted poster asset unlinks from its events |
+| `event_status_history.outbox_id` | `outbox.id` | set null | the history row outlives the pruned outbox row |
 | `event_status_history.event_id` | `event.id` | cascade | history goes with the event |
 | `event_status_history.from_status_id`, `to_status_id` | `event_status.id` | no action | lookup |
 | `event_message.event_id` | `event.id` | cascade | messages go with the event |
 | `beacon_enrollment_token.beacon_id` | `beacon.id` | cascade | beacons are never deleted; the cascade keeps the schema self-consistent |
 | `beacon_log.beacon_id` | `beacon.id` | cascade | same |
-| `location.event_id` | `event.id` | no action | `DELETE /admin/events/{id}` answers `409 event_has_locations` when any location row exists |
+| `location.event_id` | `event.id` | cascade | `DELETE /admin/events/{id}` removes the recording with the event (only the live and the current event refuse, api.md 5b) |
 | `location.beacon_id` | `beacon.id` | no action | beacons are never deleted |
-| `sponsor.logo_media_id` | `media_asset.id` | no action | `DELETE /admin/media/{id}` answers `409 media_in_use` while any sponsor references the asset |
+| `sponsor.logo_media_id` | `media_asset.id` | set null | a deleted asset leaves the sponsor without a logo (the delete impact lists the sponsors) |
 | `sponsor_year.sponsor_id` | `sponsor.id` | cascade | `DELETE /admin/sponsors/{id}` removes the years in the same statement |
 | `section.page_id` | `page.id` | cascade | `DELETE /admin/pages/{id}` and restore remove sections |
 | `section_item.section_id` | `section.id` | cascade | section delete, page delete, and restore remove items |
 | `subscriber.person_id` | `person.id` | cascade | `DELETE /admin/people/{id}` removes subscriptions |
 | `cookie.event_id` | `event.id` | cascade | `DELETE /admin/events/{id}` removes cookies |
 | `cookie.person_id` | `person.id` | cascade | `DELETE /admin/people/{id}` removes cookies |
-| `cookie.cookie_type_id` | `cookie_type.id` | no action | cookie types have no delete |
+| `cookie.cookie_type_id` | `cookie_type.id` | cascade | `DELETE /admin/cookie-types/{id}` removes the cookies of that type (refused while an event is live) |
+| `place.parent_id` | `place.id` | cascade | deleting a place removes its subtree |
+| `place.opens_page_id`, `qr_code.opens_page_id` | `page.id` | set null | a deleted page stops being the target; the code or place resolves through its next rule |
+| `qr_attachment.qr_code_id`, `qr_scan.qr_code_id` | `qr_code.id` | cascade | a deleted code takes its stays and scans |
+| `qr_attachment.place_id` | `place.id` | set null | a stay outlives its place |
+| `qr_scan.attachment_id`, `qr_scan.event_id` | `qr_attachment.id`, `event.id` | set null | the scan keeps counting against the code |
 | `alert_delivery.outbox_id` | `outbox.id` | cascade | deliveries go with their outbox row (section 11) |
 | `alert_delivery.subscriber_id` | `subscriber.id` | cascade | `DELETE /admin/subscribers/{id}` and the nightly unverified cleanup remove deliveries |
 
@@ -872,7 +919,7 @@ Every cascading foreign key has an index whose leading column is the referencing
 |---|---|---|---|
 | `event_status` | the five statuses | initial migration | migration runs once |
 | `live_state` | `(id = 1)`, every other column null | initial migration | migration runs once |
-| `app_setting` | the five keys with the design defaults, `updated_by = 'seed'` | initial migration | `on conflict (key) do nothing` |
+| `app_setting` | the keys of contracts 6 with the design defaults, `updated_by = 'seed'` | initial migration for the first five, then the migration that introduced each key | `on conflict (key) do nothing` |
 | `cookie_type` | Chocolate chip 10, Gingerbread 20, Snickerdoodle 30, Sugar 40, Happy 50; a library icon each, `active` true | initial migration | inserted only when the table is empty |
 | `site_setting_draft`, `icon_library_state` | `(id = 1)`, every other column null or default | initial migration | migration runs once |
 | `page`, `section`, `section_item`, `site_setting_draft.data` | the starter content: the six role pages (`no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`) with a sensible section stack each, the ordinary pages `about`, `sponsors`, `route`, `donate`, `contact`, `alerts`, and the site settings, from `contracts/starter-content.json` (library icons only, no media) | first boot (section 8.16) | inserted only when `page` is empty |
@@ -1167,9 +1214,9 @@ returning *;                                                                  --
 ```sql
 begin;
 select * from snapshot where id = 1 for update;
-select id, status_id from event where id = $event for update;                -- none: 404; status 3: 409 event_live
-select 1 from location where event_id = $event limit 1;                       -- any: 409 event_has_locations
-delete from event where id = $event;                                          -- cascades event_status_history, event_message, cookie
+select id, status_id, is_current from event where id = $event for update;    -- none: 404; status 3: 409 event_live; is_current: 409 event_current
+-- the delete impact's statements (api.md 5b): pending alert outbox rows of the event
+delete from event where id = $event;                                          -- cascades event_status_history, event_message, cookie, location
 -- build, hash, PUT; update snapshot; commit
 ```
 
@@ -1198,8 +1245,7 @@ The frame of 8.5 with:
 
 ```sql
 select id from event where status_id = 3;                                     -- any: rollback, 409 event_live
-select count(*) from cookie where cookie_type_id = $type;                     -- above 0: rollback, 409 cookie_type_in_use (details.cookieCount)
-delete from cookie_type where id = $type;                                     -- 0 rows: 404
+delete from cookie_type where id = $type;                                     -- 0 rows: 404; cascades the type's cookies
 ```
 
 `cookie_type.cookieCount` on the list (contracts 4.0) is `select cookie_type_id, count(*) from cookie group by 1` joined in; `cookie_person` and `cookie_event_type_visible` make it cheap and the table is read once per list.
@@ -1331,7 +1377,7 @@ values ($name, $key, $url, $sha256, $point_count, $admin_email)
 returning *;                                                                  -- 23505 on route_s3_key_key: select the existing row, 200
 ```
 
-Delete: `select 1 from event where route_id = $route limit 1;` (any: `409 route_in_use`), `delete from route where id = $route;`, then delete the object.
+Delete: `delete from route where id = $route;` (the foreign key sets `event.route_id` null on the events that used it), then delete the object.
 
 ### 8.15 People and admin deletes
 
@@ -1850,7 +1896,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `AddRoutePosterAndSponsorPins` (2026-09-11), `AddApiKeys` (2026-09-11), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-14: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-14: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
@@ -2066,7 +2112,7 @@ For every sponsor whose legacy `logo_s3_key` names an object in the legacy bucke
 - Two roles per environment: `wmsfo_migrate_<env>` owns the database and runs migrations and the migration tool; `wmsfo_app_<env>` serves requests and cannot run DDL (section 12).
 
 - Two roles per environment: `wmsfo_migrate_<env>` owns the database and runs migrations and the tool; `wmsfo_app_<env>` (the contracts' role name) is the API's runtime role with DML only. The container env gains `WMSFO_DB_MIGRATION_CONNECTION`.
-- `app_setting` is seeded with the five defaults (`updated_by = 'seed'`); the compiled default for a missing row stays as the fallback.
+- `app_setting` is seeded with the default of every key (`updated_by = 'seed'`); the compiled default for a missing row stays as the fallback.
 - `cookie_type` is seeded with Chocolate chip, Gingerbread, Snickerdoodle, Sugar, Happy (sort 10 to 50) only when the table is empty; sponsor specials are admin-added; a type is deleted only while no cookie references it.
 - `beacon` has no role column (dropped 2026-09-12); `cookie.hidden_at` is never set (moderation removed 2026-09-12) and stays for the index and the tally query; `media_asset.dzi_key` records the Deep Zoom pyramid confirm cut for large rasters.
 - No triggers; the API writes `updated_at` in every update statement.

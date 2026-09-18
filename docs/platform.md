@@ -1,6 +1,6 @@
 # WMSFO v2 platform
 
-Everything outside the four codebases: environments, storage and CDN, database, gateway manifest and container secret, identity, email, IAM, DNS, hosting, CI/CD, observability, runbooks, the legacy migration tool, and the cut-over. The design overview (`DESIGN.md`) is authoritative; the shared contracts (`docs/contracts.md`) fix every name and shape used here. Choices this document makes are listed in section 16; choices that need the owner are in section 17.
+Everything outside the codebases: environments, storage and CDN, database, gateway manifest and container secret, identity, email, IAM, DNS, hosting, CI/CD, observability, runbooks, the legacy migration tool, and the cut-over. The design overview (`DESIGN.md`) is authoritative; the shared contracts (`docs/contracts.md`) fix every name and shape used here. Choices this document makes are listed in section 16; choices that need the owner are in section 17.
 
 ---
 
@@ -201,9 +201,9 @@ The `s-maxage=1` on the live object is honoured (min 0, max 31,536,000 bracket i
 
 | Section | Value |
 |---|---|
-| Custom headers | `X-Content-Type-Options: nosniff`, override true |
+| Security headers | `X-Content-Type-Options: nosniff` (the content type options entry, override true); CloudFront refuses that header as a custom header |
 | CORS | `Access-Control-Allow-Origin: *`; `Access-Control-Allow-Methods: GET, HEAD`; `Access-Control-Allow-Headers: *`; `Access-Control-Max-Age: 3600`; credentials off; override on |
-| Security headers other than the above, server-timing, remove headers | None |
+| Custom headers, every other security header, server-timing, remove headers | None |
 
 
 ### 1.7 Verifying the CDN
@@ -361,6 +361,8 @@ Dev value (contracts 8.1, with the platform's values filled in):
   "WMSFO_COGNITO_ADMIN_USER_POOL_ID": "<admin-pool-id>",
   "WMSFO_ADMIN_GROUP": "admin",
   "WMSFO_EDITOR_GROUP": "editor",
+  "WMSFO_CANVASSER_GROUP": "canvasser",
+  "WMSFO_SCAN_SALT": "<random string; salts the scan IP hash>",
   "WMSFO_SES_FROM_ADDRESS": "Santa Tracker <alerts@<mail-domain>>",
   "WMSFO_SES_CONFIGURATION_SET": "wmsfo-dev",
   "WMSFO_CONTACT_NOTIFY_EMAIL": "<inbox-address>",
@@ -384,7 +386,7 @@ Prod differs in exactly these values:
 | `WMSFO_COGNITO_ISSUER`, `WMSFO_COGNITO_CLIENT_IDS`, `WMSFO_COGNITO_USER_POOL_ID` | the prod people pool and its `wmsfo-site` client |
 | `WMSFO_COGNITO_ADMIN_ISSUER`, `WMSFO_COGNITO_ADMIN_CLIENT_IDS`, `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | the prod admin pool and its `wmsfo-admin` client |
 | `WMSFO_SES_CONFIGURATION_SET` | `wmsfo-prod` |
-| `WMSFO_ENROLLMENT_ENCRYPTION_KEY` | a different random key |
+| `WMSFO_ENROLLMENT_ENCRYPTION_KEY`, `WMSFO_SCAN_SALT` | a different random key and a different random salt |
 
 Rules:
 
@@ -454,7 +456,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | Account recovery | Email only |
 | Deletion protection | On (prod) |
 | Advanced security | Off (no plus tier features are used) |
-| Hosted UI domain | People pools `<cognito-prefix>-dev` and `<cognito-prefix>-prod`, admin pools `<cognito-prefix>-admin-dev` and `<cognito-prefix>-admin-prod`, under `auth.<region>.amazoncognito.com` |
+| Hosted UI domain | One prefix per pool under `auth.<region>.amazoncognito.com`, each the pool's name plus a short suffix that makes it unique in the region (`wmsfo-dev-<suffix>`, `wmsfo-admin-dev-<suffix>`, and the prod pair); `<cognito-prefix>` stands for whichever pool is meant |
 | Hosted UI version | Managed login (domain `ManagedLoginVersion = 2`) with a managed login style assigned to each app client, Cognito-provided values. Its pages carry labelled inputs and a "Change password" first-login step; the classic hosted UI is not used |
 | Groups | Admin pools only: `admin` (precedence 0, no role), `editor` (precedence 1, no role), `canvasser` (precedence 2, no role; QR codes and places only, contracts 4.5a). The people pools have no groups and the API ignores any group claim on a people-pool token |
 
@@ -488,9 +490,9 @@ Removing or changing a role: edit the groups; the API sees the change on the nex
 | Sender | `WMSFO_SES_FROM_ADDRESS` = `Santa Tracker <alerts@<mail-domain>>`; `contact_received` uses the same sender with `Reply-To` set to the contact's address |
 | Configuration sets | `wmsfo-dev`, `wmsfo-prod`; event destination: SNS topic `<ses-events-topic>` for `BOUNCE`, `COMPLAINT`, `REJECT`, `RENDERING_FAILURE`, subscribed by `<inbox-address>` |
 | Suppression | Account-level suppression list on for bounces and complaints. The API does nothing further in v1 (contracts 7.8) |
-| Sandbox | A production access request is filed for the account with the expected volume (one alert to about 20,000 recipients, three times per December); the request is filed in October. Until approved, only verified recipients receive mail, which is what dev uses |
-| Quota | After approval, the sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000; check in the console the week before the event |
-| Dev | The dev API sends real mail through the same identity to verified addresses only; every dev subscriber address is verified in the console first |
+| Sandbox | The account has production access, so mail reaches any recipient in both environments |
+| Quota | The sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000 (one alert to about 20,000 recipients, three times per December). The account's rate is 14 per second and its daily quota 50,000, so a quota increase is an operator to-do (section 18); check both in the console the week before the event |
+| Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set; a notify on dev emails every verified dev subscriber |
 
 The instance role's SES permission is section 6.
 
@@ -516,11 +518,11 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
 }
 ```
 
-The second statement is required (the admin pool ARN of each environment): the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design.
+The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design.
 
 ### 6.2 CI role
 
-One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository `wmsfo-api`, branches `dev` and `main`, with `ecr:GetAuthorizationToken` on `*` and push permissions (`ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage`) on the `wmsfo-api` repository. The two beacon repositories (`simulator-beacon`, `legacy-beacon`) get the same shape: the trust policy of that role widened to their `dev` and `main` refs and its ECR grant widened to their repositories, or one role each; either way no access keys in GitHub.
+One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository `wmsfo-api`, branches `dev` and `main`, with `ecr:GetAuthorizationToken` on `*` and push permissions (`ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage`) on the `wmsfo-api` repository. The two beacon repositories (`simulator-beacon`, `legacy-beacon`) use the same role: its trust policy also names their `dev` and `main` refs and their `dev` and `prod` environments, and its ECR grant also covers their repositories. No access keys in GitHub.
 
 ### 6.3 Operators
 
@@ -570,7 +572,7 @@ Settings on every project: framework preset Vite, output `dist`, SPA rewrite (`/
 
 ### 9.1 API
 
-`wmsfo-api/.github/workflows/deploy.yml`, per api.md 19: test, contract check, OIDC assume role, multi-arch build and push `wmsfo-api:<sha>-<env>`, deploy call, wait for `done`. Environment secrets (contracts 8.2): `AWS_ROLE_ARN`, `ECR_REPOSITORY`, `GATEWAY_BASE_URL`, `GATEWAY_TOKEN_URL`, `GATEWAY_CLIENT_ID`, `GATEWAY_CLIENT_SECRET`, `GATEWAY_SERVICE_NAME`. The image installs the RDS certificate bundle (api.md 18) so `Trust Server Certificate=false` validates.
+`wmsfo-api/.github/workflows/deploy.yml`, per api.md 19: test, contract check, OIDC assume role, multi-arch build and push `wmsfo-api:<sha>-<env>`, deploy call, wait for `done`. The deploy job runs for `dev` only until the prod manifest entry and the prod environment secrets exist (section 13); the beacon workflows (9.2a) carry the same condition. Environment secrets (contracts 8.2): `AWS_ROLE_ARN`, `ECR_REPOSITORY`, `GATEWAY_BASE_URL`, `GATEWAY_TOKEN_URL`, `GATEWAY_CLIENT_ID`, `GATEWAY_CLIENT_SECRET`, `GATEWAY_SERVICE_NAME`. The image installs the RDS certificate bundle (api.md 18) so `Trust Server Certificate=false` validates.
 
 The deploy client credential is the existing CI app client on the ops pool with scope `mgmt/deploy`; it cannot upsert the manifest, which is the intended limit.
 
@@ -584,7 +586,7 @@ Vercel git integration; no workflow file is required. Each repository has a `ci.
 
 ### 9.3 Red-Nose
 
-`red-nose/.github/workflows/android.yml` per red-nose.md 16: tests, then per flavour a signed APK and the Magisk module zip that carries it, both uploaded as artifacts. The signing key and its password are repository secrets.
+`red-nose/.github/workflows/android.yml` per red-nose.md 16: tests, then per flavour a signed APK and the Magisk module zip that carries it, both uploaded as artifacts, on the self-hosted runner. Builds are signed with the checked-in `android/app/debug.keystore` so any build can replace any other on the phone; a release key kept outside the repository is a prod concern (red-nose.md 15 and 19).
 
 ---
 
@@ -794,4 +796,6 @@ Nothing at the moment. Add here as it comes up.
 
 ## 18. Operator to-do
 
-- **Google Maps browser key.** The admin panel now uses the same key for the places map, the pin drag, and Places Autocomplete (admin.md 6.24): enable the Places API on it and add the panel's origins (production, dev, `http://localhost:5174`) to its referrers. The key currently used by the site (`VITE_GOOGLE_MAPS_KEY`) is unrestricted. Rotate it and restrict the new key to HTTP referrers: the production site origin, the dev site origin, and `http://localhost:5173`, with the Maps JavaScript API as the only allowed API. Until then the same key serves dev and prod.
+- **Google Maps browser key.** The site and the admin panel share one key per environment (`VITE_GOOGLE_MAPS_KEY`); the panel uses it for the places map, the pin drag, and Places Autocomplete (admin.md 6.24). Dev has its key: HTTP referrers limited to the dev site and dev panel origins, APIs limited to Maps JavaScript and Places. Local runs on `http://localhost:5173` and `http://localhost:5174` are not in its referrers; add them when local map work needs them. Prod needs its own key at cut-over with the same API limits and the production site and panel origins as referrers.
+- **SES daily quota.** Raise the account's daily sending quota above 100,000 before the event (section 5); it is 50,000.
+- **Dev metric filters and dashboard.** The metric filters of 10.2 and the `wmsfo-dev` dashboard of 10.4 are not created yet; the log groups exist with 30-day retention.
