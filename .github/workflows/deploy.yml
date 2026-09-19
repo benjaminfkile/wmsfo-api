@@ -23,6 +23,8 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
