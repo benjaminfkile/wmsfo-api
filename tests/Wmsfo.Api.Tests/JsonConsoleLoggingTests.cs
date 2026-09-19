@@ -68,19 +68,23 @@ public class JsonConsoleLoggingTests
     }
 
     [Fact]
-    public void Formatter_flattens_state_properties_next_to_the_fixed_fields()
+    public void Formatter_writes_state_property_names_in_camel_case()
     {
+        // api.md 16 / platform.md 10.2: the CloudWatch metric filters key on
+        // camel case property names (`$.marker`, `$.outcome`, `$.published`),
+        // so every template hole's first character is lowered as it lands.
+        // A boolean value stays a JSON boolean; the template marker is dropped.
         var fields = new WmsfoLoggingFields { Service = "s", Env = "dev", Node = "n" };
         var formatter = new WmsfoJsonConsoleFormatter(Options.Create(fields));
         var writer = new StringWriter();
-        // Simulate the state Microsoft.Extensions.Logging builds for a message
-        // template `location stored seq={Seq} beaconId={BeaconId}`.
         IReadOnlyList<KeyValuePair<string, object?>> state = new[]
         {
+            new KeyValuePair<string, object?>("Marker", "wmsfo_leader_gained"),
+            new KeyValuePair<string, object?>("Outcome", "stored"),
+            new KeyValuePair<string, object?>("Published", true),
             new KeyValuePair<string, object?>("Seq", 17L),
             new KeyValuePair<string, object?>("BeaconId", 5L),
-            new KeyValuePair<string, object?>("Published", true),
-            new KeyValuePair<string, object?>("{OriginalFormat}", "location stored seq={Seq} beaconId={BeaconId} published={Published}"),
+            new KeyValuePair<string, object?>("{OriginalFormat}", "marker={Marker} outcome={Outcome} published={Published} seq={Seq} beaconId={BeaconId}"),
         };
         var entry = new LogEntry<IReadOnlyList<KeyValuePair<string, object?>>>(
             LogLevel.Information,
@@ -88,13 +92,79 @@ public class JsonConsoleLoggingTests
             new EventId(0, ""),
             state,
             null,
-            (s, _) => "location stored seq=17 beaconId=5 published=True");
+            (s, _) => "marker=wmsfo_leader_gained outcome=stored published=True seq=17 beaconId=5");
         formatter.Write(entry, scopeProvider: null, writer);
         using var doc = JsonDocument.Parse(writer.ToString().TrimEnd('\n', '\r'));
-        Assert.Equal(17, doc.RootElement.GetProperty("Seq").GetInt64());
-        Assert.Equal(5, doc.RootElement.GetProperty("BeaconId").GetInt64());
-        Assert.True(doc.RootElement.GetProperty("Published").GetBoolean());
-        // The template marker itself is never emitted as a property.
+        Assert.Equal("wmsfo_leader_gained", doc.RootElement.GetProperty("marker").GetString());
+        Assert.Equal("stored", doc.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(JsonValueKind.True, doc.RootElement.GetProperty("published").ValueKind);
+        Assert.True(doc.RootElement.GetProperty("published").GetBoolean());
+        Assert.Equal(17, doc.RootElement.GetProperty("seq").GetInt64());
+        Assert.Equal(5, doc.RootElement.GetProperty("beaconId").GetInt64());
+        Assert.False(doc.RootElement.TryGetProperty("Marker", out _));
+        Assert.False(doc.RootElement.TryGetProperty("Published", out _));
         Assert.False(doc.RootElement.TryGetProperty("{OriginalFormat}", out _));
+    }
+
+    [Fact]
+    public void Formatter_preserves_already_camel_case_scope_property_names()
+    {
+        // A `requestId` scope property (added in the request-id middleware) is
+        // already camel case and reaches the log line unchanged.
+        var fields = new WmsfoLoggingFields { Service = "s", Env = "dev", Node = "n" };
+        var formatter = new WmsfoJsonConsoleFormatter(Options.Create(fields));
+        var writer = new StringWriter();
+        var scopes = new SingleScopeProvider(new Dictionary<string, object?>
+        {
+            ["requestId"] = "0HN2X7-abc",
+        });
+        var entry = new LogEntry<string>(
+            LogLevel.Information,
+            "Wmsfo.Api.Http",
+            new EventId(0, ""),
+            "hello",
+            null,
+            (s, _) => s);
+        formatter.Write(entry, scopes, writer);
+        using var doc = JsonDocument.Parse(writer.ToString().TrimEnd('\n', '\r'));
+        Assert.Equal("0HN2X7-abc", doc.RootElement.GetProperty("requestId").GetString());
+    }
+
+    [Fact]
+    public void Formatter_fixed_field_wins_a_camel_case_collision_with_state()
+    {
+        // A state property named `Level` would collide with the fixed `level`
+        // field once lowered; the formatter keeps the fixed field's value.
+        var fields = new WmsfoLoggingFields { Service = "s", Env = "dev", Node = "n" };
+        var formatter = new WmsfoJsonConsoleFormatter(Options.Create(fields));
+        var writer = new StringWriter();
+        IReadOnlyList<KeyValuePair<string, object?>> state = new[]
+        {
+            new KeyValuePair<string, object?>("Level", "PLEASE_IGNORE"),
+            new KeyValuePair<string, object?>("{OriginalFormat}", "clashing state"),
+        };
+        var entry = new LogEntry<IReadOnlyList<KeyValuePair<string, object?>>>(
+            LogLevel.Warning,
+            "Wmsfo.Api.Http",
+            new EventId(0, ""),
+            state,
+            null,
+            (s, _) => "clashing state");
+        formatter.Write(entry, scopeProvider: null, writer);
+        using var doc = JsonDocument.Parse(writer.ToString().TrimEnd('\n', '\r'));
+        Assert.Equal("warn", doc.RootElement.GetProperty("level").GetString());
+    }
+
+    private sealed class SingleScopeProvider : IExternalScopeProvider
+    {
+        private readonly object _scope;
+        public SingleScopeProvider(object scope) { _scope = scope; }
+        public void ForEachScope<TState>(Action<object?, TState> callback, TState state) => callback(_scope, state);
+        public IDisposable Push(object? state) => NoopDisposable.Instance;
+        private sealed class NoopDisposable : IDisposable
+        {
+            public static readonly NoopDisposable Instance = new();
+            public void Dispose() { }
+        }
     }
 }

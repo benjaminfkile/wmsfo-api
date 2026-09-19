@@ -114,8 +114,14 @@ public sealed class WmsfoJsonConsoleFormatter : ConsoleFormatter
 
     private static void WriteProperty(Utf8JsonWriter writer, HashSet<string> seen, string key, object? value)
     {
-        if (!seen.Add(key)) return;
-        writer.WritePropertyName(key);
+        if (string.IsNullOrEmpty(key)) return;
+        // api.md 16 / platform.md 10.2: property names are camel case so
+        // CloudWatch metric filters can match them (matching is case sensitive).
+        // A key that already starts lower case is unchanged; the fixed fields
+        // seeded in `seen` win any collision.
+        var lowered = char.IsUpper(key[0]) ? char.ToLowerInvariant(key[0]) + key[1..] : key;
+        if (!seen.Add(lowered)) return;
+        writer.WritePropertyName(lowered);
         WriteValue(writer, value);
     }
 
