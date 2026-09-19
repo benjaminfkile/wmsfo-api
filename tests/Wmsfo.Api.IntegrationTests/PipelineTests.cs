@@ -322,6 +322,60 @@ public sealed class PipelineTests
         Assert.Equal("2026-12-22T01:31:07.000Z", doc.RootElement.GetProperty("serverTime").GetString());
     }
 
+    // --- api.md 16 request line ---
+    [Fact]
+    public async Task Request_finished_line_carries_the_documented_fields()
+    {
+        await using var host = await StartAsync();
+        var checker = (ScriptedAdminTotpChecker)host.App.Services.GetRequiredService<IAdminTotpChecker>();
+        checker.SetEnabled(DevStaticTokens.AdminSub);
+
+        using (var admin = await SendWithBearerAsync(host, HttpMethod.Get, "/admin/test", DevStaticTokens.AdminToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, admin.StatusCode);
+        }
+        using (var anon = await host.Client.GetAsync("/test/person"))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, anon.StatusCode);
+        }
+        using (var unknown = await host.Client.GetAsync("/no-such-path"))
+        {
+            Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        }
+        using (var health = await host.Client.GetAsync("/api/health"))
+        {
+            Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        }
+
+        var lines = host.Logs.LinesFor("Wmsfo.Api.Http", "request finished").ToList();
+        // `/api/health` skips the line; `/admin/test`, `/test/person`, and
+        // `/no-such-path` each produce exactly one.
+        Assert.Equal(3, lines.Count);
+
+        var admin1 = Assert.Single(lines, l => (string?)l.Properties["Route"] == "/admin/test");
+        Assert.Equal("GET", (string?)admin1.Properties["Method"]);
+        Assert.IsType<int>(admin1.Properties["Status"]);
+        Assert.Equal(200, (int)admin1.Properties["Status"]!);
+        Assert.IsAssignableFrom<long>(admin1.Properties["DurationMs"]!);
+        Assert.True((long)admin1.Properties["DurationMs"]! >= 0);
+        // A logged-in admin's static-token sub is not upserted to a person id,
+        // so the principal reads `admin:<sub>` per api.md 16.
+        Assert.Equal("admin:" + DevStaticTokens.AdminSub, (string?)admin1.Properties["Principal"]);
+
+        var anon1 = Assert.Single(lines, l => (string?)l.Properties["Route"] == "/test/person");
+        Assert.Equal(401, (int)anon1.Properties["Status"]!);
+        Assert.Equal("anon", (string?)anon1.Properties["Principal"]);
+
+        var unmatched1 = Assert.Single(lines, l => (string?)l.Properties["Route"] == "unmatched");
+        Assert.Equal(404, (int)unmatched1.Properties["Status"]!);
+        Assert.Equal("anon", (string?)unmatched1.Properties["Principal"]);
+        Assert.IsAssignableFrom<long>(unmatched1.Properties["DurationMs"]!);
+
+        // `/api/health` never emits a `request finished` line.
+        Assert.DoesNotContain(host.Logs.LinesFor("Wmsfo.Api.Http", "request finished"),
+            e => (string?)e.Properties["Route"] == "/api/health");
+    }
+
     private static async Task<HttpResponseMessage> SendWithBearerAsync(PipelineHost host, HttpMethod method, string path, string token)
     {
         var req = new HttpRequestMessage(method, path);

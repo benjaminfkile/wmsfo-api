@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Auth;
@@ -154,14 +156,40 @@ public static class WmsfoPipeline
         // Step 2: forwarded headers with UseWhen except /realtime/*.
         app.UseForwardedHeadersExceptRealtime();
 
-        // Step 3: request id and logging scope.
+        // Step 3: request id, logging scope, and the one request line api.md 16
+        // promises. `/api/health` is skipped so the health prober does not drown
+        // the log; `/realtime/*` is skipped because the gateway authorize traffic
+        // stays at Debug per api.md 16.
         app.Use(async (context, next) =>
         {
             var requestId = Activity.Current?.Id ?? context.TraceIdentifier;
             using (logger.BeginScope(new Dictionary<string, object?> { ["requestId"] = requestId }))
             {
                 context.TraceIdentifier = requestId;
-                await next();
+
+                var path = context.Request.Path;
+                var skipLog =
+                    (HttpMethods.IsGet(context.Request.Method) && path.Equals("/api/health", StringComparison.Ordinal))
+                    || path.StartsWithSegments("/realtime");
+                if (skipLog)
+                {
+                    await next();
+                    return;
+                }
+
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    await next();
+                }
+                catch
+                {
+                    sw.Stop();
+                    LogRequestFinished(logger, context, sw.ElapsedMilliseconds, threw: true);
+                    throw;
+                }
+                sw.Stop();
+                LogRequestFinished(logger, context, sw.ElapsedMilliseconds, threw: false);
             }
         });
 
@@ -196,6 +224,60 @@ public static class WmsfoPipeline
         app.UseRateLimiter();
     }
 
+    // api.md 16 request line. The formatter writes each template hole in camel
+    // case so `method`, `route`, `status`, `durationMs`, and `principal` land as
+    // documented. `route` is the matched endpoint's route pattern or the literal
+    // `unmatched` when routing did not find one. `status` is what the response
+    // carries at the moment the line is written; when `next()` threw before the
+    // exception handler ran and the response has not started, 500 stands in.
+    private static void LogRequestFinished(ILogger logger, HttpContext context, long durationMs, bool threw)
+    {
+        var method = context.Request.Method;
+        var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? "unmatched";
+        int status;
+        if (threw && !context.Response.HasStarted)
+        {
+            status = StatusCodes.Status500InternalServerError;
+        }
+        else
+        {
+            status = context.Response.StatusCode;
+        }
+        var principal = RequestPrincipal.For(context.User);
+        logger.LogInformation(
+            "request finished method={Method} route={Route} status={Status} durationMs={DurationMs} principal={Principal}",
+            method, route, status, durationMs, principal);
+    }
+}
+
+// api.md 16: the principal name on the request line. The claims here are the
+// same ones the audit recorder and the rate limiter read to identify the
+// caller: `beacon_id` for a beacon, `api_key_id` and `wmsfo_pool` for admin,
+// `wmsfo_pool` for the person pool. An unauthenticated caller is `anon`.
+// `gateway` is documented alongside the other four but the gateway callbacks
+// live under `/realtime/*`, which the request line skips.
+internal static class RequestPrincipal
+{
+    public static string For(ClaimsPrincipal? user)
+    {
+        if (user?.Identity?.IsAuthenticated != true) return "anon";
+
+        var beaconId = user.FindFirst(BeaconClaims.BeaconId)?.Value;
+        if (!string.IsNullOrEmpty(beaconId)) return "beacon:" + beaconId;
+
+        var apiKeyId = user.FindFirst(ApiKeyClaims.ApiKeyId)?.Value;
+        if (!string.IsNullOrEmpty(apiKeyId)) return "admin:" + apiKeyId;
+
+        var pool = user.FindFirst(PersonClaims.Pool)?.Value;
+        var id = user.FindFirst(PersonClaims.PersonId)?.Value
+              ?? user.FindFirst(PersonClaims.Sub)?.Value
+              ?? "";
+        if (string.Equals(pool, PersonClaims.PoolAdmin, StringComparison.Ordinal))
+        {
+            return "admin:" + id;
+        }
+        return "person:" + id;
+    }
 }
 
 // A safe default (Cognito unavailable in tests / local runs without the checker

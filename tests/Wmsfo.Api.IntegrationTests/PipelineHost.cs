@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -27,6 +28,7 @@ public sealed class PipelineHost : IAsyncDisposable
     public InMemoryPersonUpsert PersonUpsert { get; } = new();
     public FakeServerClock Clock { get; } = new();
     public bool Ready { get; set; } = true;
+    public CapturingLoggerProvider Logs { get; } = new();
 
     public static async Task<PipelineHost> StartAsync(Action<PipelineHost, WebApplication>? mapEndpoints = null)
     {
@@ -43,7 +45,8 @@ public sealed class PipelineHost : IAsyncDisposable
             ApplicationName = typeof(PipelineHost).Assembly.GetName().Name,
         });
         builder.Logging.ClearProviders();
-        builder.Logging.SetMinimumLevel(LogLevel.Warning);
+        builder.Logging.AddProvider(Logs);
+        builder.Logging.SetMinimumLevel(LogLevel.Information);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
         builder.Services.AddSingleton(options);
@@ -226,6 +229,53 @@ public sealed class FakeServerClock : IServerClock
     public DateTimeOffset Now { get; set; } = new(2026, 12, 22, 1, 31, 7, TimeSpan.Zero);
     public DateTimeOffset UtcNow() => Now;
 }
+
+// In-memory logger provider so pipeline tests can assert on the emitted log
+// lines - api.md 16 request line is the immediate use.
+public sealed class CapturingLoggerProvider : ILoggerProvider
+{
+    public ConcurrentQueue<CapturedLog> Entries { get; } = new();
+
+    public ILogger CreateLogger(string categoryName) => new Logger(this, categoryName);
+
+    public void Dispose() { }
+
+    public IEnumerable<CapturedLog> LinesFor(string category, string messagePrefix) =>
+        Entries.Where(e =>
+            string.Equals(e.Category, category, StringComparison.Ordinal)
+            && e.Message.StartsWith(messagePrefix, StringComparison.Ordinal));
+
+    private sealed class Logger : ILogger
+    {
+        private readonly CapturingLoggerProvider _sink;
+        private readonly string _category;
+        public Logger(CapturingLoggerProvider sink, string category) { _sink = sink; _category = category; }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => Noop.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            var props = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (state is IEnumerable<KeyValuePair<string, object?>> kvps)
+            {
+                foreach (var kv in kvps)
+                {
+                    if (kv.Key == "{OriginalFormat}") continue;
+                    props[kv.Key] = kv.Value;
+                }
+            }
+            _sink.Entries.Enqueue(new CapturedLog(logLevel, _category, message, props));
+        }
+
+        private sealed class Noop : IDisposable
+        {
+            public static readonly Noop Instance = new();
+            public void Dispose() { }
+        }
+    }
+}
+
+public sealed record CapturedLog(LogLevel Level, string Category, string Message, IReadOnlyDictionary<string, object?> Properties);
 
 public static class TestOptions
 {
