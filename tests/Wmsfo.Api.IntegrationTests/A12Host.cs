@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Endpoints;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
@@ -33,15 +34,17 @@ public sealed class A12Host : IAsyncDisposable
     public FakeGatewayClient Gateway { get; }
     public NodeStateService State => App.Services.GetRequiredService<NodeStateService>();
     public LiveObjectWriter Writer => App.Services.GetRequiredService<LiveObjectWriter>();
+    public FakeEmailQuotaReader QuotaReader { get; }
 
     private A12Host(WebApplication app, HttpClient client, WmsfoOptions options,
-        RecordingObjectStore store, FakeGatewayClient gateway)
+        RecordingObjectStore store, FakeGatewayClient gateway, FakeEmailQuotaReader quotaReader)
     {
         App = app;
         Client = client;
         Options = options;
         Store = store;
         Gateway = gateway;
+        QuotaReader = quotaReader;
     }
 
     public static async Task<A12Host> StartAsync(string connectionString)
@@ -86,11 +89,13 @@ public sealed class A12Host : IAsyncDisposable
         var connections = WmsfoConnectionStrings.ForTests(connectionString);
         var store = new RecordingObjectStore();
         var gateway = new FakeGatewayClient();
+        var quotaReader = new FakeEmailQuotaReader();
 
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(connections);
         builder.Services.AddSingleton<IObjectStore>(store);
         builder.Services.AddSingleton<IGatewayInternalClient>(gateway);
+        builder.Services.AddSingleton<IEmailQuotaReader>(quotaReader);
         builder.Services.AddSingleton<NodeStateService>();
         builder.Services.AddSingleton<NodeCounters>();
         builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
@@ -139,8 +144,11 @@ public sealed class A12Host : IAsyncDisposable
             .Features.Get<IServerAddressesFeature>()!
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
-        return new A12Host(app, client, options, store, gateway);
+        return new A12Host(app, client, options, store, gateway, quotaReader);
     }
+
+    public HttpRequestMessage EditorRequest(HttpMethod method, string path) =>
+        Bearer(method, path, DevStaticTokens.EditorToken);
 
     private static IEnumerable<string> AllPolicies()
     {
@@ -176,5 +184,17 @@ public sealed class A12Host : IAsyncDisposable
         Client.Dispose();
         await App.StopAsync();
         await App.DisposeAsync();
+    }
+}
+
+// Fake IEmailQuotaReader for the email-quota integration tests. Each test sets
+// NextReading and the endpoint reads whatever is set at request time.
+public sealed class FakeEmailQuotaReader : IEmailQuotaReader
+{
+    public EmailQuotaReading NextReading { get; set; } = EmailQuotaReading.Unavailable();
+
+    public Task<EmailQuotaReading> ReadAsync(CancellationToken ct)
+    {
+        return Task.FromResult(NextReading);
     }
 }

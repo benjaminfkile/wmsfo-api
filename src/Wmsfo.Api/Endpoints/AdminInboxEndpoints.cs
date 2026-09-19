@@ -7,13 +7,19 @@ using NpgsqlTypes;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Endpoints;
 
-// contracts 4.5 Contact messages, subscribers, people (Admin).
+// contracts 4.5 Contact messages, subscribers, people (Admin), plus the Email
+// quota (Admin) endpoint that reads SES v2 GetAccount through the shared
+// IEmailQuotaReader (api.md 13) and counts the unsent alert_delivery rows and
+// verified email subscribers so the panel can warn before a send passes the
+// 24 h cap. This endpoint reads only; there is no audit row.
 // - GET paged lists (cursor is base64url of the last id, descending)
 // - GET /admin/subscribers/summary (counts across the three states)
+// - GET /admin/email/quota (the SES numbers plus queued + verifiedSubscribers)
 // - GET /admin/people (with cookieCount across every event)
 // - DELETE row is a hard delete (people cascade to their subscribers and cookies)
 public static class AdminInboxEndpoints
@@ -24,6 +30,7 @@ public static class AdminInboxEndpoints
         MapDeleteContactMessage(app);
         MapListSubscribers(app);
         MapSubscribersSummary(app);
+        MapEmailQuota(app);
         MapDeleteSubscriber(app);
         MapListPeople(app);
         MapDeletePerson(app);
@@ -274,6 +281,65 @@ from subscriber;", conn);
             .Produces<SubscribersSummaryResponse>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.Subscribers)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    private static void MapEmailQuota(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/email/quota",
+            async (HttpContext ctx, WmsfoConnectionStrings connections,
+                [Microsoft.AspNetCore.Mvc.FromServices] IEmailQuotaReader reader,
+                WmsfoOptions options, CancellationToken ct) =>
+            {
+                var reading = await reader.ReadAsync(ct);
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+
+                int queued;
+                await using (var q = new NpgsqlCommand(
+                    "select count(*) from alert_delivery where sent_at is null;", conn))
+                {
+                    queued = (int)((long?)(await q.ExecuteScalarAsync(ct)) ?? 0L);
+                }
+
+                int verifiedSubscribers;
+                await using (var v = new NpgsqlCommand(
+                    "select count(*) from subscriber where channel = 'email' and verified_at is not null and unsubscribed_at is null;", conn))
+                {
+                    verifiedSubscribers = (int)((long?)(await v.ExecuteScalarAsync(ct)) ?? 0L);
+                }
+
+                double? remaining = null;
+                var wouldExceed = false;
+                if (reading.Available && reading.Max24HourSend is double max)
+                {
+                    var used = (reading.SentLast24Hours ?? 0.0) + queued;
+                    var left = max - used;
+                    if (left < 0) left = 0;
+                    remaining = left;
+                    wouldExceed = verifiedSubscribers > left;
+                }
+
+                var dto = new EmailQuota
+                {
+                    Available = reading.Available,
+                    DryRun = options.SesDryRun,
+                    Max24HourSend = reading.Max24HourSend,
+                    SentLast24Hours = reading.SentLast24Hours,
+                    MaxSendRate = reading.MaxSendRate,
+                    Queued = queued,
+                    Remaining = remaining,
+                    VerifiedSubscribers = verifiedSubscribers,
+                    WouldExceed = wouldExceed,
+                    FetchedAt = DateTimeOffset.UtcNow,
+                };
+                return Results.Ok(dto);
+            })
+            .WithTags("AdminInbox")
+            .Produces<EmailQuota>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .DenyApiKeys()
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 

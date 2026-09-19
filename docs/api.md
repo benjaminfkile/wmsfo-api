@@ -107,7 +107,7 @@ wmsfo-api/
     Media/ImageSniffer.cs  SvgValidator.cs  VariantDeriver.cs  DeepZoomTiler.cs  MediaUsage.cs  FilenameSanitizer.cs
     Security/Keys.cs                  # key and token minting, hashing, AES-GCM
     Security/QrRenderer.cs
-    Email/SesSender.cs  EmailTemplates.cs
+    Email/SesSender.cs  EmailTemplates.cs  EmailQuotaReader.cs
     Contracts/Dtos/                   # request and response DTOs per resource family
     Contracts/OpenApiExport.cs  SchemaExport.cs  FixtureExport.cs  FixtureData.cs  StarterContentBuilder.cs  AdminThresholds.cs  EndpointStubs.cs   # the export-contracts mode (section 21)
   tools/Wmsfo.Migrate/                # the one-off legacy migration tool (sql.md 15, platform.md 12)
@@ -302,6 +302,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
 | `/admin/contact-messages*`, `/admin/subscribers*`, `/admin/people*` | Admin | paged lists, deletes, summary | |
+| `GET /admin/email/quota` | Editor, Cognito only (`DenyApiKeys`) | one `GetAccount` reading through `EmailQuotaReader` (cached), two `CountAsync` queries (unsent alert deliveries, verified email subscribers), one `EmailQuota` (section 13); reads only, never audits | contracts 4.5 Email quota, 7.8 |
 | `GET /admin/snapshot`, `POST /admin/snapshot/rebuild`, `GET /admin/live`, `POST /admin/live/republish` | Admin | diagnostics (section 10.3) | |
 | `POST /realtime/authorize`, `POST /realtime/message` | none, guarded | section 12 | |
 
@@ -503,6 +504,8 @@ The `payload` for a publish is the exact bytes the writer PUT, passed as raw JSO
 | `NightlyCleanup` | 09:00 UTC | the six deletes of contracts 7.6 (tokens, outbox with its deliveries by cascade, the alert topics after 400 days and everything else after 30, unverified subscribers, beacon logs, expired preview tokens, stale pending media rows), each its own statement, each logged with its row count |
 
 `SesSender` builds the message from `templates/email/<name>.html` and `.txt` with `{{token}}` substitution (HTML-escaped in the HTML body), sets `From`, `To`, `Subject`, `List-Unsubscribe` and `List-Unsubscribe-Post` on alerts, `Reply-To` on `contact_received`, and the configuration set when non-empty. Templates are read once at boot and validated for the required substitutions (section 21).
+
+`EmailQuotaReader` calls SES v2 `GetAccount` on the same optional `IAmazonSimpleEmailServiceV2` the sender uses (null in dry run) and returns the three `SendQuota` numbers as `(available, max24HourSend, sentLast24Hours, maxSendRate)`; a `Max24HourSend` of -1 becomes null. It caches the answer for 60 seconds behind a semaphore so concurrent callers on the same node share one call, and caches an unavailable answer (SES error, or no client) for 10 seconds only, logging the exception type and message once at Warning. `GET /admin/email/quota` (4.5 Email quota) is the only reader; it combines the reading with `count(*) filter (where sent_at is null)` on `alert_delivery` and the same verified-email-subscriber count the alert fan-out uses (contracts 7.7), and never records an audit row.
 
 ---
 

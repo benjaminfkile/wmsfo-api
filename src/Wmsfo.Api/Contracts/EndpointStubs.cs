@@ -706,6 +706,10 @@ public static class EndpointStubs
             .WithTags("AdminInbox")
             .Produces<SubscribersSummaryResponse>(StatusCodes.Status200OK);
 
+        app.MapGet("/admin/email/quota", NotImplemented)
+            .WithTags("AdminInbox")
+            .Produces<EmailQuota>(StatusCodes.Status200OK);
+
         app.MapDelete("/admin/subscribers/{id:long}", NotImplemented)
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent);

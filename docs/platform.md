@@ -512,6 +512,7 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
       "Resource": ["arn:aws:ses:<region>:<account-id>:identity/<mail-domain>",
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-dev",
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-prod"] },
+    { "Effect": "Allow", "Action": "ses:GetAccount", "Resource": "*" },
     { "Effect": "Allow", "Action": "cognito-idp:AdminGetUser",
       "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] }
   ]
