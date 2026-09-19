@@ -147,6 +147,11 @@ if (!options.SesDryRun)
         new AmazonSimpleEmailServiceV2Client(RegionEndpoint.GetBySystemName(options.AwsRegion)));
 }
 builder.Services.AddSingleton<ISesSender, SesSender>();
+// api.md 13 / contracts 4.5 Email quota: cached SES v2 GetAccount reader that
+// backs GET /admin/email/quota. The client registration above is skipped in dry
+// run, so the reader receives null and returns "unavailable" without a call.
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IEmailQuotaReader, EmailQuotaReader>();
 builder.Services.AddSingleton<IChoreClock, SystemChoreClock>();
 builder.Services.AddSingleton<OutboxPublisher>();
 builder.Services.AddSingleton<AlertSender>();

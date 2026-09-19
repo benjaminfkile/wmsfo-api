@@ -123,6 +123,21 @@ public sealed class SubscribersSummaryResponse
     public int Unsubscribed { get; set; }
 }
 
+// GET /admin/email/quota response (contracts 4.5 Email quota).
+public sealed class EmailQuota
+{
+    public bool Available { get; set; }
+    public bool DryRun { get; set; }
+    public double? Max24HourSend { get; set; }
+    public double? SentLast24Hours { get; set; }
+    public double? MaxSendRate { get; set; }
+    public int Queued { get; set; }
+    public double? Remaining { get; set; }
+    public int VerifiedSubscribers { get; set; }
+    public bool WouldExceed { get; set; }
+    public DateTimeOffset FetchedAt { get; set; }
+}
+
 // GET /admin/live response (contracts 4.5).
 public sealed class AdminLiveResponse
 {
