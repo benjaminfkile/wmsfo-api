@@ -115,7 +115,7 @@ public sealed class NodeStateService
         batch.BatchCommands.Add(new NpgsqlBatchCommand(
             "select version, url from snapshot where id = 1;"));
         batch.BatchCommands.Add(new NpgsqlBatchCommand(
-            "select id, status_id, final_cookie_tally from event where is_current;"));
+            "select id, status_id, final_cookie_tally, latest_fix from event where is_current;"));
         batch.BatchCommands.Add(new NpgsqlBatchCommand(
             "select id from beacon where is_active;"));
         if (readSettings)
@@ -144,6 +144,11 @@ public sealed class NodeStateService
                 {
                     var json = reader.GetString(2);
                     finalCookieTally = ParseCookieTally(json);
+                }
+                if (!reader.IsDBNull(3))
+                {
+                    var json = reader.GetString(3);
+                    latestPublished = ParseLatestFix(json);
                 }
                 currentEvent = new CurrentEvent(id, statusId, finalCookieTally);
             }
@@ -215,16 +220,22 @@ public sealed class NodeStateService
             await using var reader = await second.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                latestPublished = new PublishedLocation(
-                    Seq: reader.GetInt64(0),
-                    Lat: reader.GetDouble(1),
-                    Lng: reader.GetDouble(2),
-                    SpeedMps: reader.IsDBNull(3) ? null : reader.GetDouble(3),
-                    AltitudeM: reader.IsDBNull(4) ? null : reader.GetDouble(4),
-                    HeadingDeg: reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                    AccuracyM: reader.IsDBNull(6) ? null : reader.GetDouble(6),
-                    RecordedAt: reader.GetFieldValue<DateTimeOffset>(7),
-                    ReceivedAt: reader.GetFieldValue<DateTimeOffset>(8));
+                // event.latest_fix wins when non-null; the newest published
+                // row is the fallback for events that ran before the column
+                // existed (contracts 1.2, 7.2).
+                if (latestPublished is null)
+                {
+                    latestPublished = new PublishedLocation(
+                        Seq: reader.GetInt64(0),
+                        Lat: reader.GetDouble(1),
+                        Lng: reader.GetDouble(2),
+                        SpeedMps: reader.IsDBNull(3) ? null : reader.GetDouble(3),
+                        AltitudeM: reader.IsDBNull(4) ? null : reader.GetDouble(4),
+                        HeadingDeg: reader.IsDBNull(5) ? null : reader.GetDouble(5),
+                        AccuracyM: reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                        RecordedAt: reader.GetFieldValue<DateTimeOffset>(7),
+                        ReceivedAt: reader.GetFieldValue<DateTimeOffset>(8));
+                }
             }
             await reader.NextResultAsync(ct).ConfigureAwait(false);
 
@@ -269,6 +280,39 @@ public sealed class NodeStateService
         // version change inside RefreshAsync once the new version is known (api.md 9).
         if (previous.RefreshedAt == DateTimeOffset.MinValue) return true;
         return now - _lastSettingsReadAt >= TimeSpan.FromSeconds(5);
+    }
+
+    private static PublishedLocation? ParseLatestFix(string json)
+    {
+        // event.latest_fix jsonb: { seq, beaconId, lat, lng, speedMps, altitudeM,
+        // headingDeg, accuracyM, recordedAt, receivedAt } (contracts 1.2, 7.2).
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        long seq = root.GetProperty("seq").GetInt64();
+        double lat = root.GetProperty("lat").GetDouble();
+        double lng = root.GetProperty("lng").GetDouble();
+        double? speedMps = ReadNullableDouble(root, "speedMps");
+        double? altitudeM = ReadNullableDouble(root, "altitudeM");
+        double? headingDeg = ReadNullableDouble(root, "headingDeg");
+        double? accuracyM = ReadNullableDouble(root, "accuracyM");
+        DateTimeOffset recordedAt = ReadRfc3339(root, "recordedAt");
+        DateTimeOffset receivedAt = ReadRfc3339(root, "receivedAt");
+        return new PublishedLocation(seq, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt);
+    }
+
+    private static double? ReadNullableDouble(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var v)) return null;
+        if (v.ValueKind == JsonValueKind.Null) return null;
+        return v.GetDouble();
+    }
+
+    private static DateTimeOffset ReadRfc3339(JsonElement obj, string name)
+    {
+        var s = obj.GetProperty(name).GetString() ?? throw new JsonException("expected rfc3339 string");
+        return DateTimeOffset.Parse(s, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
     }
 
     private static ImmutableDictionary<long, int> ParseCookieTally(string json)
