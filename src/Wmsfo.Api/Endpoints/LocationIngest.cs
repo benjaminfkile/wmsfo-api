@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Globalization;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
@@ -278,10 +280,36 @@ returning seq, received_at;", conn, tx))
 
             outcome = inserted ? "stored" : "carried";
 
-            // next_seq always advances (both outcomes take a seq).
-            await using (var bump = new NpgsqlCommand(
-                "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx))
+            // next_seq always advances (both outcomes take a seq). When the
+            // fix is published, the same statement records it on the event
+            // row so a rebuild of the live object (status change, event
+            // message, reconcile tick, node takeover) reads a seq that never
+            // steps back below the last carried fix (contracts 1.2, 7.2).
+            // An unpublished fix leaves latest_fix as it is.
+            if (published)
             {
+                var effectiveSpeedForFix = bodySpeed ?? derivedSpeed;
+                var latestFixJson = BuildLatestFixJson(
+                    seq: seq,
+                    beaconId: beaconId,
+                    lat: body.Lat,
+                    lng: body.Lng,
+                    speedMps: effectiveSpeedForFix,
+                    altitudeM: body.AltitudeM,
+                    headingDeg: body.HeadingDeg,
+                    accuracyM: body.AccuracyM,
+                    recordedAt: body.RecordedAt.ToUniversalTime(),
+                    receivedAt: receivedAt.ToUniversalTime());
+                await using var bump = new NpgsqlCommand(
+                    "update event set next_seq = next_seq + 1, latest_fix = $2::jsonb, updated_at = now() where id = $1;", conn, tx);
+                bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+                bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = latestFixJson });
+                await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await using var bump = new NpgsqlCommand(
+                    "update event set next_seq = next_seq + 1, updated_at = now() where id = $1;", conn, tx);
                 bump.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
                 await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
@@ -401,6 +429,42 @@ where id = $1;", conn, tx);
         if (body.AccuracyM is double ac && (double.IsNaN(ac) || double.IsInfinity(ac) || ac < 0 || ac > 100000))
             v.Field("accuracyM", "must be between 0 and 100000");
         v.ThrowIfInvalid();
+    }
+
+    // The `event.latest_fix` payload: seq, beaconId, the location fields the
+    // live object carries, and the two times in the canonical format the live
+    // object uses (yyyy-MM-ddTHH:mm:ss.fffZ). A field the fix did not carry
+    // serializes as null.
+    public static string BuildLatestFixJson(
+        long seq,
+        long beaconId,
+        double lat,
+        double lng,
+        double? speedMps,
+        double? altitudeM,
+        double? headingDeg,
+        double? accuracyM,
+        DateTimeOffset recordedAt,
+        DateTimeOffset receivedAt)
+    {
+        const string timeFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
+        var buffer = new System.IO.MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { SkipValidation = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("seq", seq);
+            writer.WriteNumber("beaconId", beaconId);
+            writer.WriteNumber("lat", lat);
+            writer.WriteNumber("lng", lng);
+            if (speedMps is double sp) writer.WriteNumber("speedMps", sp); else writer.WriteNull("speedMps");
+            if (altitudeM is double alt) writer.WriteNumber("altitudeM", alt); else writer.WriteNull("altitudeM");
+            if (headingDeg is double hd) writer.WriteNumber("headingDeg", hd); else writer.WriteNull("headingDeg");
+            if (accuracyM is double ac) writer.WriteNumber("accuracyM", ac); else writer.WriteNull("accuracyM");
+            writer.WriteString("recordedAt", recordedAt.UtcDateTime.ToString(timeFormat, CultureInfo.InvariantCulture));
+            writer.WriteString("receivedAt", receivedAt.UtcDateTime.ToString(timeFormat, CultureInfo.InvariantCulture));
+            writer.WriteEndObject();
+        }
+        return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
     }
 
     // Great-circle distance in metres; the earth radius is the IUGG mean.

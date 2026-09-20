@@ -43,6 +43,17 @@ set next_seq = next_seq + 1,
     updated_at = now()
 where id = @event_id;";
 
+    // The published branch also records the fix on the event row so a rebuild
+    // of the live object never steps the seq back below the last carried fix
+    // (contracts 1.2, 7.2). One update under the row lock the transaction
+    // already holds.
+    public const string LocationEventBumpSeqAndLatestFix = @"
+update event
+set next_seq = next_seq + 1,
+    latest_fix = @latest_fix::jsonb,
+    updated_at = now()
+where id = @event_id;";
+
     public const string LocationBeaconStamp = @"
 update beacon
 set last_seen_at = now(),
@@ -393,8 +404,10 @@ values (1, 1, @url, @s3_key, now());";
 
     // 8.17 Memory refresh.
     public const string RefreshSnapshot = @"select version, url from snapshot where id = 1;";
-    public const string RefreshCurrentEvent = @"select id, status_id from event where is_current;";
+    public const string RefreshCurrentEvent = @"select id, status_id, latest_fix from event where is_current;";
     public const string RefreshActiveBeacon = @"select id from beacon where is_active;";
+    // Fallback for events that ran before event.latest_fix existed: use the
+    // newest published location row when latest_fix is null.
     public const string RefreshLatestPublishedLocation = @"
 select seq, lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m, recorded_at, received_at
 from location

@@ -123,6 +123,7 @@ create table event (
   final_cookie_tally jsonb,
   status_notified_at timestamptz,
   next_seq      bigint not null default 1,
+  latest_fix    jsonb,
   created_by    text not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -141,6 +142,7 @@ comment on column event.route_id is 'Route shown for this event; null when unlin
 comment on column event.route_image_media_id is 'The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.';
 comment on column event.status_notified_at is 'When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.';
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
+comment on column event.latest_fix is 'The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).';
 ```
 
 ### 3.4 `event_status_history`
@@ -1044,13 +1046,19 @@ on conflict (event_id, lat, lng) do nothing
 returning seq, received_at;
 
 -- stored branch (returning yielded a row):
-update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
+update event  set next_seq = next_seq + 1,
+                  latest_fix = case when $is_active then $latest_fix_json::jsonb else latest_fix end,
+                  updated_at = now()
+  where id = $event;                                                          -- when the fix is published, latest_fix records it on the event row as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt } with the two times in the canonical yyyy-MM-ddTHH:mm:ss.fffZ format the live object uses; an unpublished fix leaves it alone
 update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
                   fixes_stored = fixes_stored + 1, updated_at = now()
   where id = $beacon;
 
 -- carried branch (the filter carried, or the insert conflicted): no row.
-update event  set next_seq = next_seq + 1, updated_at = now() where id = $event;
+update event  set next_seq = next_seq + 1,
+                  latest_fix = case when $is_active then $latest_fix_json::jsonb else latest_fix end,
+                  updated_at = now()
+  where id = $event;                                                          -- next_seq still advances; a published fix records latest_fix just like the stored branch, so a rebuild of the live object never steps the seq back below the last carried fix (contracts 1.2)
 update beacon set last_seen_at = now(), last_location_at = now(), stale_since = null,
                   fixes_carried = fixes_carried + 1, updated_at = now()
   where id = $beacon;
@@ -1429,10 +1437,10 @@ A PUT failure in any step releases the lock, leaves that step's condition unmet,
 
 ```sql
 select version, url from snapshot where id = 1;
-select id, status_id from event where is_current;
+select id, status_id, latest_fix from event where is_current;                 -- latest_fix is the last published fix on the event (contracts 1.2, 7.2); it wins over the row read below
 select id from beacon where is_active;
 select seq, lat, lng, speed_mps, altitude_m, heading_deg, accuracy_m, recorded_at, received_at
-from location where event_id = $current and published order by seq desc limit 1;
+from location where event_id = $current and published order by seq desc limit 1;   -- fallback: events that ran before event.latest_fix existed
 select cookie_type_id, count(*) from cookie where event_id = $current and hidden_at is null group by cookie_type_id;
 select key, value from app_setting;                                           -- on version change, and at least every 5 s
 ```

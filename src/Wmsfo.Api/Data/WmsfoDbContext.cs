@@ -125,6 +125,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.");
             e.Property(x => x.NextSeq).HasColumnType("bigint").IsRequired().HasDefaultValue(1L)
                 .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
+            e.Property(x => x.LatestFix).HasColumnType("jsonb").HasColumnName("latest_fix")
+                .HasComment("The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");

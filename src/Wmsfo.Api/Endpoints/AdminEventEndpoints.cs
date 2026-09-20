@@ -1235,6 +1235,22 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
                     await del.ExecuteNonQueryAsync(ct);
                 }
 
+                // Null latest_fix so the next rebuild of the live object does
+                // not carry a fix whose row is gone (contracts 1.2, 4.5, 7.2).
+                // Without a beaconId filter every row goes, so latest_fix is
+                // always nulled; with a beaconId only clear it when the last
+                // published fix belonged to that beacon.
+                string clearFixSql = beaconIdFilter is null
+                    ? "update event set latest_fix = null, updated_at = now() where id = $1;"
+                    : "update event set latest_fix = null, updated_at = now() where id = $1 and (latest_fix->>'beaconId')::bigint = $2;";
+                await using (var clr = new NpgsqlCommand(clearFixSql, conn, tx))
+                {
+                    clr.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    if (beaconIdFilter is not null)
+                        clr.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconIdFilter.Value });
+                    await clr.ExecuteNonQueryAsync(ct);
+                }
+
                 var entityId = beaconIdFilter is null
                     ? id.ToString(CultureInfo.InvariantCulture)
                     : id.ToString(CultureInfo.InvariantCulture) + ":" + beaconIdFilter.Value.ToString(CultureInfo.InvariantCulture);

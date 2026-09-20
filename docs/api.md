@@ -329,7 +329,7 @@ public sealed record NodeSnapshot(
 
 Besides the snapshot: `Leader { IsLeader, EvaluatedAt }` (section 13), `LastWrittenVersion`, `WroteForLocationSinceVersionChange`, a per-node `TallyDelta` counter map that `POST /cookies` increments and the next tick folds into the refreshed tally (the tick's SQL count is the truth; the delta only bridges the second between insert and tick), and a `BeaconRateLimiter` map keyed by beacon id (contracts 7.2): `lastAcceptedAt`, the last accepted seq for the dropped-response body, `overrideMs` (mirrored from the row on the last write), a pending drop counter, and a per-beacon flush timestamp so `beacon.fixes_rate_limited` is written at most every 5 s per beacon.
 
-`Refresh(reason)` runs the six statements of contracts 7.4 on the app connection in one round trip (a single batched command) and replaces the record. `Load` on boot is the same call. Every endpoint reads `NodeState.Current` once at the start of the request.
+`Refresh(reason)` runs the six statements of contracts 7.4 on the app connection in one round trip (a single batched command) and replaces the record. `Load` on boot is the same call. Every endpoint reads `NodeState.Current` once at the start of the request. `LatestPublished` comes from `event.latest_fix` when non-null (contracts 1.2, 7.2), and from the newest published `location` row for the current event only when `latest_fix` is null (the fallback for events that ran before the column existed).
 
 ---
 
