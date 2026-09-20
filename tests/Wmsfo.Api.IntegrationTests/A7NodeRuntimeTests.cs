@@ -186,7 +186,7 @@ public sealed class A7NodeRuntimeTests : IClassFixture<PostgresFixture>
     private async Task<Setup> BuildAsync(bool failPut, string storeName = "cdn")
     {
         var options = TestOptions();
-        var connections = new TestConnections(_fixture.ConnectionString);
+        var connections = TestConnections.For(_fixture.ConnectionString);
         var store = new RecordingObjectStore(failPut);
         var gateway = new FakeGatewayClient();
         var iconLibrary = IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl);
@@ -292,12 +292,6 @@ values ($1::jsonb, $2, '{}'::uuid[], 'seed', 'seed');", conn);
         NodeStateService State,
         LiveObjectWriter Writer,
         ReconcileTick Tick);
-}
-
-// A minimal WmsfoConnectionStrings substitute for tests.
-public sealed class TestConnections : WmsfoConnectionStrings
-{
-    public TestConnections(string connectionString) : base(connectionString, connectionString) { }
 }
 
 public sealed class RecordingObjectStore : IObjectStore

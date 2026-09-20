@@ -86,7 +86,7 @@ public sealed class A29Host : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
-        var connections = WmsfoConnectionStrings.ForTests(connectionString);
+        var connections = TestConnections.For(connectionString);
         var local = new LocalObjectStore(storeRoot, options.PublicApiBaseUrl);
         IObjectStore store = wrapStore is null ? local : wrapStore(local);
 

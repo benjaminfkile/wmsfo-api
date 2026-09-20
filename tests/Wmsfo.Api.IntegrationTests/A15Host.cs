@@ -83,7 +83,7 @@ public sealed class A15Host : IAsyncDisposable
         builder.Logging.SetMinimumLevel(LogLevel.Warning);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
 
-        var connections = WmsfoConnectionStrings.ForTests(connectionString);
+        var connections = TestConnections.For(connectionString);
         // Route local-upload through the API's own address so the ticket URL points
         // back at the running host; the test replaces the ticket's base with the
         // client's, or hits /local-upload/{id} directly.
