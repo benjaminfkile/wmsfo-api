@@ -76,16 +76,10 @@ public sealed class Restorer
         // Places and printed codes point at pages by id, and the pages are about
         // to get new ids. Remember each link by the page's slug so it can be put
         // back onto the restored page with the same slug (contracts 4.5 Content).
-        await using (var keepLinks = new NpgsqlCommand(@"
-create temp table restore_page_link on commit drop as
-select 'place'::text as owner, pl.id as owner_id, pg.slug
-from place pl join page pg on pg.id = pl.opens_page_id
-union all
-select 'qr_code'::text, q.id, pg.slug
-from qr_code q join page pg on pg.id = q.opens_page_id;", conn, tx))
-        {
-            await keepLinks.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        }
+        var placeLinks = await ReadPageLinksAsync(conn, tx,
+            "select pl.id, pg.slug from place pl join page pg on pg.id = pl.opens_page_id;", ct).ConfigureAwait(false);
+        var codeLinks = await ReadPageLinksAsync(conn, tx,
+            "select q.id, pg.slug from qr_code q join page pg on pg.id = q.opens_page_id;", ct).ConfigureAwait(false);
 
         // Delete the working set. Sections and items cascade off page; the page
         // links on places and codes go null and are put back below.
@@ -157,16 +151,8 @@ values ($1, $2, $3::jsonb, $4);", conn, tx))
 
         // Put the page links back by slug. A link whose slug is not in the
         // restored document stays null, as it would after deleting that page.
-        await using (var relink = new NpgsqlCommand(@"
-update place pl set opens_page_id = pg.id
-from restore_page_link l join page pg on pg.slug = l.slug
-where l.owner = 'place' and l.owner_id = pl.id;
-update qr_code q set opens_page_id = pg.id
-from restore_page_link l join page pg on pg.slug = l.slug
-where l.owner = 'qr_code' and l.owner_id = q.id;", conn, tx))
-        {
-            await relink.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        }
+        await RelinkPagesAsync(conn, tx, "place", placeLinks, ct).ConfigureAwait(false);
+        await RelinkPagesAsync(conn, tx, "qr_code", codeLinks, ct).ConfigureAwait(false);
 
         // Site settings.
         var settingsJson = JsonSerializer.Serialize(document.Settings, CanonicalJson.Options);
@@ -197,6 +183,44 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return info;
+    }
+
+    // The rows of one table that open a page, as (row id, page slug).
+    private static async Task<List<(long Id, string Slug)>> ReadPageLinksAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, string sql, CancellationToken ct)
+    {
+        var links = new List<(long, string)>();
+        await using var cmd = new NpgsqlCommand(sql, conn, tx);
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            links.Add((reader.GetInt64(0), reader.GetString(1)));
+        }
+        return links;
+    }
+
+    // Points each remembered row at the page that now carries its slug. The table
+    // name is one of two literals chosen by the caller, never input.
+    private static async Task RelinkPagesAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, string table,
+        List<(long Id, string Slug)> links, CancellationToken ct)
+    {
+        if (links.Count == 0) return;
+        await using var cmd = new NpgsqlCommand($@"
+update {table} t set opens_page_id = pg.id
+from unnest($1, $2) as l(owner_id, slug) join page pg on pg.slug = l.slug
+where t.id = l.owner_id;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint,
+            Value = links.Select(l => l.Id).ToArray(),
+        });
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text,
+            Value = links.Select(l => l.Slug).ToArray(),
+        });
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private static (int Pages, int Sections) CountPagesAndSections(ContentDocument doc)
