@@ -76,7 +76,7 @@ public sealed class A16Host : IDisposable
             SesDryRun = true,
         };
 
-        var connections = WmsfoConnectionStrings.ForTests(connectionString);
+        var connections = TestConnections.For(connectionString);
         var clock = new FakeChoreClock(new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var sender = new FakeSesSender();
         var templates = EmailTemplates.Load(TestPaths.EmailTemplatesDir);

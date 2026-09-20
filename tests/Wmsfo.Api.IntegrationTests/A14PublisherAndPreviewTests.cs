@@ -454,19 +454,21 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
         using var fresh = new FreshDatabase(_fixture);
         var connString = await fresh.CreateAsync();
 
-        // Migrate to the empty database.
+        // Wire the bootstrap under the same options and objects the fleet uses.
+        var options = MakeOptions(connString);
+        var connections = TestConnections.For(connString);
+
+        // Migrate to the empty database as the migrate role so the tables land
+        // owned by that role and the default privileges of sql.md 12 give the
+        // application role select, insert, update, delete on them.
         var contextOptions = new DbContextOptionsBuilder<WmsfoDbContext>()
-            .UseNpgsql(connString)
+            .UseNpgsql(connections.Migrate)
             .UseSnakeCaseNamingConvention()
             .Options;
         await using (var db = new WmsfoDbContext(contextOptions))
         {
             await db.Database.MigrateAsync();
         }
-
-        // Wire the bootstrap under the same options and objects the fleet uses.
-        var options = MakeOptions(connString);
-        var connections = WmsfoConnectionStrings.ForTests(connString);
         var store = new RecordingObjectStore();
         var gateway = new FakeGatewayClient();
         var iconLibrary = IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl);
@@ -822,44 +824,116 @@ update site_setting_draft set data = jsonb_set(data, '{siteName}', to_jsonb($1::
     };
 }
 
-// Creates an additional test database on the same server for isolation.
+// Creates an additional test database on the same server for isolation. The
+// database gets its own migrate and application roles per sql.md 12 and
+// registers with `TestConnections` so `TestConnections.For` maps back the
+// same way the fixture's own database does.
 internal sealed class FreshDatabase : IDisposable
 {
     private readonly PostgresFixture _fixture;
     private string _databaseName = "";
     private string _connString = "";
+    private string _migrateRole = "";
+    private string _appRole = "";
 
     public FreshDatabase(PostgresFixture fixture) { _fixture = fixture; }
 
     public async Task<string> CreateAsync()
     {
-        _databaseName = "wmsfo_a14_" + Guid.NewGuid().ToString("N")[..12];
-        var baseBuilder = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString);
-        var originalDb = baseBuilder.Database;
-        baseBuilder.Database = "postgres";
-        await using var conn = new NpgsqlConnection(baseBuilder.ConnectionString);
-        await conn.OpenAsync();
-        await using (var cmd = new NpgsqlCommand($"create database \"{_databaseName}\"", conn))
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        _databaseName = "wmsfo_a14_" + suffix;
+        _migrateRole = "wmsfo_t_migrate_" + suffix;
+        _appRole = "wmsfo_t_app_" + suffix;
+
+        var migratePassword = RandomPassword();
+        var appPassword = RandomPassword();
+
+        var adminBuilder = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = "postgres" };
+        await using (var conn = new NpgsqlConnection(adminBuilder.ConnectionString))
         {
-            await cmd.ExecuteNonQueryAsync();
+            await conn.OpenAsync();
+            await Exec(conn, $"create database \"{_databaseName}\"");
+            await Exec(conn, $"create role \"{_migrateRole}\" login password {Literal(migratePassword)} nosuperuser nocreatedb nocreaterole noinherit");
+            await Exec(conn, $"create role \"{_appRole}\" login password {Literal(appPassword)} nosuperuser nocreatedb nocreaterole noinherit");
+            await Exec(conn, $"alter database \"{_databaseName}\" owner to \"{_migrateRole}\"");
+            await Exec(conn, $"revoke all on database \"{_databaseName}\" from public");
+            await Exec(conn, $"grant connect on database \"{_databaseName}\" to \"{_migrateRole}\", \"{_appRole}\"");
+            await Exec(conn, $"alter role \"{_migrateRole}\" in database \"{_databaseName}\" set timezone = 'UTC'");
+            await Exec(conn, $"alter role \"{_appRole}\" in database \"{_databaseName}\" set timezone = 'UTC'");
         }
+
         var testBuilder = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = _databaseName };
         _connString = testBuilder.ConnectionString;
+
+        await using (var dbConn = new NpgsqlConnection(_connString))
+        {
+            await dbConn.OpenAsync();
+            await Exec(dbConn, $"grant usage, create on schema public to \"{_migrateRole}\"");
+            await Exec(dbConn, "revoke create on schema public from public");
+            await Exec(dbConn, $"grant usage on schema public to \"{_appRole}\"");
+            await Exec(dbConn,
+                $"alter default privileges for role \"{_migrateRole}\" in schema public " +
+                $"grant select, insert, update, delete on tables to \"{_appRole}\"");
+        }
+
+        var appConn = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString)
+        {
+            Database = _databaseName,
+            Username = _appRole,
+            Password = appPassword,
+        }.ConnectionString;
+        var migrateConn = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString)
+        {
+            Database = _databaseName,
+            Username = _migrateRole,
+            Password = migratePassword,
+        }.ConnectionString;
+        TestConnections.Register(_databaseName, appConn, migrateConn);
         return _connString;
     }
 
     public void Dispose()
     {
         if (string.IsNullOrEmpty(_databaseName)) return;
+        TestConnections.Unregister(_databaseName);
         try
         {
             NpgsqlConnection.ClearAllPools();
             var b = new NpgsqlConnectionStringBuilder(_fixture.ConnectionString) { Database = "postgres" };
             using var conn = new NpgsqlConnection(b.ConnectionString);
             conn.Open();
-            using var cmd = new NpgsqlCommand($"drop database if exists \"{_databaseName}\" with (force)", conn);
-            cmd.ExecuteNonQuery();
+            using (var cmd = new NpgsqlCommand($"drop database if exists \"{_databaseName}\" with (force)", conn))
+            {
+                cmd.ExecuteNonQuery();
+            }
+            foreach (var role in new[] { _appRole, _migrateRole })
+            {
+                if (string.IsNullOrEmpty(role)) continue;
+                try
+                {
+                    using var dropRole = new NpgsqlCommand($"drop role if exists \"{role}\"", conn);
+                    dropRole.ExecuteNonQuery();
+                }
+                catch { /* best effort */ }
+            }
         }
         catch { /* best effort */ }
     }
+
+    private static async Task Exec(NpgsqlConnection conn, string sql)
+    {
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static string RandomPassword()
+    {
+        var bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(24);
+        return Convert.ToBase64String(bytes)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
+    }
+
+    private static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
 }

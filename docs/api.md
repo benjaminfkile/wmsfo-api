@@ -620,6 +620,8 @@ The integration tests pick a Postgres server in this order: `WMSFO_TEST_DB_CONNE
 - `admin-thresholds.json` is a checked-in constant file `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }` (the shape the admin panel document proposes).
 - `CONTRACTS_VERSION` is bumped by hand in the commit that changes anything under `contracts/`; a test fails when the directory's hash changed and the version did not.
 
+The integration tests give every test database the two roles of sql.md 12 and run the API as the application role and the migrator as the migrate role, so a statement outside the application role's grants fails locally the same way it would fail on dev. The tests' own set-up and assertions use the superuser connection through `PostgresFixture.ConnectionString`, and `TestConnections.For` maps that superuser connection back to the fixture's application and migrate connection strings.
+
 Tests:
 
 | Suite | Covers |
