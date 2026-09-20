@@ -359,6 +359,51 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Contains("sponsors", slugs);
     }
 
+    [Fact]
+    public async Task Restore_keeps_place_and_code_page_links_by_slug()
+    {
+        await BootstrapFirstBootAsync();
+        var versionId = await ReadNewestVersionIdAsync();
+
+        long placeId, codeId, oldAboutId;
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using (var q = new NpgsqlCommand("select id from page where slug = 'about';", conn))
+                oldAboutId = (long)(await q.ExecuteScalarAsync())!;
+            await using (var p = new NpgsqlCommand(
+                "insert into place (name, opens_page_id, created_by) values ('Restore link place', $1, 'test') returning id;", conn))
+            {
+                p.Parameters.AddWithValue(oldAboutId);
+                placeId = (long)(await p.ExecuteScalarAsync())!;
+            }
+            await using (var c = new NpgsqlCommand(
+                "insert into qr_code (tag, batch_no, opens_page_id, created_by) values ('qr-restore-link', 1, (select id from page where slug = 'sponsors'), 'test') returning id;", conn))
+                codeId = (long)(await c.ExecuteScalarAsync())!;
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, $"/admin/content/versions/{versionId}/restore");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var q = new NpgsqlCommand(@"
+select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id where pl.id = $1),
+       (select pg.slug from qr_code c join page pg on pg.id = c.opens_page_id where c.id = $2),
+       (select id from page where slug = 'about');", conn);
+            q.Parameters.AddWithValue(placeId);
+            q.Parameters.AddWithValue(codeId);
+            await using var r = await q.ExecuteReaderAsync();
+            Assert.True(await r.ReadAsync());
+            Assert.Equal("about", r.GetString(0));
+            Assert.Equal("sponsors", r.GetString(1));
+            // The pages really were recreated: the link follows the slug, not the id.
+            Assert.NotEqual(oldAboutId, r.GetInt64(2));
+        }
+    }
+
     // -------------------- preview token --------------------
 
     [Fact]

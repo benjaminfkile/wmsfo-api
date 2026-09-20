@@ -150,7 +150,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "About the flyover", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "About the flyover", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "A volunteer helicopter crew flies over the Bitterroot Valley every December so kids can wave at Santa. This is the tracker." }),
             Block("paragraph", new JsonObject { ["text"] = "The crew flies at their own expense. Sponsors keep the fuel tank full." }),
         }));
@@ -160,7 +160,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "Sponsors", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "Sponsors", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Every dollar keeps the sleigh in the air." }),
         }));
         s.Add(SponsorGrid(id.Next()));
@@ -170,7 +170,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "This year's route", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "This year's route", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Here is the planned path. Weather may adjust the details on the day." }),
         }));
         s.Add(RoutePreview(id.Next(), "viewer",
@@ -181,7 +181,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "Support the flyover", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "Support the flyover", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Fuel, insurance, and a warm hangar. Every gift helps." }),
         }));
     }
@@ -190,7 +190,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "Contact us", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "Contact us", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Send a note and we will get back to you." }),
         }));
         s.Add(ContactForm(id.Next()));
@@ -200,7 +200,7 @@ public static class StarterContentBuilder
     {
         s.Add(RichText(id.Next(), new JsonArray
         {
-            Block("heading", new JsonObject { ["level"] = 2, ["text"] = "Never miss a flight", ["icon"] = null }),
+            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "Never miss a flight", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Sign in and we will email you when Santa is scheduled and when he is airborne." }),
         }));
         s.Add(AlertsSignup(id.Next()));

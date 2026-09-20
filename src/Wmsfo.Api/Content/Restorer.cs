@@ -73,7 +73,22 @@ public sealed class Restorer
                 ApiErrorCodes.InternalError, "stored version document is not readable");
         }
 
-        // Delete the working set. Sections and items cascade off page.
+        // Places and printed codes point at pages by id, and the pages are about
+        // to get new ids. Remember each link by the page's slug so it can be put
+        // back onto the restored page with the same slug (contracts 4.5 Content).
+        await using (var keepLinks = new NpgsqlCommand(@"
+create temp table restore_page_link on commit drop as
+select 'place'::text as owner, pl.id as owner_id, pg.slug
+from place pl join page pg on pg.id = pl.opens_page_id
+union all
+select 'qr_code'::text, q.id, pg.slug
+from qr_code q join page pg on pg.id = q.opens_page_id;", conn, tx))
+        {
+            await keepLinks.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        // Delete the working set. Sections and items cascade off page; the page
+        // links on places and codes go null and are put back below.
         await using (var delPages = new NpgsqlCommand("delete from page;", conn, tx))
         {
             await delPages.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -138,6 +153,19 @@ values ($1, $2, $3::jsonb, $4);", conn, tx))
                     itemPos++;
                 }
             }
+        }
+
+        // Put the page links back by slug. A link whose slug is not in the
+        // restored document stays null, as it would after deleting that page.
+        await using (var relink = new NpgsqlCommand(@"
+update place pl set opens_page_id = pg.id
+from restore_page_link l join page pg on pg.slug = l.slug
+where l.owner = 'place' and l.owner_id = pl.id;
+update qr_code q set opens_page_id = pg.id
+from restore_page_link l join page pg on pg.slug = l.slug
+where l.owner = 'qr_code' and l.owner_id = q.id;", conn, tx))
+        {
+            await relink.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
         // Site settings.
