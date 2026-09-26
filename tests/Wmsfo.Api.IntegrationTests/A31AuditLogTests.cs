@@ -344,6 +344,116 @@ public sealed class A31AuditLogTests : IClassFixture<PostgresFixture>, IAsyncLif
         Assert.Equal(writeAudit.GetProperty("by").GetString(), listAudit.GetProperty("by").GetString());
     }
 
+    // A48: a section reorder writes one `order` audit row per section id whose
+    // `before` is the pre-move DTO and `after` is the post-move DTO.
+    [Fact]
+    public async Task Section_reorder_audit_rows_carry_pre_and_post_positions()
+    {
+        var pageId = await CreateNonePageAsync("about-reorder-sections");
+        var sA = await CreateSectionAsync(pageId, "hero");
+        var sB = await CreateSectionAsync(pageId, "hero");
+        var sC = await CreateSectionAsync(pageId, "hero");
+
+        var reorder = await SendEditorAsync(HttpMethod.Put,
+            $"/admin/pages/{pageId}/sections/order",
+            $"{{\"ids\":[{sC},{sA},{sB}]}}");
+        Assert.Equal(HttpStatusCode.OK, reorder.StatusCode);
+
+        foreach (var (id, expectedBefore, expectedAfter) in new[]
+        {
+            (sA, 0, 1),
+            (sB, 1, 2),
+            (sC, 2, 0),
+        })
+        {
+            var list = await SendEditorAsync(HttpMethod.Get,
+                $"/admin/audit?entity=section&entityId={id}&action=order", null);
+            Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+            var page = await ReadJsonAsync(list);
+            var items = page.RootElement.GetProperty("items");
+            Assert.True(items.GetArrayLength() >= 1);
+            var entry = items[0];
+            Assert.Equal("order", entry.GetProperty("action").GetString());
+            Assert.Equal("section", entry.GetProperty("entity").GetString());
+            Assert.Equal(id.ToString(), entry.GetProperty("entityId").GetString());
+            var before = entry.GetProperty("before");
+            var after = entry.GetProperty("after");
+            Assert.Equal(JsonValueKind.Object, before.ValueKind);
+            Assert.Equal(JsonValueKind.Object, after.ValueKind);
+            Assert.Equal(expectedBefore, before.GetProperty("position").GetInt32());
+            Assert.Equal(expectedAfter, after.GetProperty("position").GetInt32());
+        }
+    }
+
+    // A48: a section item reorder writes one `order` audit row per item id
+    // whose `before` is the pre-move DTO and `after` is the post-move DTO.
+    [Fact]
+    public async Task Section_item_reorder_audit_rows_carry_pre_and_post_positions()
+    {
+        var pageId = await CreateNonePageAsync("about-reorder-items");
+        var sectionId = await CreateSectionAsync(pageId, "links");
+        var iA = await CreateLinkItemAsync(sectionId);
+        var iB = await CreateLinkItemAsync(sectionId);
+        var iC = await CreateLinkItemAsync(sectionId);
+
+        var reorder = await SendEditorAsync(HttpMethod.Put,
+            $"/admin/sections/{sectionId}/items/order",
+            $"{{\"ids\":[{iC},{iA},{iB}]}}");
+        Assert.Equal(HttpStatusCode.OK, reorder.StatusCode);
+
+        foreach (var (id, expectedBefore, expectedAfter) in new[]
+        {
+            (iA, 0, 1),
+            (iB, 1, 2),
+            (iC, 2, 0),
+        })
+        {
+            var list = await SendEditorAsync(HttpMethod.Get,
+                $"/admin/audit?entity=section_item&entityId={id}&action=order", null);
+            Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+            var page = await ReadJsonAsync(list);
+            var items = page.RootElement.GetProperty("items");
+            Assert.True(items.GetArrayLength() >= 1);
+            var entry = items[0];
+            Assert.Equal("order", entry.GetProperty("action").GetString());
+            Assert.Equal("section_item", entry.GetProperty("entity").GetString());
+            Assert.Equal(id.ToString(), entry.GetProperty("entityId").GetString());
+            var before = entry.GetProperty("before");
+            var after = entry.GetProperty("after");
+            Assert.Equal(JsonValueKind.Object, before.ValueKind);
+            Assert.Equal(JsonValueKind.Object, after.ValueKind);
+            Assert.Equal(expectedBefore, before.GetProperty("position").GetInt32());
+            Assert.Equal(expectedAfter, after.GetProperty("position").GetInt32());
+        }
+    }
+
+    private async Task<long> CreateNonePageAsync(string slug)
+    {
+        var response = await SendEditorAsync(HttpMethod.Post, "/admin/pages",
+            $"{{\"slug\":\"{slug}\",\"title\":\"{slug}\",\"navLabel\":null,\"navPosition\":10,\"isHidden\":false}}");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var doc = await ReadJsonAsync(response);
+        return doc.RootElement.GetProperty("id").GetInt64();
+    }
+
+    private async Task<long> CreateSectionAsync(long pageId, string kind)
+    {
+        var response = await SendEditorAsync(HttpMethod.Post,
+            $"/admin/pages/{pageId}/sections", $"{{\"kind\":\"{kind}\"}}");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var doc = await ReadJsonAsync(response);
+        return doc.RootElement.GetProperty("id").GetInt64();
+    }
+
+    private async Task<long> CreateLinkItemAsync(long sectionId)
+    {
+        var response = await SendEditorAsync(HttpMethod.Post,
+            $"/admin/sections/{sectionId}/items", "{}");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var doc = await ReadJsonAsync(response);
+        return doc.RootElement.GetProperty("id").GetInt64();
+    }
+
     [Fact]
     public async Task Audit_entities_lists_the_seen_kinds()
     {

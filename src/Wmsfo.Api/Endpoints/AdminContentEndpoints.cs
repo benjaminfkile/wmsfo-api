@@ -792,6 +792,14 @@ where id = $4;", conn, tx))
                 {
                     RequestValidation.Throw("ids", "must be exactly the section ids on this page");
                 }
+                // Snapshot every section row before the offset update so the audit
+                // rows record the pre-move position as `before`.
+                var sectionsBefore = new Dictionary<long, SectionAdminDto>();
+                foreach (var sid in body.Ids!)
+                {
+                    var s = await ReadSectionByIdAsync(conn, tx, sid, validator, ct);
+                    if (s is not null) sectionsBefore[sid] = s;
+                }
                 // Two-phase update to avoid the section_page_position index collision
                 // when swapping positions.
                 await using (var offset = new NpgsqlCommand(
@@ -811,10 +819,11 @@ where id = $4;", conn, tx))
                 }
                 foreach (var sid in body.Ids!)
                 {
-                    var s = await ReadSectionByIdAsync(conn, tx, sid, validator, ct);
+                    var after = await ReadSectionByIdAsync(conn, tx, sid, validator, ct);
+                    sectionsBefore.TryGetValue(sid, out var before);
                     await audit.RecordAsync(conn, tx, "order", "section",
                         sid.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        s, s, ct);
+                        before, after, ct);
                 }
                 await tx.CommitAsync(ct);
                 var page = await ReadPageByIdAsync(conn, null, id, ct);
@@ -1068,6 +1077,14 @@ where i.id = $1 for update;", conn, tx))
                 {
                     RequestValidation.Throw("ids", "must be exactly this section's item ids");
                 }
+                // Snapshot every item row before the offset update so the audit
+                // rows record the pre-move position as `before`.
+                var itemsBefore = new Dictionary<long, SectionItemAdminDto>();
+                foreach (var iid in body.Ids!)
+                {
+                    var it = await ReadItemByIdAsync(conn, tx, iid, kind, validator, ct);
+                    if (it is not null) itemsBefore[iid] = it;
+                }
                 await using (var offset = new NpgsqlCommand(
                     "update section_item set position = position + 100000 where section_id = $1;", conn, tx))
                 {
@@ -1085,10 +1102,11 @@ where i.id = $1 for update;", conn, tx))
                 }
                 foreach (var iid in body.Ids!)
                 {
-                    var it = await ReadItemByIdAsync(conn, tx, iid, kind, validator, ct);
+                    var after = await ReadItemByIdAsync(conn, tx, iid, kind, validator, ct);
+                    itemsBefore.TryGetValue(iid, out var before);
                     await audit.RecordAsync(conn, tx, "order", "section_item",
                         iid.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        it, it, ct);
+                        before, after, ct);
                 }
                 await tx.CommitAsync(ct);
                 var section = await ReadSectionByIdAsync(conn, null, id, validator, ct);
