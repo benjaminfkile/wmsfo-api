@@ -1617,6 +1617,9 @@ values ($1, $2, $3) returning id;", conn, tx))
             ["iconAfter"] = p.IconAfter is null ? null : new JsonObject { ["source"] = p.IconAfter.Source, ["id"] = p.IconAfter.Id },
             ["anchor"] = p.Anchor,
         };
+        // The optional keys are stored only when set.
+        if (p.Card is bool card) obj["card"] = card;
+        if (p.IconSize is not null) obj["iconSize"] = p.IconSize;
         return obj;
     }
 

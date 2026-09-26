@@ -131,7 +131,9 @@
             { "$ref": "#/$defs/Anchor" },
             { "type": "null" }
           ]
-        }
+        },
+        "card": { "type": ["boolean", "null"] },
+        "iconSize": { "enum": ["sm", "md", "lg", "xl", null] }
       },
       "required": ["width", "align", "background", "spacing", "iconBefore", "iconAfter", "anchor"],
       "additionalProperties": false

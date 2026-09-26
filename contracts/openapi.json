@@ -7259,6 +7259,18 @@
               "null",
               "string"
             ]
+          },
+          "card": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "iconSize": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

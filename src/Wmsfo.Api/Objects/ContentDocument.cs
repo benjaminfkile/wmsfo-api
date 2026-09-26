@@ -82,6 +82,9 @@ public sealed class Presentation
     [JsonPropertyOrder(4)] public IconValue? IconBefore { get; set; }
     [JsonPropertyOrder(5)] public IconValue? IconAfter { get; set; }
     [JsonPropertyOrder(6)] public string? Anchor { get; set; }
+    // Optional keys: absent when null (card defaults to true, iconSize to "sm").
+    [JsonPropertyOrder(7), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Card { get; set; }
+    [JsonPropertyOrder(8), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? IconSize { get; set; }
 
     public static JsonNode BackgroundNone() => new JsonObject { ["kind"] = "none" };
 }

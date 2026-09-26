@@ -370,6 +370,140 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
             (p.GetProperty("message").GetString() ?? "").Contains(missing, StringComparison.Ordinal));
     }
 
+    // -------------------- presentation card and iconSize --------------------
+
+    // A section PATCH with `card` and `iconSize` stores both keys, the admin page
+    // read returns them, and the published document and the snapshot carry them.
+    [Fact]
+    public async Task Presentation_card_and_icon_size_round_trip_to_admin_read_and_published_document()
+    {
+        await BootstrapFirstBootAsync();
+        var (pageId, sectionId) = await FindSectionAsync("about", "rich_text");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"narrow\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null,"
+            + "\"card\":false,\"iconSize\":\"lg\"}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+        {
+            var pres = patched.RootElement.GetProperty("presentation");
+            Assert.False(pres.GetProperty("card").GetBoolean());
+            Assert.Equal("lg", pres.GetProperty("iconSize").GetString());
+        }
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "select presentation->>'card', presentation->>'iconSize' from section where id = $1;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sectionId });
+            await using var reader = await cmd.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("false", reader.GetString(0));
+            Assert.Equal("lg", reader.GetString(1));
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var section = page.RootElement.GetProperty("sections").EnumerateArray()
+                .Single(s => s.GetProperty("id").GetInt64() == sectionId);
+            var pres = section.GetProperty("presentation");
+            Assert.False(pres.GetProperty("card").GetBoolean());
+            Assert.Equal("lg", pres.GetProperty("iconSize").GetString());
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            var pres = FindPublishedPresentation(version.RootElement, sectionId);
+            Assert.False(pres.GetProperty("card").GetBoolean());
+            Assert.Equal("lg", pres.GetProperty("iconSize").GetString());
+        }
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var content = snap.RootElement.GetProperty("content");
+        var snapPres = FindPublishedPresentation(content, sectionId);
+        Assert.False(snapPres.GetProperty("card").GetBoolean());
+        Assert.Equal("lg", snapPres.GetProperty("iconSize").GetString());
+        var keys = snapPres.EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(new[] { "width", "align", "background", "spacing", "iconBefore", "iconAfter", "anchor", "card", "iconSize" }, keys);
+    }
+
+    // A presentation without `card` and `iconSize` validates and publishes, and
+    // the published presentation leaves both keys out.
+    [Fact]
+    public async Task Presentation_without_card_and_icon_size_validates_and_publishes()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"loose\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var pres = FindPublishedPresentation(version.RootElement, sectionId);
+        Assert.Equal("loose", pres.GetProperty("spacing").GetString());
+        Assert.False(pres.TryGetProperty("card", out _));
+        Assert.False(pres.TryGetProperty("iconSize", out _));
+    }
+
+    [Fact]
+    public async Task Presentation_unknown_icon_size_is_400_validation_failed()
+    {
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null,"
+            + "\"iconSize\":\"huge\"}}");
+        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(patch));
+    }
+
+    [Fact]
+    public async Task Hero_with_icon_size_xl_publishes()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("no-event", "hero");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"data\":{\"title\":\"Hero\",\"tagline\":null,\"icon\":{\"source\":\"library\",\"id\":\"helicopter\"},"
+            + "\"links\":[],\"height\":\"tall\",\"iconSize\":\"xl\"}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var data = version.RootElement.GetProperty("pages").EnumerateArray()
+            .SelectMany(p => p.GetProperty("sections").EnumerateArray())
+            .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+            .GetProperty("data");
+        Assert.Equal("xl", data.GetProperty("iconSize").GetString());
+    }
+
     // -------------------- restore --------------------
 
     [Fact]
@@ -788,6 +922,34 @@ update site_setting_draft set data = jsonb_set(data, '{siteName}', to_jsonb($1::
         await reader.ReadAsync();
         return (reader.GetInt64(0), reader.GetString(1));
     }
+
+    private async Task<(long PageId, long SectionId)> FindSectionAsync(string slug, string kind)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+select p.id, s.id from section s join page p on p.id = s.page_id
+where p.slug = $1 and s.kind = $2 order by s.position limit 1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = slug });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = kind });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync(), $"no {kind} section on page {slug}");
+        return (reader.GetInt64(0), reader.GetInt64(1));
+    }
+
+    private async Task<HttpResponseMessage> PatchSectionAsync(long sectionId, string json)
+    {
+        using var req = _host!.EditorRequest(HttpMethod.Patch, $"/admin/sections/{sectionId}");
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        return await _host.Client.SendAsync(req);
+    }
+
+    // The presentation of the given section in a published content document.
+    private static JsonElement FindPublishedPresentation(JsonElement document, long sectionId) =>
+        document.GetProperty("pages").EnumerateArray()
+            .SelectMany(p => p.GetProperty("sections").EnumerateArray())
+            .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+            .GetProperty("presentation");
 
     private async Task<(string Sha, string Json)> ReadNewestVersionAsync()
     {
