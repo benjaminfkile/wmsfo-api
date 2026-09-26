@@ -347,7 +347,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Filename).HasColumnType("text").IsRequired();
             e.Property(x => x.ContentType).HasColumnType("text").IsRequired();
             e.Property(x => x.Kind).HasColumnType("text").IsRequired()
-                .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated, usable as an icon.");
+                .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated.");
             e.Property(x => x.State).HasColumnType("text").IsRequired();
             e.Property(x => x.S3Key).HasColumnName("s3_key").HasColumnType("text").IsRequired()
                 .HasComment("media/{id}/{filename}; the original bytes.");
@@ -507,7 +507,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.Name).HasColumnType("text").IsRequired();
             e.Property(x => x.Icon).HasColumnType("jsonb")
-                .HasComment("Icon value (contracts 1.3a): {\"source\":\"library\",\"id\":\"cookie\"} or {\"source\":\"media\",\"id\":\"<uuid of a ready svg media_asset>\"}; null until chosen.");
+                .HasComment("Icon value (contracts 1.3a): {\"source\":\"library\",\"id\":\"cookie\"} or {\"source\":\"media\",\"id\":\"<uuid of a ready media_asset>\"}; null until chosen.");
             e.Property(x => x.Sort).HasColumnType("integer").IsRequired().HasDefaultValue(0);
             e.Property(x => x.Active).HasColumnType("boolean").IsRequired().HasDefaultValue(true);
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");

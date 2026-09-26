@@ -15,8 +15,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - list ordered by sort, id
 //   - CRUD (POST + PATCH; no delete)
 //   - icon validation: library ids checked against the compiled library; media
-//     ids resolved to a ready svg media_asset (400 unknown library id, 400 not
-//     svg, 404 media not found, 409 media_not_ready)
+//     ids resolved to a ready media_asset of any kind (400 unknown library id,
+//     404 media not found, 409 media_not_ready)
 //   - 409 event_live when any event carries status_id = 3
 public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
@@ -114,14 +114,13 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
     }
 
     [Fact]
-    public async Task Create_with_media_icon_non_svg_is_400()
+    public async Task Create_with_ready_raster_media_icon_returns_201()
     {
         var mediaId = await InsertMediaAsync(state: "ready", kind: "raster");
         var body = "{\"name\":\"Raster Icon\",\"sort\":10,\"active\":true,\"icon\":{\"source\":\"media\",\"id\":\""
             + mediaId + "\"}}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types", body);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     [Fact]
@@ -132,6 +131,30 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
             + mediaId + "\"}}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types", body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Patch_with_ready_raster_media_icon_returns_200()
+    {
+        var id = await CreateAsync("Icon Swap", 10, true, "cookie");
+        var mediaId = await InsertMediaAsync(state: "ready", kind: "raster");
+        var body = "{\"icon\":{\"source\":\"media\",\"id\":\"" + mediaId + "\"}}";
+        var response = await SendAdminAsync(HttpMethod.Patch, $"/admin/cookie-types/{id}", body);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal("media", dto.RootElement.GetProperty("icon").GetProperty("source").GetString());
+        Assert.Equal(mediaId.ToString(), dto.RootElement.GetProperty("icon").GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task Create_with_media_icon_pending_raster_is_409_media_not_ready()
+    {
+        var mediaId = await InsertMediaAsync(state: "pending", kind: "raster");
+        var body = "{\"name\":\"Pending Raster\",\"sort\":10,\"active\":true,\"icon\":{\"source\":\"media\",\"id\":\""
+            + mediaId + "\"}}";
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types", body);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("media_not_ready", await ReadCodeAsync(response));
     }
 
     [Fact]

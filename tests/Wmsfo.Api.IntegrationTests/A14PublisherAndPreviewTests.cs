@@ -322,6 +322,54 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(new[] { raster1 }, contentMediaIds);
     }
 
+    // A47: a hero whose `icon` is a ready raster media asset publishes without
+    // problems and the snapshot's `media` map carries that asset so the site
+    // can resolve it. The media icon may be any ready image, not only an SVG.
+    [Fact]
+    public async Task Publish_hero_icon_ready_raster_media_publishes_and_snapshot_media_carries_it()
+    {
+        await BootstrapFirstBootAsync();
+
+        var raster = await UploadAndConfirmRasterAsync("hero-icon.png", 512, 512);
+        await SetHeroIconMediaAsync(raster);
+        await BumpSiteSettingsSiteNameAsync("Hero raster icon");
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var media = snap.RootElement.GetProperty("media");
+        var entry = media.GetProperty(raster);
+        Assert.Equal("raster", entry.GetProperty("kind").GetString());
+        Assert.Equal(512, entry.GetProperty("width").GetInt32());
+        Assert.Equal(512, entry.GetProperty("height").GetInt32());
+    }
+
+    // A47: a hero whose `icon` is a media source pointing at a non-existent
+    // media asset is a publish-level problem.
+    [Fact]
+    public async Task Publish_hero_icon_missing_media_is_a_problem()
+    {
+        await BootstrapFirstBootAsync();
+        var missing = Guid.NewGuid().ToString();
+        await SetHeroIconMediaAsync(missing);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(text);
+        Assert.Equal(ApiErrorCodes.ContentInvalid, doc.RootElement.GetProperty("code").GetString());
+        var problems = doc.RootElement.GetProperty("details").GetProperty("problems").EnumerateArray().ToArray();
+        Assert.Contains(problems, p =>
+            (p.GetProperty("message").GetString() ?? "").Contains(missing, StringComparison.Ordinal));
+    }
+
     // -------------------- restore --------------------
 
     [Fact]
@@ -649,6 +697,20 @@ values ($1, $2, 500, true, true, false);", conn);
         year_ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sponsorId });
         year_ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
         await year_ins.ExecuteNonQueryAsync();
+    }
+
+    // Rewrites every hero section's data to a full, publish-valid document
+    // whose icon is a media source pointing at the given media id.
+    private async Task SetHeroIconMediaAsync(string mediaId)
+    {
+        var newData = "{\"title\":\"Hero\",\"tagline\":null,\"icon\":{\"source\":\"media\",\"id\":\""
+            + mediaId + "\"},\"links\":[],\"height\":\"short\"}";
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "update section set data = $1::jsonb where kind = 'hero';", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = newData });
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task SeedCookieTypeWithMediaIconAsync(string name, string mediaId)
