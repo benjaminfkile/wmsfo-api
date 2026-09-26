@@ -14,8 +14,8 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.5 Cookie Types (Admin). CRUD with an Icon value that is either
-// a library id (checked against IconLibrary) or a ready svg media_asset id.
-// Every write is [snapshot] and every write is refused with 409 event_live
+// a library id (checked against IconLibrary) or a ready media_asset id of any
+// kind. Every write is [snapshot] and every write is refused with 409 event_live
 // while any event carries status_id = 3 (sql.md 3.14 comment).
 public static class AdminCookieTypeEndpoints
 {
@@ -254,7 +254,8 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             v.Field("icon.id", "must be a non-empty string");
     }
 
-    // Library id must exist in the compiled library; media id must be a ready svg.
+    // Library id must exist in the compiled library; media id must be a ready
+    // media_asset of any kind.
     private static async Task CheckIconAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, IconValue? icon, IconLibrary library, CancellationToken ct)
     {
@@ -271,24 +272,19 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             if (!Guid.TryParse(icon.Id, out var mediaId))
                 throw new ApiException(StatusCodes.Status400BadRequest,
                     ApiErrorCodes.ValidationFailed, "icon.id must be a uuid for media source");
-            string? kind = null;
             string? state = null;
             await using (var cmd = new NpgsqlCommand(
-                "select kind, state from media_asset where id = $1;", conn, tx))
+                "select state from media_asset where id = $1;", conn, tx))
             {
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct))
                     throw NotFound("media not found");
-                kind = reader.GetString(0);
-                state = reader.GetString(1);
+                state = reader.GetString(0);
             }
             if (!string.Equals(state, "ready", StringComparison.Ordinal))
                 throw new ApiException(StatusCodes.Status409Conflict,
                     "media_not_ready", "media asset is not ready");
-            if (!string.Equals(kind, "svg", StringComparison.Ordinal))
-                throw new ApiException(StatusCodes.Status400BadRequest,
-                    ApiErrorCodes.ValidationFailed, "media icon must be an svg asset");
         }
     }
 

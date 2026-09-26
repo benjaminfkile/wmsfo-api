@@ -14,7 +14,7 @@ namespace Wmsfo.Api.Content;
 // GET /admin/content/status:
 //
 //   - MediaRef mediaId names a media_asset row with state = 'ready'
-//   - media-sourced Icon names a ready media_asset of kind 'svg'
+//   - media-sourced Icon names a ready media_asset
 //   - library-sourced Icon id exists in IconLibrary
 //   - Link.href and inline `[label](href)` matches the href rule
 //   - a `/<slug>` href names an existing, non-hidden `none` page (or role page's slug)
@@ -64,11 +64,11 @@ public sealed class ReferenceChecker
         visitor.WalkWorkingSet(workingSet);
 
         // Resolve every referenced media asset in one query.
-        var mediaRows = new Dictionary<Guid, (string State, string Kind)>();
+        var mediaRows = new Dictionary<Guid, string>();
         if (visitor.MediaIds.Count > 0)
         {
             await using var cmd = new NpgsqlCommand(
-                "select id, state, kind from media_asset where id = any($1);", connection, transaction);
+                "select id, state from media_asset where id = any($1);", connection, transaction);
             cmd.Parameters.Add(new NpgsqlParameter
             {
                 NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid,
@@ -77,7 +77,7 @@ public sealed class ReferenceChecker
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                mediaRows[reader.GetGuid(0)] = (reader.GetString(1), reader.GetString(2));
+                mediaRows[reader.GetGuid(0)] = reader.GetString(1);
             }
         }
 
@@ -90,24 +90,18 @@ public sealed class ReferenceChecker
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
             }
-            if (!mediaRows.TryGetValue(g, out var row))
+            if (!mediaRows.TryGetValue(g, out var state))
             {
                 problems.Add(NewProblem(ref_.Path, $"media asset `{ref_.MediaId}` does not exist",
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
             }
-            if (!string.Equals(row.State, "ready", StringComparison.Ordinal))
+            if (!string.Equals(state, "ready", StringComparison.Ordinal))
             {
                 problems.Add(NewProblem(ref_.Path,
-                    $"media asset `{ref_.MediaId}` is not ready (state={row.State})",
+                    $"media asset `{ref_.MediaId}` is not ready (state={state})",
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
-            }
-            if (ref_.RequireSvg && !string.Equals(row.Kind, "svg", StringComparison.Ordinal))
-            {
-                problems.Add(NewProblem(ref_.Path,
-                    $"media icon `{ref_.MediaId}` must be an svg asset (kind={row.Kind})",
-                    ref_.PageId, ref_.SectionId, ref_.ItemId));
             }
         }
 
@@ -147,7 +141,7 @@ public sealed class ReferenceChecker
         private string _basePath = "";
         private HashSet<string>? _pageAnchors;
 
-        public sealed record MediaAssetRef(string MediaId, bool RequireSvg, string Path, long? PageId, long? SectionId, long? ItemId);
+        public sealed record MediaAssetRef(string MediaId, string Path, long? PageId, long? SectionId, long? ItemId);
 
         public Visitor(IconLibrary? library, HashSet<string> visibleSlugs)
         {
@@ -318,7 +312,7 @@ public sealed class ReferenceChecker
             if (!obj.TryGetPropertyValue("alt", out _)) return;
             if (mediaIdNode is not JsonValue mv || !mv.TryGetValue<string>(out var mediaId)) return;
             if (Guid.TryParse(mediaId, out var g)) MediaIds.Add(g);
-            MediaRefs.Add(new MediaAssetRef(mediaId, RequireSvg: false, _basePath + "/mediaId", _pageId, _sectionId, _itemId));
+            MediaRefs.Add(new MediaAssetRef(mediaId, _basePath + "/mediaId", _pageId, _sectionId, _itemId));
         }
 
         // Icon shape: `{ "source": "library"|"media", "id": <string> }`.
@@ -429,7 +423,7 @@ public sealed class ReferenceChecker
                     {
                         MediaIds.Add(g);
                     }
-                    MediaRefs.Add(new MediaAssetRef(id, RequireSvg: true, path, _pageId, _sectionId, _itemId));
+                    MediaRefs.Add(new MediaAssetRef(id, path, _pageId, _sectionId, _itemId));
                     break;
             }
         }

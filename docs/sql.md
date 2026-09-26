@@ -403,7 +403,7 @@ create table cookie_type (
 );
 
 comment on table cookie_type is 'Admin-managed. Locked (409 event_live) while any event has status 3. A delete takes the type''s cookies with it; active = false removes a type from the snapshot without deleting it.';
-comment on column cookie_type.icon is 'Icon value (contracts 1.3a): {"source":"library","id":"cookie"} or {"source":"media","id":"<uuid of a ready svg media_asset>"}; null until chosen.';
+comment on column cookie_type.icon is 'Icon value (contracts 1.3a): {"source":"library","id":"cookie"} or {"source":"media","id":"<uuid of a ready media_asset>"}; null until chosen.';
 ```
 
 Initial rows, inserted only when the table is empty:
@@ -591,7 +591,7 @@ comment on table media_asset is 'The media library. pending: ticket issued, byte
 comment on column media_asset.id is 'Minted by the API (UUID v4) when the upload ticket is issued; it is the key segment media/{id}/.';
 comment on column media_asset.s3_key is 'media/{id}/{filename}; the original bytes.';
 comment on column media_asset.variants is '{ "480": "media/{id}/w480.webp", "960": ..., "1600": ... }: the WebP width variants that exist (raster only, widths below the source width).';
-comment on column media_asset.kind is 'raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated, usable as an icon.';
+comment on column media_asset.kind is 'raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated.';
 ```
 
 ### 3.22 `page`
