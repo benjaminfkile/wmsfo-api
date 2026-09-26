@@ -349,6 +349,8 @@ public sealed class PresentationDto
     public IconValue? IconBefore { get; set; }
     public IconValue? IconAfter { get; set; }
     public string? Anchor { get; set; }
+    public bool? Card { get; set; }
+    public string? IconSize { get; set; }
 }
 
 public sealed class PageAdminDto
