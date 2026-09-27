@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Objects;
 
@@ -159,7 +160,7 @@ public static class FixtureData
             CookieTypes = new List<SnapshotCookieType>
             {
                 new() { Id = 1, Name = "Chocolate chip", Icon = new IconValue { Source = "library", Id = "cookie" }, Sort = 10 },
-                new() { Id = 3, Name = "Gingerbread",    Icon = new IconValue { Source = "media", Id = GingerbreadMediaId }, Sort = 20 },
+                new() { Id = 3, Name = "Gingerbread",    Icon = new IconValue { Source = "media", Id = GingerbreadMediaId, Display = JsonSerializer.SerializeToElement(new { sizePx = 48, shape = "circle" }) }, Sort = 20 },
             },
             Content = content,
             Media = media,

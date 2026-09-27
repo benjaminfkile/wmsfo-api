@@ -252,6 +252,8 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
             v.Field("icon.source", "must be library or media");
         if (string.IsNullOrEmpty(icon.Id))
             v.Field("icon.id", "must be a non-empty string");
+        foreach (var (key, message) in DisplayRules.Problems(icon.Display))
+            v.Field(key.Length == 0 ? "icon.display" : "icon.display." + key, message);
     }
 
     // Library id must exist in the compiled library; media id must be a ready
@@ -289,7 +291,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
     }
 
     private static string? IconToJson(IconValue? icon) =>
-        icon is null ? null : $"{{\"source\":\"{icon.Source}\",\"id\":\"{icon.Id}\"}}";
+        icon is null ? null : JsonSerializer.Serialize(icon, CanonicalJson.Options);
 
     private static async Task<CookieTypeDto?> ReadByIdAsync(
         NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)
@@ -317,15 +319,8 @@ where t.id = $1;", conn, tx);
         IconValue? icon = null;
         if (!reader.IsDBNull(2))
         {
-            var json = reader.GetString(2);
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                var source = doc.RootElement.TryGetProperty("source", out var s) ? s.GetString() ?? "" : "";
-                var id = doc.RootElement.TryGetProperty("id", out var i) ? i.GetString() ?? "" : "";
-                if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(id))
-                    icon = new IconValue { Source = source, Id = id };
-            }
+            using var doc = JsonDocument.Parse(reader.GetString(2));
+            icon = IconValue.FromStored(doc.RootElement);
         }
         var dto = new CookieTypeDto
         {

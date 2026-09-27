@@ -84,6 +84,94 @@ public sealed class A11AdminCookieTypeEndpointsTests : IClassFixture<PostgresFix
         Assert.True(vAfter > vBefore);
     }
 
+    // An icon display round-trips through create, patch, the list, and the stored row.
+    [Fact]
+    public async Task Icon_display_round_trips_through_create_patch_and_list()
+    {
+        var body = "{\"name\":\"Snickerdoodle\",\"sort\":5,\"active\":true,\"icon\":{\"source\":\"library\",\"id\":\"cookie\","
+            + "\"display\":{\"sizePx\":600,\"fit\":\"cover\",\"shape\":\"square\",\"paddingPx\":48,\"background\":\"accent\",\"shadow\":false,\"align\":\"start\"}}}";
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types", body);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        long id;
+        using (var dto = await ReadJsonAsync(response))
+        {
+            id = dto.RootElement.GetProperty("id").GetInt64();
+            var display = dto.RootElement.GetProperty("icon").GetProperty("display");
+            Assert.Equal(600, display.GetProperty("sizePx").GetInt32());
+            Assert.Equal("cover", display.GetProperty("fit").GetString());
+            Assert.Equal("square", display.GetProperty("shape").GetString());
+            Assert.Equal(48, display.GetProperty("paddingPx").GetInt32());
+            Assert.Equal("accent", display.GetProperty("background").GetString());
+            Assert.False(display.GetProperty("shadow").GetBoolean());
+            Assert.Equal("start", display.GetProperty("align").GetString());
+        }
+
+        var patch = await SendAdminAsync(HttpMethod.Patch, $"/admin/cookie-types/{id}",
+            "{\"icon\":{\"source\":\"library\",\"id\":\"cookie\",\"display\":{\"shape\":\"circle\"}}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var dto = await ReadJsonAsync(patch))
+        {
+            Assert.Equal("{\"shape\":\"circle\"}", dto.RootElement.GetProperty("icon").GetProperty("display").GetRawText());
+        }
+
+        var list = await SendAdminAsync(HttpMethod.Get, "/admin/cookie-types", "");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using (var doc = await ReadJsonAsync(list))
+        {
+            var item = doc.RootElement.GetProperty("items").EnumerateArray()
+                .Single(x => x.GetProperty("id").GetInt64() == id);
+            Assert.Equal("{\"shape\":\"circle\"}", item.GetProperty("icon").GetProperty("display").GetRawText());
+        }
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select icon->'display'->>'shape' from cookie_type where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        Assert.Equal("circle", (string?)await cmd.ExecuteScalarAsync());
+    }
+
+    // A cookie type icon without display carries no display key.
+    [Fact]
+    public async Task Icon_without_display_has_no_display_key()
+    {
+        var id = await CreateAsync("Plain", 1, true, "cookie");
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select icon::text from cookie_type where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        Assert.Equal("{\"id\": \"cookie\", \"source\": \"library\"}", (string?)await cmd.ExecuteScalarAsync());
+    }
+
+    // Out-of-range or unknown display values are 400 validation_failed on create and patch.
+    [Theory]
+    [InlineData("{\"sizePx\":11}")]
+    [InlineData("{\"sizePx\":601}")]
+    [InlineData("{\"paddingPx\":-1}")]
+    [InlineData("{\"paddingPx\":49}")]
+    [InlineData("{\"fit\":\"stretch\"}")]
+    [InlineData("{\"shape\":\"star\"}")]
+    [InlineData("{\"background\":\"red\"}")]
+    [InlineData("{\"align\":\"left\"}")]
+    [InlineData("{\"sizePx\":\"40\"}")]
+    [InlineData("{\"sizePx\":40.5}")]
+    [InlineData("{\"shadow\":\"yes\"}")]
+    [InlineData("{\"color\":\"red\"}")]
+    [InlineData("\"big\"")]
+    public async Task Icon_display_out_of_range_is_400(string display)
+    {
+        var body = "{\"name\":\"Bad display\",\"sort\":1,\"active\":true,\"icon\":{\"source\":\"library\",\"id\":\"cookie\",\"display\":"
+            + display + "}}";
+        var create = await SendAdminAsync(HttpMethod.Post, "/admin/cookie-types", body);
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(create));
+
+        var id = await CreateAsync("Good display", 2, true, "cookie");
+        var patch = await SendAdminAsync(HttpMethod.Patch, $"/admin/cookie-types/{id}",
+            "{\"icon\":{\"source\":\"library\",\"id\":\"cookie\",\"display\":" + display + "}}");
+        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(patch));
+    }
+
     [Fact]
     public async Task Create_with_unknown_library_icon_is_400()
     {

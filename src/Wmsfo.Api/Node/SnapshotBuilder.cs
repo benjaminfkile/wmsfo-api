@@ -301,19 +301,10 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
                 IconValue? icon = null;
                 if (!reader.IsDBNull(2))
                 {
-                    var json = reader.GetString(2);
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.ValueKind == JsonValueKind.Object)
-                    {
-                        var source = doc.RootElement.TryGetProperty("source", out var sr) ? sr.GetString() ?? "" : "";
-                        var id = doc.RootElement.TryGetProperty("id", out var ir) ? ir.GetString() ?? "" : "";
-                        if (!string.IsNullOrEmpty(source) && !string.IsNullOrEmpty(id))
-                        {
-                            icon = new IconValue { Source = source, Id = id };
-                            if (source == "media" && Guid.TryParse(id, out var mediaId))
-                                cookieTypeMediaIds.Add(mediaId);
-                        }
-                    }
+                    using var doc = JsonDocument.Parse(reader.GetString(2));
+                    icon = IconValue.FromStored(doc.RootElement);
+                    if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId))
+                        cookieTypeMediaIds.Add(mediaId);
                 }
                 cookieTypes.Add(new SnapshotCookieType
                 {

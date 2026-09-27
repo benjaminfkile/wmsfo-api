@@ -606,6 +606,208 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark" }, keys);
     }
 
+    // -------------------- display on Icon and MediaRef --------------------
+
+    // A display on a hero icon, a presentation iconBefore, a presentation
+    // background MediaRef, a media block's MediaRef, and a cookie type icon
+    // round-trips through the writes, the admin read, the published document,
+    // and the snapshot; the snapshot's media map still carries every asset.
+    [Fact]
+    public async Task Display_round_trips_through_hero_presentation_media_block_and_cookie_type()
+    {
+        await BootstrapFirstBootAsync();
+        var heroMedia = await UploadAndConfirmRasterAsync("hero-icon.png", 300, 300);
+        var blockMedia = await UploadAndConfirmRasterAsync("block.png", 400, 300);
+        var backgroundMedia = await UploadAndConfirmRasterAsync("background.png", 400, 300);
+        var cookieMedia = await UploadAndConfirmRasterAsync("cookie.png", 100, 100);
+        await SeedCookieTypeWithIconJsonAsync("Sugar",
+            "{\"source\":\"media\",\"id\":\"" + cookieMedia + "\",\"display\":{\"sizePx\":64,\"shape\":\"rounded\",\"shadow\":true}}");
+
+        var (_, heroId) = await FindSectionAsync("no-event", "hero");
+        var heroPatch = await PatchSectionAsync(heroId,
+            "{\"data\":{\"title\":\"Hero\",\"tagline\":null,\"icon\":{\"source\":\"media\",\"id\":\"" + heroMedia
+            + "\",\"display\":{\"sizePx\":240,\"fit\":\"contain\",\"shape\":\"circle\",\"paddingPx\":8,"
+            + "\"background\":\"night\",\"shadow\":true,\"align\":\"center\"}},\"links\":[],\"height\":\"tall\"}}");
+        Assert.Equal(HttpStatusCode.OK, heroPatch.StatusCode);
+
+        var (pageId, sectionId) = await FindSectionAsync("about", "rich_text");
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"data\":{\"blocks\":[{\"kind\":\"media\",\"media\":{\"mediaId\":\"" + blockMedia
+            + "\",\"alt\":null,\"display\":{\"fit\":\"cover\",\"align\":\"end\"}},\"caption\":null,\"size\":\"full\"}]},"
+            + "\"presentation\":{\"width\":\"wide\",\"align\":\"start\","
+            + "\"background\":{\"kind\":\"media\",\"media\":{\"mediaId\":\"" + backgroundMedia
+            + "\",\"alt\":null,\"display\":{\"fit\":\"cover\"}},\"overlay\":0.4},"
+            + "\"spacing\":\"normal\","
+            + "\"iconBefore\":{\"source\":\"library\",\"id\":\"helicopter\",\"display\":{\"sizePx\":12,\"paddingPx\":0}},"
+            + "\"iconAfter\":{\"source\":\"library\",\"id\":\"helicopter\"},\"anchor\":null,\"iconSize\":\"lg\"}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+        {
+            var pres = patched.RootElement.GetProperty("presentation");
+            AssertIconBeforeDisplay(pres);
+            Assert.False(pres.GetProperty("iconAfter").TryGetProperty("display", out _));
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var section = page.RootElement.GetProperty("sections").EnumerateArray()
+                .Single(x => x.GetProperty("id").GetInt64() == sectionId);
+            AssertIconBeforeDisplay(section.GetProperty("presentation"));
+            AssertBackgroundDisplay(section.GetProperty("presentation"));
+            AssertMediaBlockDisplay(section.GetProperty("data"));
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var content = snap.RootElement.GetProperty("content");
+        var sections = content.GetProperty("pages").EnumerateArray()
+            .SelectMany(p => p.GetProperty("sections").EnumerateArray()).ToArray();
+
+        var hero = sections.Single(x => x.GetProperty("id").GetInt64() == heroId);
+        var heroDisplay = hero.GetProperty("data").GetProperty("icon").GetProperty("display");
+        Assert.Equal(240, heroDisplay.GetProperty("sizePx").GetInt32());
+        Assert.Equal("contain", heroDisplay.GetProperty("fit").GetString());
+        Assert.Equal("circle", heroDisplay.GetProperty("shape").GetString());
+        Assert.Equal(8, heroDisplay.GetProperty("paddingPx").GetInt32());
+        Assert.Equal("night", heroDisplay.GetProperty("background").GetString());
+        Assert.True(heroDisplay.GetProperty("shadow").GetBoolean());
+        Assert.Equal("center", heroDisplay.GetProperty("align").GetString());
+
+        var about = sections.Single(x => x.GetProperty("id").GetInt64() == sectionId);
+        AssertIconBeforeDisplay(about.GetProperty("presentation"));
+        AssertBackgroundDisplay(about.GetProperty("presentation"));
+        AssertMediaBlockDisplay(about.GetProperty("data"));
+        var presKeys = about.GetProperty("presentation").GetProperty("iconBefore").EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(new[] { "source", "id", "display" }, presKeys);
+
+        var cookie = snap.RootElement.GetProperty("cookieTypes").EnumerateArray()
+            .Single(x => x.GetProperty("name").GetString() == "Sugar");
+        var cookieDisplay = cookie.GetProperty("icon").GetProperty("display");
+        Assert.Equal(64, cookieDisplay.GetProperty("sizePx").GetInt32());
+        Assert.Equal("rounded", cookieDisplay.GetProperty("shape").GetString());
+        Assert.True(cookieDisplay.GetProperty("shadow").GetBoolean());
+
+        var media = snap.RootElement.GetProperty("media");
+        foreach (var id in new[] { heroMedia, blockMedia, backgroundMedia, cookieMedia })
+            Assert.True(media.TryGetProperty(id, out _), $"media map is missing {id}");
+
+        var versionIds = await ReadNewestVersionMediaIdsAsync();
+        foreach (var id in new[] { heroMedia, blockMedia, backgroundMedia })
+            Assert.Contains(id, versionIds, StringComparer.OrdinalIgnoreCase);
+    }
+
+    // Out-of-range or unknown display values are refused on write with 400.
+    [Theory]
+    [InlineData("{\"sizePx\":11}")]
+    [InlineData("{\"sizePx\":601}")]
+    [InlineData("{\"paddingPx\":-1}")]
+    [InlineData("{\"paddingPx\":49}")]
+    [InlineData("{\"fit\":\"stretch\"}")]
+    [InlineData("{\"shape\":\"star\"}")]
+    [InlineData("{\"background\":\"red\"}")]
+    [InlineData("{\"align\":\"left\"}")]
+    [InlineData("{\"shadow\":\"yes\"}")]
+    [InlineData("{\"color\":\"red\"}")]
+    public async Task Display_out_of_range_is_400_on_every_write_path(string display)
+    {
+        await BootstrapFirstBootAsync();
+        var (_, heroId) = await FindSectionAsync("no-event", "hero");
+        var hero = await PatchSectionAsync(heroId,
+            "{\"data\":{\"title\":\"Hero\",\"tagline\":null,\"icon\":{\"source\":\"library\",\"id\":\"helicopter\",\"display\":"
+            + display + "},\"links\":[],\"height\":\"tall\"}}");
+        Assert.Equal(HttpStatusCode.BadRequest, hero.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(hero));
+
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+        var block = await PatchSectionAsync(sectionId,
+            "{\"data\":{\"blocks\":[{\"kind\":\"media\",\"media\":{\"mediaId\":\"" + Guid.NewGuid()
+            + "\",\"alt\":null,\"display\":" + display + "},\"caption\":null,\"size\":\"full\"}]}}");
+        Assert.Equal(HttpStatusCode.BadRequest, block.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(block));
+
+        var pres = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":{\"source\":\"library\",\"id\":\"helicopter\",\"display\":"
+            + display + "},\"iconAfter\":null,\"anchor\":null}}");
+        Assert.Equal(HttpStatusCode.BadRequest, pres.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(pres));
+    }
+
+    // Icons and media references without display are stored and published
+    // exactly as before: no display key anywhere.
+    [Fact]
+    public async Task Content_without_display_is_unchanged()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":{\"source\":\"library\",\"id\":\"helicopter\"},"
+            + "\"iconAfter\":{\"source\":\"library\",\"id\":\"helicopter\",\"display\":null},\"anchor\":null}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "select presentation->'iconBefore', presentation->'iconAfter' from section where id = $1;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sectionId });
+            await using var reader = await cmd.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("{\"id\": \"helicopter\", \"source\": \"library\"}", reader.GetString(0));
+            Assert.Equal("{\"id\": \"helicopter\", \"source\": \"library\"}", reader.GetString(1));
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        Assert.DoesNotContain("\"display\"", versionJson, StringComparison.Ordinal);
+    }
+
+    private static void AssertIconBeforeDisplay(JsonElement presentation)
+    {
+        var display = presentation.GetProperty("iconBefore").GetProperty("display");
+        Assert.Equal(12, display.GetProperty("sizePx").GetInt32());
+        Assert.Equal(0, display.GetProperty("paddingPx").GetInt32());
+    }
+
+    private static void AssertBackgroundDisplay(JsonElement presentation)
+    {
+        var display = presentation.GetProperty("background").GetProperty("media").GetProperty("display");
+        Assert.Equal("cover", display.GetProperty("fit").GetString());
+    }
+
+    private static void AssertMediaBlockDisplay(JsonElement data)
+    {
+        var display = data.GetProperty("blocks")[0].GetProperty("media").GetProperty("display");
+        Assert.Equal("cover", display.GetProperty("fit").GetString());
+        Assert.Equal("end", display.GetProperty("align").GetString());
+    }
+
+    private async Task SeedCookieTypeWithIconJsonAsync(string name, string iconJson)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+insert into cookie_type (name, icon, sort, active, updated_at)
+values ($1, $2::jsonb, 0, true, now());", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = iconJson });
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     // A pending asset as `logoMedia` saves as a draft but is a publish problem
     // at /settings/logoMedia/mediaId.
     [Fact]
