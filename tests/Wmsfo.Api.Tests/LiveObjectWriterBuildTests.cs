@@ -57,7 +57,7 @@ public class LiveObjectWriterBuildTests
             counters: new NodeCounters(),
             logger: NullLogger<LiveObjectWriter>.Instance);
 
-        var (built, bytes) = writer.Build(state, location, publishedAt: fixture.PublishedAt);
+        var (built, bytes) = writer.Build(state, location, publishedAt: fixture.PublishedAt, onlineCount: fixture.OnlineCount);
 
         // Byte-equal to what CanonicalJson would write for the fixture DTO.
         var expected = CanonicalJson.SerializeToUtf8Bytes(fixture);
@@ -76,6 +76,7 @@ public class LiveObjectWriterBuildTests
         Assert.Equal(fixture.Seq, built.Seq);
         Assert.Equal(fixture.Lat, built.Lat);
         Assert.Equal(fixture.PublishedAt, built.PublishedAt);
+        Assert.Equal(fixture.OnlineCount, built.OnlineCount);
     }
 
     private static WmsfoConnectionStrings FakeConnections()
@@ -104,5 +105,6 @@ public class LiveObjectWriterBuildTests
         public Task<bool> PublishAsync(string channel, string @event, ReadOnlyMemory<byte> payloadBytes, CancellationToken ct) => Task.FromResult(true);
         public Task<LeaderAnswer> GetLeaderAsync(CancellationToken ct) => Task.FromResult(new LeaderAnswer(false, null, null, false));
         public Task<IReadOnlyList<string>?> GetPresenceAsync(string channel, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>?>(null);
+        public Task<int?> GetPresenceCountAsync(string channel, CancellationToken ct) => Task.FromResult<int?>(null);
     }
 }

@@ -42,6 +42,7 @@ public static class FixtureData
         RecordedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.000Z"),
         ReceivedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.412Z"),
         PublishedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.430Z"),
+        OnlineCount = 214,
     };
 
     public static ContentDocument BuildContentDocument() => StarterContentBuilder.Build();

@@ -47,7 +47,8 @@
         "leaderboardPanel": { "type": "boolean" },
         "sponsorCarousel": { "type": "boolean" },
         "cookieControl": { "type": "boolean" },
-        "distanceChip": { "type": "boolean" }
+        "distanceChip": { "type": "boolean" },
+        "onlineCount": { "type": "boolean" }
       },
       "required": ["liveIndicator", "liftoffTimer", "latestMessage", "leaderboardPanel", "sponsorCarousel", "cookieControl", "distanceChip"],
       "additionalProperties": false

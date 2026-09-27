@@ -380,4 +380,5 @@ public sealed class FakeGatewayClient : IGatewayInternalClient
 
     public Task<LeaderAnswer> GetLeaderAsync(CancellationToken ct) => Task.FromResult(new LeaderAnswer(false, null, null, false));
     public Task<IReadOnlyList<string>?> GetPresenceAsync(string channel, CancellationToken ct) => Task.FromResult<IReadOnlyList<string>?>(null);
+    public Task<int?> GetPresenceCountAsync(string channel, CancellationToken ct) => Task.FromResult<int?>(null);
 }

@@ -170,15 +170,27 @@ public sealed class A10Host : IAsyncDisposable
 }
 
 // A gateway client that lets each test script the presence answer that
-// GET /admin/beacons and GET /admin/beacons/{id} will see. Every other call
-// keeps the null-op FakeGatewayClient shape.
+// GET /admin/beacons and GET /admin/beacons/{id} will see, and the presence
+// count the live-object writer reads (null answers like a failed call, a
+// throwing count answers like a network error). Every other call keeps the
+// null-op FakeGatewayClient shape.
 public sealed class ScriptedGatewayClient : IGatewayInternalClient
 {
     public string? LastInstanceId => "instance-scripted";
     private readonly ConcurrentDictionary<string, IReadOnlyList<string>?> _presenceByChannel = new(StringComparer.Ordinal);
 
+    private readonly ConcurrentDictionary<string, int?> _countByChannel = new(StringComparer.Ordinal);
+    private int _countCalls;
+
     public void SetPresence(string channel, IReadOnlyList<string>? identities) =>
         _presenceByChannel[channel] = identities;
+
+    public void SetPresenceCount(string channel, int? count) =>
+        _countByChannel[channel] = count;
+
+    public bool ThrowOnCount { get; set; }
+
+    public int CountCalls => Volatile.Read(ref _countCalls);
 
     public Task<bool> PublishAsync(string channel, string @event, ReadOnlyMemory<byte> payloadBytes, CancellationToken ct) =>
         Task.FromResult(true);
@@ -189,6 +201,14 @@ public sealed class ScriptedGatewayClient : IGatewayInternalClient
     public Task<IReadOnlyList<string>?> GetPresenceAsync(string channel, CancellationToken ct)
     {
         _presenceByChannel.TryGetValue(channel, out var value);
+        return Task.FromResult(value);
+    }
+
+    public Task<int?> GetPresenceCountAsync(string channel, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _countCalls);
+        if (ThrowOnCount) throw new HttpRequestException("simulated gateway failure");
+        _countByChannel.TryGetValue(channel, out var value);
         return Task.FromResult(value);
     }
 }
