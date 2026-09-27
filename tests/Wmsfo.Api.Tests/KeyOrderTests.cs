@@ -15,7 +15,7 @@ public class KeyOrderTests
         {
             "schemaVersion", "eventId", "eventStatusId", "pollIntervalMs", "hubEnabled", "snapshotUrl",
             "cookieTally", "seq", "lat", "lng", "speedMps", "altitudeM", "headingDeg", "accuracyM",
-            "recordedAt", "receivedAt", "publishedAt",
+            "recordedAt", "receivedAt", "publishedAt", "onlineCount",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "live-object.json"));
         Assert.Equal(expected, actual);

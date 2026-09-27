@@ -12,6 +12,10 @@ namespace Wmsfo.Api.Node;
 // a caller that finds a write in flight sets a pending flag and returns; the
 // writer loops while pending is set, each iteration building from the state that
 // is current at that moment. Two entry points (WriteForLocation, WriteFromState).
+// While the current event is live (status 3) and hub_enabled is on, each build
+// carries onlineCount from the gateway's count for the site's location channel,
+// read at most once per OnlineCountCacheFor and awaited for at most
+// OnlineCountWaitBudget; any failure or a slow read builds with null.
 public sealed class LiveObjectWriter
 {
     public const string CdnKey = "live/location.json";
@@ -21,6 +25,9 @@ public sealed class LiveObjectWriter
     public static readonly TimeSpan AdminPutTimeout = TimeSpan.FromSeconds(3);
     public static readonly TimeSpan AdminRetryDelay = TimeSpan.FromSeconds(1);
     public const int AdminAttempts = 3;
+    public const short LiveStatusId = 3;
+    public static readonly TimeSpan OnlineCountCacheFor = TimeSpan.FromSeconds(1);
+    public static readonly TimeSpan OnlineCountWaitBudget = TimeSpan.FromMilliseconds(250);
 
     private readonly IObjectStore _store;
     private readonly IGatewayInternalClient _gateway;
@@ -34,6 +41,12 @@ public sealed class LiveObjectWriter
     private volatile bool _pending;
     private volatile string _pendingReason = "";
     private volatile LocationSourceFields? _pendingLocation;
+
+    // The one-second onlineCount cache and its single in-flight read.
+    private readonly object _countLock = new();
+    private int? _cachedCount;
+    private long _cachedCountAtMs = long.MinValue;
+    private Task<int?>? _countRead;
 
     // Set by the writer for its last successful build, so tests can assert the
     // bytes written to the CDN equal the bytes handed to the gateway publish.
@@ -94,7 +107,9 @@ public sealed class LiveObjectWriter
                     await _state.RefreshAsync(currentReason, ct).ConfigureAwait(false);
                 }
 
-                var (obj, bytes) = Build(_state.Current, currentLocation);
+                var current = _state.Current;
+                var onlineCount = await ResolveOnlineCountAsync(current, ct).ConfigureAwait(false);
+                var (obj, bytes) = Build(current, currentLocation, DateTimeOffset.UtcNow, onlineCount);
                 LastWrittenObject = obj;
                 LastWrittenBytes = bytes;
 
@@ -205,7 +220,8 @@ where id = 1;", conn);
         return Build(state, location, publishedAt: now);
     }
 
-    public (LiveObject Object, byte[] Bytes) Build(NodeSnapshot state, LocationSourceFields? location, DateTimeOffset publishedAt)
+    public (LiveObject Object, byte[] Bytes) Build(
+        NodeSnapshot state, LocationSourceFields? location, DateTimeOffset publishedAt, int? onlineCount = null)
     {
         var obj = new LiveObject
         {
@@ -226,6 +242,7 @@ where id = 1;", conn);
             RecordedAt = null,
             ReceivedAt = null,
             PublishedAt = publishedAt,
+            OnlineCount = onlineCount,
         };
 
         // Prefer the transaction-local fields when provided; otherwise the state's
@@ -257,6 +274,63 @@ where id = 1;", conn);
 
         var bytes = CanonicalJson.SerializeToUtf8Bytes(obj);
         return (obj, bytes);
+    }
+
+    // contracts 1.2 and 7.4: null unless the current event is live and the hub
+    // is enabled. A cached answer younger than OnlineCountCacheFor is reused
+    // (a failed read is cached as null too), so the gateway sees at most one
+    // count read per second from this node whatever triggers writes. A read
+    // that outlasts OnlineCountWaitBudget builds this object with null and
+    // still fills the cache for the next write.
+    private async Task<int?> ResolveOnlineCountAsync(NodeSnapshot state, CancellationToken ct)
+    {
+        if (state.CurrentEvent?.StatusId != LiveStatusId || !state.Settings.HubEnabled) return null;
+
+        Task<int?> read;
+        lock (_countLock)
+        {
+            var nowMs = Environment.TickCount64;
+            if (_cachedCountAtMs != long.MinValue
+                && nowMs - _cachedCountAtMs < (long)OnlineCountCacheFor.TotalMilliseconds)
+            {
+                return _cachedCount;
+            }
+            // Task.Run keeps the read off this lock, so its completion always
+            // runs after _countRead is assigned.
+            read = _countRead ??= Task.Run(ReadOnlineCountAsync);
+        }
+
+        try
+        {
+            var finished = await Task.WhenAny(read, Task.Delay(OnlineCountWaitBudget, ct)).ConfigureAwait(false);
+            return finished == read ? await read.ConfigureAwait(false) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<int?> ReadOnlineCountAsync()
+    {
+        int? count;
+        try
+        {
+            count = await _gateway.GetPresenceCountAsync(_options.ServiceName + ":location", CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "gateway presence count read failed");
+            count = null;
+        }
+        lock (_countLock)
+        {
+            _cachedCount = count;
+            _cachedCountAtMs = Environment.TickCount64;
+            _countRead = null;
+        }
+        return count;
     }
 
     private static SortedDictionary<long, int> BuildTally(NodeSnapshot state)

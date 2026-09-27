@@ -25,6 +25,9 @@ public sealed class LiveObject
     [JsonPropertyOrder(14)] public DateTimeOffset? RecordedAt { get; set; }
     [JsonPropertyOrder(15)] public DateTimeOffset? ReceivedAt { get; set; }
     [JsonPropertyOrder(16)] public DateTimeOffset PublishedAt { get; set; }
+    // Sockets on the site's location channel (contracts 1.2); null while the
+    // count is not published (event not live, hub disabled or unreachable).
+    [JsonPropertyOrder(17)] public int? OnlineCount { get; set; }
 }
 
 // Snapshot contracts 1.3. `qrCodes` is a top-level property (contracts 1.3, 4.5a);

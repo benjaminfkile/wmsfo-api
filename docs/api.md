@@ -362,7 +362,7 @@ One `LiveObjectWriter` per node. Single-flight with coalescing: a `SemaphoreSlim
 - `WriteForLocation(LocationTransactionResult r)`: called by the location handler after its response is queued. Builds the object from the fields the transaction read (event status, snapshot URL, the inserted row) plus the tally and settings from memory; one PUT attempt with a 3 s timeout; then publish; sets `WroteForLocationSinceVersionChange = true`.
 - `WriteFromState(reason)`: called after an admin commit, after moderation while live, on the tick rewrite, on republish, and on first boot. Refreshes state first, then builds; up to three PUT attempts one second apart; then publish.
 
-Build: `CdnObjects.LiveObject` in contract key order, `publishedAt = now`, `cookieTally` from memory while the event's status is not 4 and from `event.final_cookie_tally` while it is (keys in ascending numeric order), serialized with `CanonicalJson.Options`. PUT: `Key = "live/location.json"`, `ContentType = "application/json; charset=utf-8"`, `CacheControl = "s-maxage=1, max-age=0"`. Publish: `GatewayInternalClient.PublishAsync("<service>:location", "location", bytes)` always, whether or not the PUT succeeded. Then `update live_state set ...` per contracts 1.8. Failures log at Warning with marker `wmsfo_live_put_failed` or `wmsfo_publish_failed`.
+Build: `CdnObjects.LiveObject` in contract key order, `publishedAt = now`, `onlineCount` per contracts 1.2 and 7.4 (null unless the event's status is 3 and `hub_enabled` is true; otherwise `GatewayInternalClient.GetPresenceCountAsync("<service>:location")` through a one-second per-node cache, awaited for at most 250 ms, null on any failure, never failing the write), `cookieTally` from memory while the event's status is not 4 and from `event.final_cookie_tally` while it is (keys in ascending numeric order), serialized with `CanonicalJson.Options`. PUT: `Key = "live/location.json"`, `ContentType = "application/json; charset=utf-8"`, `CacheControl = "s-maxage=1, max-age=0"`. Publish: `GatewayInternalClient.PublishAsync("<service>:location", "location", bytes)` always, whether or not the PUT succeeded. Then `update live_state set ...` per contracts 1.8. Failures log at Warning with marker `wmsfo_live_put_failed` or `wmsfo_publish_failed`.
 
 ### 10.2 Snapshot builder
 
@@ -484,6 +484,7 @@ One `HttpClient` with base address `WMSFO_GATEWAY_INTERNAL_URL`, header `X-Gatew
 | `POST /internal/publish { channel, event, payload }` | 2 s | logged with the status, never retried, never throws to callers |
 | `GET /internal/leader` | 1 s | any failure is "follower" (section 13) |
 | `GET /internal/presence/<service>:ingest` | 1 s | `hubConnected` on the beacons responses; failure returns `null` |
+| `GET /internal/presence/<service>:location/count` | 1 s | `onlineCount` on the live object (section 10.1); failure, a non-2xx, or no integer `count` returns `null` |
 
 The `payload` for a publish is the exact bytes the writer PUT, passed as raw JSON (`JsonSerializer.SerializeToUtf8Bytes` is not re-run; the body is assembled with the bytes spliced in) so the hub and the CDN carry identical bytes. When `GATEWAY_REALTIME_TOKEN` is absent (local runs) every call is a no-op that logs once at startup.
 

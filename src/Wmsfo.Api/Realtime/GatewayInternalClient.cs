@@ -22,6 +22,11 @@ public interface IGatewayInternalClient
     // GET /internal/presence/<service>:ingest; returned identities set hubConnected.
     Task<IReadOnlyList<string>?> GetPresenceAsync(string channel, CancellationToken ct);
 
+    // GET /internal/presence/<channel>/count; the `count` fills the live object's
+    // onlineCount. Null when the token is absent, the call fails, or the answer
+    // carries no integer count.
+    Task<int?> GetPresenceCountAsync(string channel, CancellationToken ct);
+
     // The last instance id the gateway told us about (returned by /internal/leader).
     // Surfaced by GET /admin/live.node.instance.
     string? LastInstanceId { get; }
@@ -35,6 +40,7 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
     public const string PublishPath = "/internal/publish";
     public const string LeaderPath = "/internal/leader";
     public const string PresencePathPrefix = "/internal/presence/";
+    public const string PresenceCountPathSuffix = "/count";
 
     public static readonly TimeSpan PublishTimeout = TimeSpan.FromSeconds(2);
     public static readonly TimeSpan LeaderTimeout = TimeSpan.FromSeconds(1);
@@ -174,6 +180,35 @@ public sealed class GatewayInternalClient : IGatewayInternalClient, IDisposable
                 }
             }
             return identities;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<int?> GetPresenceCountAsync(string channel, CancellationToken ct)
+    {
+        if (!_enabled) return null;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(PresenceTimeout);
+            using var response = await _http.GetAsync(
+                PresencePathPrefix + Uri.EscapeDataString(channel) + PresenceCountPathSuffix, cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return null;
+            var body = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(body);
+            // The gateway answers { channel, count }.
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("count", out var count)
+                && count.ValueKind == JsonValueKind.Number
+                && count.TryGetInt32(out var value)
+                && value >= 0)
+            {
+                return value;
+            }
+            return null;
         }
         catch
         {
