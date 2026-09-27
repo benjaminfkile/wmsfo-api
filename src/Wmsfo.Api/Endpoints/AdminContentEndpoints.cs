@@ -1613,8 +1613,8 @@ values ($1, $2, $3) returning id;", conn, tx))
             ["align"] = p.Align,
             ["background"] = background,
             ["spacing"] = p.Spacing,
-            ["iconBefore"] = p.IconBefore is null ? null : new JsonObject { ["source"] = p.IconBefore.Source, ["id"] = p.IconBefore.Id },
-            ["iconAfter"] = p.IconAfter is null ? null : new JsonObject { ["source"] = p.IconAfter.Source, ["id"] = p.IconAfter.Id },
+            ["iconBefore"] = IconToNode(p.IconBefore),
+            ["iconAfter"] = IconToNode(p.IconAfter),
             ["anchor"] = p.Anchor,
         };
         // The optional keys are stored only when set.
@@ -1622,6 +1622,10 @@ values ($1, $2, $3) returning id;", conn, tx))
         if (p.IconSize is not null) obj["iconSize"] = p.IconSize;
         return obj;
     }
+
+    // `{ source, id }` plus `display` only when set.
+    private static JsonNode? IconToNode(IconValue? icon) =>
+        icon is null ? null : JsonSerializer.SerializeToNode(icon, CanonicalJson.Options);
 
     private static async Task<List<PageAdminDto>> ReadAllPagesAsync(
         NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)

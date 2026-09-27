@@ -210,7 +210,8 @@
               },
               "id": {
                 "type": "string"
-              }
+              },
+              "display": true
             },
             "additionalProperties": false
           },

@@ -244,13 +244,16 @@ public sealed class DocumentBuilder
         return ids.ToArray();
     }
 
+    private static bool HasTwoKeysAndOptionalDisplay(JsonObject obj) =>
+        obj.Count == 2 || (obj.Count == 3 && obj.ContainsKey("display"));
+
     private static void CollectFromNode(JsonNode node, HashSet<Guid> into)
     {
         switch (node)
         {
             case JsonObject obj:
-                // MediaRef: { mediaId, alt }
-                if (obj.Count == 2 &&
+                // MediaRef: { mediaId, alt, display? }
+                if (HasTwoKeysAndOptionalDisplay(obj) &&
                     obj.TryGetPropertyValue("mediaId", out var mediaIdNode) &&
                     obj.ContainsKey("alt") &&
                     mediaIdNode is JsonValue mv && mv.TryGetValue<string>(out var mediaId) &&
@@ -258,8 +261,8 @@ public sealed class DocumentBuilder
                 {
                     into.Add(mediaGuid);
                 }
-                // Icon: { source: "media", id }
-                if (obj.Count == 2 &&
+                // Icon: { source: "media", id, display? }
+                if (HasTwoKeysAndOptionalDisplay(obj) &&
                     obj.TryGetPropertyValue("source", out var sourceNode) &&
                     obj.TryGetPropertyValue("id", out var idNode) &&
                     sourceNode is JsonValue sv && sv.TryGetValue<string>(out var source) &&

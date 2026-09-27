@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Wmsfo.Api.Objects;
@@ -113,10 +114,80 @@ public sealed class SnapshotCookieType
 }
 
 // Icon primitive (contracts 1.3a). Discriminator by source ("library" | "media").
+// `display` is an optional Display object kept as written; absent when null.
 public sealed class IconValue
 {
     [JsonPropertyOrder(0)] public string Source { get; set; } = "";
     [JsonPropertyOrder(1)] public string Id { get; set; } = "";
+    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonElement? Display { get; set; }
+
+    // Reads a stored icon (`{ source, id, display? }`); null when the value is not an icon.
+    public static IconValue? FromStored(JsonElement el)
+    {
+        if (el.ValueKind != JsonValueKind.Object) return null;
+        var source = el.TryGetProperty("source", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() ?? "" : "";
+        var id = el.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() ?? "" : "";
+        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(id)) return null;
+        var icon = new IconValue { Source = source, Id = id };
+        if (el.TryGetProperty("display", out var d) && d.ValueKind == JsonValueKind.Object)
+            icon.Display = d.Clone();
+        return icon;
+    }
+}
+
+// Display primitive (contracts 1.3a, `$defs/Display` in primitives.schema.json):
+// a bounded display setting on an Icon or a MediaRef. Every key is optional and
+// unknown keys are refused. Content is checked by the schema; this check serves
+// the typed paths that do not run the content schemas.
+public static class DisplayRules
+{
+    private static readonly Dictionary<string, string[]> Enums = new(StringComparer.Ordinal)
+    {
+        ["fit"] = new[] { "contain", "cover" },
+        ["shape"] = new[] { "none", "circle", "rounded", "square" },
+        ["background"] = new[] { "none", "surface", "muted", "accent", "night" },
+        ["align"] = new[] { "start", "center", "end" },
+    };
+
+    private static readonly Dictionary<string, (int Min, int Max)> Integers = new(StringComparer.Ordinal)
+    {
+        ["sizePx"] = (12, 600),
+        ["paddingPx"] = (0, 48),
+    };
+
+    // Field problems as (key, message) pairs; empty when the value is null or a valid Display.
+    public static IEnumerable<(string Key, string Message)> Problems(JsonElement? display)
+    {
+        if (display is not JsonElement el || el.ValueKind == JsonValueKind.Null) yield break;
+        if (el.ValueKind != JsonValueKind.Object)
+        {
+            yield return ("", "must be an object or null");
+            yield break;
+        }
+        foreach (var prop in el.EnumerateObject())
+        {
+            if (Enums.TryGetValue(prop.Name, out var allowed))
+            {
+                if (prop.Value.ValueKind != JsonValueKind.String || Array.IndexOf(allowed, prop.Value.GetString()) < 0)
+                    yield return (prop.Name, "must be one of " + string.Join(", ", allowed));
+            }
+            else if (Integers.TryGetValue(prop.Name, out var range))
+            {
+                if (prop.Value.ValueKind != JsonValueKind.Number || !prop.Value.TryGetInt32(out var n)
+                    || n < range.Min || n > range.Max)
+                    yield return (prop.Name, $"must be an integer from {range.Min} to {range.Max}");
+            }
+            else if (prop.Name == "shadow")
+            {
+                if (prop.Value.ValueKind != JsonValueKind.True && prop.Value.ValueKind != JsonValueKind.False)
+                    yield return (prop.Name, "must be a boolean");
+            }
+            else
+            {
+                yield return (prop.Name, "is not a display setting");
+            }
+        }
+    }
 }
 
 // MediaEntry (contracts 1.3b).

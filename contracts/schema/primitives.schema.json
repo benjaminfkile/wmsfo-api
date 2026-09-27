@@ -39,13 +39,33 @@
       "maxLength": 60,
       "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
     },
+    "Display": {
+      "type": "object",
+      "properties": {
+        "sizePx": { "type": "integer", "exclusiveMinimum": 11, "maximum": 600 },
+        "fit": { "enum": ["contain", "cover"] },
+        "shape": { "enum": ["none", "circle", "rounded", "square"] },
+        "paddingPx": { "type": "integer", "exclusiveMinimum": -1, "maximum": 48 },
+        "background": { "enum": ["none", "surface", "muted", "accent", "night"] },
+        "shadow": { "type": "boolean" },
+        "align": { "enum": ["start", "center", "end"] }
+      },
+      "additionalProperties": false
+    },
+    "DisplayNullable": {
+      "oneOf": [
+        { "$ref": "#/$defs/Display" },
+        { "type": "null" }
+      ]
+    },
     "Icon": {
       "oneOf": [
         {
           "type": "object",
           "properties": {
             "source": { "const": "library" },
-            "id": { "$ref": "#/$defs/LibraryIconId" }
+            "id": { "$ref": "#/$defs/LibraryIconId" },
+            "display": { "$ref": "#/$defs/DisplayNullable" }
           },
           "required": ["source", "id"],
           "additionalProperties": false
@@ -54,7 +74,8 @@
           "type": "object",
           "properties": {
             "source": { "const": "media" },
-            "id": { "$ref": "#/$defs/MediaId" }
+            "id": { "$ref": "#/$defs/MediaId" },
+            "display": { "$ref": "#/$defs/DisplayNullable" }
           },
           "required": ["source", "id"],
           "additionalProperties": false
@@ -71,7 +92,8 @@
       "type": "object",
       "properties": {
         "mediaId": { "$ref": "#/$defs/MediaId" },
-        "alt": { "type": ["string", "null"], "maxLength": 500 }
+        "alt": { "type": ["string", "null"], "maxLength": 500 },
+        "display": { "$ref": "#/$defs/DisplayNullable" }
       },
       "required": ["mediaId", "alt"],
       "additionalProperties": false

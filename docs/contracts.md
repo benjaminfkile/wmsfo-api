@@ -341,9 +341,18 @@ Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` as
 **Shared primitives**, defined once in `contracts/schema/primitives.schema.json` and referenced by every kind:
 
 ```ts
-type Icon = { source: "library"; id: string } | { source: "media"; id: string };
+type Icon = { source: "library"; id: string; display?: Display | null } | { source: "media"; id: string; display?: Display | null };
   // library: an id from the icons map; media: the id of a ready media asset of any kind
-type MediaRef = { mediaId: string; alt: string | null };      // alt null means the asset's own alt
+type MediaRef = { mediaId: string; alt: string | null; display?: Display | null };  // alt null means the asset's own alt
+type Display = {                                               // every key optional; unknown keys are rejected
+  sizePx?: number;                                             // integer, 12 to 600
+  fit?: "contain" | "cover";
+  shape?: "none" | "circle" | "rounded" | "square";
+  paddingPx?: number;                                          // integer, 0 to 48
+  background?: "none" | "surface" | "muted" | "accent" | "night";
+  shadow?: boolean;
+  align?: "start" | "center" | "end";
+};
 type Link = { label: Inline; href: string; icon: Icon | null; newTab: boolean };
   // href: absolute http or https URL, a mailto: address, or a site path starting with "/" (a page slug, optionally "#anchor")
 type Inline = string;                                          // constrained inline markdown, below; 1 to 5000 characters
@@ -370,6 +379,8 @@ type Block =
 ```
 
 `card` and `iconSize` are optional: the API stores and publishes them only when set, and a reader treats an absent or null value as the default. The site never cards the `map` section whatever `card` says. The contract names the sizes; the pixel size of each one is the site's (site.md), not the contract's.
+
+`display` is an optional, bounded display setting on any `Icon` or `MediaRef`; the API stores and publishes it only when set, and validates it on every write (an out-of-range value is `400 validation_failed`). The site applies it where it draws the icon or the image, and `sizePx`, when set, wins over preset sizes such as `iconSize`, a hero's `iconSize`, an `icon` block's `size`, or a `media` block's `size`. A key left out keeps the site's default for that place. The schema writes the lower bounds of `sizePx` and `paddingPx` as `exclusiveMinimum` (11 and -1) so draft validation, which drops `minimum`, still enforces them.
 
 **Inline markdown.** `**bold**`, `*italic*`, `\`code\``, `[label](href)` with the same href rules as `Link`, a line break as a newline character, an icon as `{icon:<library-id>}` or `{icon:media:<mediaId>}`, and the placeholders `{event:name}`, `{event:year}`, `{event:scheduledAt}` (filled from `snapshot.event`; blank when there is no current event; `scheduledAt` formatted by the site in `America/Denver`). Everything else is literal text. No raw HTML is stored or rendered; the site's inline parser produces React elements, never `innerHTML`.
 

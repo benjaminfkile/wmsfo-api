@@ -304,10 +304,10 @@ public sealed class ReferenceChecker
             }
         }
 
-        // MediaRef shape: `{ "mediaId": "<uuid>", "alt": <string|null> }`.
+        // MediaRef shape: `{ "mediaId": "<uuid>", "alt": <string|null>, "display"?: Display|null }`.
         private void TryMediaRef(JsonObject obj)
         {
-            if (obj.Count != 2) return;
+            if (!HasTwoKeysAndOptionalDisplay(obj)) return;
             if (!obj.TryGetPropertyValue("mediaId", out var mediaIdNode)) return;
             if (!obj.TryGetPropertyValue("alt", out _)) return;
             if (mediaIdNode is not JsonValue mv || !mv.TryGetValue<string>(out var mediaId)) return;
@@ -315,16 +315,19 @@ public sealed class ReferenceChecker
             MediaRefs.Add(new MediaAssetRef(mediaId, _basePath + "/mediaId", _pageId, _sectionId, _itemId));
         }
 
-        // Icon shape: `{ "source": "library"|"media", "id": <string> }`.
+        // Icon shape: `{ "source": "library"|"media", "id": <string>, "display"?: Display|null }`.
         private void TryIcon(JsonObject obj)
         {
-            if (obj.Count != 2) return;
+            if (!HasTwoKeysAndOptionalDisplay(obj)) return;
             if (!obj.TryGetPropertyValue("source", out var sourceNode)) return;
             if (!obj.TryGetPropertyValue("id", out var idNode)) return;
             if (sourceNode is not JsonValue sv || !sv.TryGetValue<string>(out var source)) return;
             if (idNode is not JsonValue iv || !iv.TryGetValue<string>(out var id)) return;
             CheckIconRef(_basePath, source, id);
         }
+
+        private static bool HasTwoKeysAndOptionalDisplay(JsonObject obj) =>
+            obj.Count == 2 || (obj.Count == 3 && obj.ContainsKey("display"));
 
         // Link shape: `{ "label": <string>, "href": <string>, "icon": <Icon|null>, "newTab": <bool> }`.
         // The icon is handled by the recursion; here we check the href only.
