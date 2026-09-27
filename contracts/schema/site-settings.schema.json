@@ -45,7 +45,14 @@
         { "type": "null" }
       ]
     },
-    "analyticsEnabled": { "type": "boolean" }
+    "analyticsEnabled": { "type": "boolean" },
+    "logoMedia": {
+      "oneOf": [
+        { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/MediaRef" },
+        { "type": "null" }
+      ]
+    },
+    "headerShowsSiteName": { "type": ["boolean", "null"] }
   },
   "required": [
     "siteName", "tagline", "homeNavLabel", "logo", "favicon", "theme",

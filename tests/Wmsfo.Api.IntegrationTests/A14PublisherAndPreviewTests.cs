@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -504,6 +505,137 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal("xl", data.GetProperty("iconSize").GetString());
     }
 
+    // -------------------- site logo --------------------
+
+    // Site settings with `logoMedia` naming a ready asset and `headerShowsSiteName`
+    // false save and publish; the published settings carry both keys and the
+    // snapshot's media map carries the logo asset.
+    [Fact]
+    public async Task Site_settings_logo_media_and_header_flag_publish_and_snapshot_media_carries_logo()
+    {
+        await BootstrapFirstBootAsync();
+        var logo = await UploadAndConfirmRasterAsync("site-logo.png", 600, 300);
+
+        var put = await PutSiteSettingsAsync(data =>
+        {
+            data["logoMedia"] = new JsonObject { ["mediaId"] = logo, ["alt"] = "Site logo" };
+            data["headerShowsSiteName"] = false;
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        using (var saved = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
+        {
+            var data = saved.RootElement.GetProperty("data");
+            Assert.Equal(logo, data.GetProperty("logoMedia").GetProperty("mediaId").GetString());
+            Assert.False(data.GetProperty("headerShowsSiteName").GetBoolean());
+            Assert.Empty(saved.RootElement.GetProperty("problems").EnumerateArray());
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            var settings = version.RootElement.GetProperty("settings");
+            var logoMedia = settings.GetProperty("logoMedia");
+            Assert.Equal(logo, logoMedia.GetProperty("mediaId").GetString());
+            Assert.Equal("Site logo", logoMedia.GetProperty("alt").GetString());
+            Assert.False(settings.GetProperty("headerShowsSiteName").GetBoolean());
+        }
+        Assert.Contains(logo, await ReadNewestVersionMediaIdsAsync());
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var snapSettings = snap.RootElement.GetProperty("content").GetProperty("settings");
+        Assert.Equal(logo, snapSettings.GetProperty("logoMedia").GetProperty("mediaId").GetString());
+        Assert.False(snapSettings.GetProperty("headerShowsSiteName").GetBoolean());
+        var entry = snap.RootElement.GetProperty("media").GetProperty(logo);
+        Assert.Equal("raster", entry.GetProperty("kind").GetString());
+        Assert.Equal(600, entry.GetProperty("width").GetInt32());
+        Assert.Equal(300, entry.GetProperty("height").GetInt32());
+    }
+
+    // A pending asset as `logoMedia` saves as a draft but is a publish problem
+    // at /settings/logoMedia/mediaId.
+    [Fact]
+    public async Task Site_settings_pending_logo_media_is_a_publish_problem()
+    {
+        await BootstrapFirstBootAsync();
+        var pending = await CreatePendingMediaAsync("pending-logo.png");
+
+        var put = await PutSiteSettingsAsync(data =>
+            data["logoMedia"] = new JsonObject { ["mediaId"] = pending, ["alt"] = null });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(ApiErrorCodes.ContentInvalid, doc.RootElement.GetProperty("code").GetString());
+        var problems = doc.RootElement.GetProperty("details").GetProperty("problems").EnumerateArray().ToArray();
+        Assert.Contains(problems, p =>
+            p.GetProperty("path").GetString() == "/settings/logoMedia/mediaId"
+            && (p.GetProperty("message").GetString() ?? "").Contains("not ready", StringComparison.Ordinal));
+    }
+
+    // Site settings without `logoMedia` and `headerShowsSiteName` publish, and
+    // the published settings leave both keys out.
+    [Fact]
+    public async Task Site_settings_without_logo_media_and_header_flag_publish()
+    {
+        await BootstrapFirstBootAsync();
+
+        var put = await PutSiteSettingsAsync(data =>
+        {
+            data.Remove("logoMedia");
+            data.Remove("headerShowsSiteName");
+            data["siteName"] = "No logo media";
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var settings = version.RootElement.GetProperty("settings");
+        Assert.Equal("No logo media", settings.GetProperty("siteName").GetString());
+        Assert.False(settings.TryGetProperty("logoMedia", out _));
+        Assert.False(settings.TryGetProperty("headerShowsSiteName", out _));
+    }
+
+    [Fact]
+    public async Task Hero_with_show_logo_publishes()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("no-event", "hero");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"data\":{\"title\":\"Hero\",\"tagline\":null,\"icon\":null,"
+            + "\"links\":[],\"height\":\"tall\",\"iconSize\":\"lg\",\"showLogo\":true}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var data = version.RootElement.GetProperty("pages").EnumerateArray()
+            .SelectMany(p => p.GetProperty("sections").EnumerateArray())
+            .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+            .GetProperty("data");
+        Assert.True(data.GetProperty("showLogo").GetBoolean());
+        Assert.Equal("lg", data.GetProperty("iconSize").GetString());
+    }
+
     // -------------------- restore --------------------
 
     [Fact]
@@ -921,6 +1053,34 @@ update site_setting_draft set data = jsonb_set(data, '{siteName}', to_jsonb($1::
         await using var reader = await cmd.ExecuteReaderAsync();
         await reader.ReadAsync();
         return (reader.GetInt64(0), reader.GetString(1));
+    }
+
+    // Reads the site settings draft, applies the change, and PUTs it back.
+    private async Task<HttpResponseMessage> PutSiteSettingsAsync(Action<JsonObject> change)
+    {
+        using var getReq = _host!.EditorRequest(HttpMethod.Get, "/admin/site-settings");
+        var get = await _host.Client.SendAsync(getReq);
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+        var body = JsonNode.Parse(await get.Content.ReadAsStringAsync())!.AsObject();
+        var data = body["data"]!.AsObject();
+        change(data);
+        using var putReq = _host.EditorRequest(HttpMethod.Put, "/admin/site-settings");
+        putReq.Content = new StringContent(
+            new JsonObject { ["data"] = data.DeepClone() }.ToJsonString(), Encoding.UTF8, "application/json");
+        return await _host.Client.SendAsync(putReq);
+    }
+
+    // Requests an upload ticket and stops there, so the asset stays pending.
+    private async Task<string> CreatePendingMediaAsync(string filename)
+    {
+        using var ticketReq = _host!.EditorRequest(HttpMethod.Post, "/admin/media/upload-url");
+        ticketReq.Content = new StringContent(
+            $"{{\"filename\":\"{filename}\",\"contentType\":\"image/png\",\"sizeBytes\":1024,\"alt\":\"\",\"title\":\"\"}}",
+            Encoding.UTF8, "application/json");
+        var ticketResp = await _host.Client.SendAsync(ticketReq);
+        Assert.Equal(HttpStatusCode.Created, ticketResp.StatusCode);
+        using var ticket = JsonDocument.Parse(await ticketResp.Content.ReadAsStringAsync());
+        return ticket.RootElement.GetProperty("media").GetProperty("id").GetString()!;
     }
 
     private async Task<(long PageId, long SectionId)> FindSectionAsync(string slug, string kind)

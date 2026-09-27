@@ -378,7 +378,7 @@ type Block =
 | Kind | Live | `data` | Items | Rule |
 |---|---|---|---|---|
 | `rich_text` | no | `{ blocks: Block[] }` (1 to 200) | none | |
-| `hero` | no | `{ title: Inline; tagline: Inline \| null; icon: Icon \| null; links: Link[]; height: "short" \| "tall"; iconSize?: "sm" \| "md" \| "lg" \| "xl" \| null }` (`links` 0 to 2; `iconSize` sizes `icon`, absent or null means `"sm"`) | none | the background image is `presentation.background` with `kind: "media"`, like any section |
+| `hero` | no | `{ title: Inline; tagline: Inline \| null; icon: Icon \| null; links: Link[]; height: "short" \| "tall"; iconSize?: "sm" \| "md" \| "lg" \| "xl" \| null; showLogo?: boolean \| null }` (`links` 0 to 2; `iconSize` sizes `icon`, absent or null means `"sm"`; `showLogo` true draws the site settings `logoMedia` in place of `icon` at `iconSize`, absent or null means false) | none | the background image is `presentation.background` with `kind: "media"`, like any section |
 | `media` | no | `{ layout: "single" \| "grid" \| "carousel"; columns: 2 \| 3 \| 4 }` | `{ media: MediaRef; caption: Inline \| null; link: Link \| null }` (1 to 50) | |
 | `links` | no | `{ heading: Inline \| null; style: "buttons" \| "cards" \| "list" }` | `{ link: Link; description: Inline \| null }` (1 to 50) | |
 | `icon_row` | no | `{ size: "sm" \| "md" \| "lg"; spacing: "tight" \| "normal" \| "loose" }` | `{ icon: Icon; label: Inline \| null }` (1 to 30) | |
@@ -412,8 +412,12 @@ type SiteSettings = {
   contactEmail: string | null;               // shown on the site; the API's notification inbox is configuration
   donateUrl: string | null;                  // absolute https URL
   analyticsEnabled: boolean;
+  logoMedia?: MediaRef | null;               // the site logo image; absent or null means the site keeps its built-in mark
+  headerShowsSiteName?: boolean | null;      // absent or null means true: the header shows siteName next to the logo
 };
 ```
+
+`logoMedia` and `headerShowsSiteName` are optional: the published document carries them only when they are not null, and a reader treats an absent or null value as the default. `logoMedia` is a `MediaRef` like any other: publish requires a ready asset, and the snapshot's `media` map carries it. `logo` stays as it is. The hero's `showLogo: true` draws the `logoMedia` image in place of the hero `icon`, sized by the hero's `iconSize`; the pixel size of each size name is the site's (site.md), not the contract's.
 
 **Validation, two levels.** The panel and the API run the same schemas. *Draft* validation, applied to every working-set write, is the kind's schema with `required`, `minLength`, `minItems`, and `minimum` removed at every level: types, enums, and unknown properties are enforced, incompleteness is not, and references are not checked. *Publish* validation, applied by `POST /admin/content/publish` and reported by `GET /admin/content/status`, is the full schema plus: every `MediaRef` and media-sourced `Icon` names a media asset with `state = ready`; every library icon id exists; every `Link.href` and inline link matches the href rule; a site path href names an existing, non-hidden page slug; `anchor` values are unique within a page; `map` sections sit only on the `live` page; `settings` satisfies its schema. Problems are reported as `{ path, message }` with `path` a JSON pointer inside the section's `data` or `presentation`, the item's `data`, or the settings.
 
