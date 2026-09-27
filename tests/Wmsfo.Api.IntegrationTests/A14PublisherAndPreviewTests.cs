@@ -1001,6 +1001,138 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
     }
 
     [Fact]
+    public async Task Preview_token_ttl_defaults_to_15_minutes_and_follows_ttl_minutes()
+    {
+        var noBody = await MintPreviewTokenAsync(null);
+        Assert.Equal(HttpStatusCode.Created, noBody.StatusCode);
+        AssertExpiresInAbout(await noBody.Content.ReadAsStringAsync(), TimeSpan.FromMinutes(15));
+
+        var emptyObject = await MintPreviewTokenAsync("{}");
+        Assert.Equal(HttpStatusCode.Created, emptyObject.StatusCode);
+        AssertExpiresInAbout(await emptyObject.Content.ReadAsStringAsync(), TimeSpan.FromMinutes(15));
+
+        var eightHours = await MintPreviewTokenAsync("{\"ttlMinutes\":480}");
+        Assert.Equal(HttpStatusCode.Created, eightHours.StatusCode);
+        var text = await eightHours.Content.ReadAsStringAsync();
+        AssertExpiresInAbout(text, TimeSpan.FromHours(8));
+
+        // The stored expiry follows the requested ttl.
+        using var minted = JsonDocument.Parse(text);
+        var hash = Wmsfo.Api.Security.Keys.Hash(minted.RootElement.GetProperty("token").GetString()!);
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select expires_at from preview_token where token_hash = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = hash });
+        var stored = (DateTime)(await cmd.ExecuteScalarAsync())!;
+        var storedLeft = new DateTimeOffset(DateTime.SpecifyKind(stored, DateTimeKind.Utc)) - DateTimeOffset.UtcNow;
+        Assert.InRange(storedLeft, TimeSpan.FromHours(8) - TimeSpan.FromMinutes(1), TimeSpan.FromHours(8) + TimeSpan.FromMinutes(1));
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(14)]
+    [InlineData(1441)]
+    [InlineData(2000)]
+    public async Task Preview_token_ttl_out_of_range_is_validation_failed(int ttl)
+    {
+        var response = await MintPreviewTokenAsync($"{{\"ttlMinutes\":{ttl}}}");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+        Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty("ttlMinutes", out _));
+    }
+
+    [Fact]
+    public async Task Preview_document_answers_304_to_a_matching_etag_until_the_draft_changes()
+    {
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+        var mint = await MintPreviewTokenAsync(null);
+        using var minted = JsonDocument.Parse(await mint.Content.ReadAsStringAsync());
+        var token = minted.RootElement.GetProperty("token").GetString()!;
+
+        var first = await _host!.Client.GetAsync($"/preview/document?token={token}");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var etag = first.Headers.ETag;
+        Assert.NotNull(etag);
+        Assert.False(etag!.IsWeak);
+        var body = await first.Content.ReadAsByteArrayAsync();
+        Assert.Equal("\"" + CanonicalJson.Sha256Hex(body) + "\"", etag.Tag);
+        Assert.Equal("no-store", first.Headers.CacheControl?.ToString());
+
+        using (var again = new HttpRequestMessage(HttpMethod.Get, $"/preview/document?token={token}"))
+        {
+            again.Headers.TryAddWithoutValidation("If-None-Match", etag.Tag);
+            var notModified = await _host.Client.SendAsync(again);
+            Assert.Equal(HttpStatusCode.NotModified, notModified.StatusCode);
+            Assert.Empty(await notModified.Content.ReadAsByteArrayAsync());
+            Assert.Equal(etag.Tag, notModified.Headers.ETag?.Tag);
+        }
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"narrow\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null,"
+            + "\"card\":true,\"iconSize\":\"lg\"}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        using (var changed = new HttpRequestMessage(HttpMethod.Get, $"/preview/document?token={token}"))
+        {
+            changed.Headers.TryAddWithoutValidation("If-None-Match", etag.Tag);
+            var fresh = await _host.Client.SendAsync(changed);
+            Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+            Assert.NotNull(fresh.Headers.ETag);
+            Assert.NotEqual(etag.Tag, fresh.Headers.ETag!.Tag);
+            Assert.NotEmpty(await fresh.Content.ReadAsByteArrayAsync());
+        }
+    }
+
+    [Fact]
+    public async Task Preview_document_cors_allows_if_none_match_and_exposes_etag()
+    {
+        const string origin = "https://site.example.com";
+        using (var preflight = new HttpRequestMessage(HttpMethod.Options, "/preview/document?token=x"))
+        {
+            preflight.Headers.TryAddWithoutValidation("Origin", origin);
+            preflight.Headers.TryAddWithoutValidation("Access-Control-Request-Method", "GET");
+            preflight.Headers.TryAddWithoutValidation("Access-Control-Request-Headers", "if-none-match");
+            var response = await _host!.Client.SendAsync(preflight);
+            Assert.True(response.IsSuccessStatusCode, $"preflight answered {(int)response.StatusCode}");
+            Assert.True(response.Headers.TryGetValues("Access-Control-Allow-Origin", out var allowOrigin));
+            Assert.Equal(origin, allowOrigin!.Single());
+            Assert.True(response.Headers.TryGetValues("Access-Control-Allow-Headers", out var allowHeaders));
+            Assert.Contains("if-none-match", string.Join(",", allowHeaders!), StringComparison.OrdinalIgnoreCase);
+        }
+
+        var mint = await MintPreviewTokenAsync(null);
+        using var minted = JsonDocument.Parse(await mint.Content.ReadAsStringAsync());
+        var token = minted.RootElement.GetProperty("token").GetString()!;
+        using var get = new HttpRequestMessage(HttpMethod.Get, $"/preview/document?token={token}");
+        get.Headers.TryAddWithoutValidation("Origin", origin);
+        var ok = await _host.Client.SendAsync(get);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.True(ok.Headers.TryGetValues("Access-Control-Expose-Headers", out var exposed));
+        Assert.Contains("ETag", string.Join(",", exposed!), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<HttpResponseMessage> MintPreviewTokenAsync(string? json)
+    {
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/preview-token");
+        if (json is not null)
+        {
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        }
+        return await _host.Client.SendAsync(req);
+    }
+
+    private static void AssertExpiresInAbout(string mintJson, TimeSpan expected)
+    {
+        using var doc = JsonDocument.Parse(mintJson);
+        var expiresAt = doc.RootElement.GetProperty("expiresAt").GetDateTimeOffset();
+        var left = expiresAt - DateTimeOffset.UtcNow;
+        Assert.InRange(left, expected - TimeSpan.FromMinutes(1), expected + TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
     public async Task Preview_document_rejects_unknown_token()
     {
         var response = await _host!.Client.GetAsync("/preview/document?token=wpv_not_a_real_token");

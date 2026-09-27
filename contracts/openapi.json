@@ -254,6 +254,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "description": "Not Modified"
           }
         }
       }
@@ -1978,6 +1981,15 @@
         "tags": [
           "AdminContent"
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewTokenRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Created",
@@ -7372,6 +7384,20 @@
                 "$ref": "#/components/schemas/AuditStampDto"
               }
             ]
+          }
+        }
+      },
+      "PreviewTokenRequest": {
+        "type": "object",
+        "properties": {
+          "ttlMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

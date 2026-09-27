@@ -22,7 +22,7 @@ public static class RateLimitPolicies
     public const string EnrollPerIp = "wmsfo:beacon-enroll";                     // 10/min burst 10 per client IP
     public const string ContactPerIp = "wmsfo:contact";                          // 5/hour burst 5 per client IP
     public const string SubscriptionsPerIp = "wmsfo:subscriptions";              // 30/min burst 30 per client IP
-    public const string PreviewPerIp = "wmsfo:preview";                          // 60/min burst 60 per client IP
+    public const string PreviewPerIp = "wmsfo:preview";                          // 240/min burst 60 per client IP
     public const string CookiesPerPerson = "wmsfo:cookies";                      // 1/s burst 3 per person id
     public const string MeSubscribePerPerson = "wmsfo:me-subscribe";             // 5/hour burst 5 per person id
     public const string MediaUploadUrlPerPerson = "wmsfo:media-upload-url";      // 30/min burst 30 per person id
@@ -50,7 +50,7 @@ public static class RateLimitPipeline
             AddIpTokenBucket(options, RateLimitPolicies.EnrollPerIp, tokensPerPeriod: 10, period: TimeSpan.FromMinutes(1), burst: 10);
             AddIpTokenBucket(options, RateLimitPolicies.ContactPerIp, tokensPerPeriod: 5, period: TimeSpan.FromHours(1), burst: 5);
             AddIpTokenBucket(options, RateLimitPolicies.SubscriptionsPerIp, tokensPerPeriod: 30, period: TimeSpan.FromMinutes(1), burst: 30);
-            AddIpTokenBucket(options, RateLimitPolicies.PreviewPerIp, tokensPerPeriod: 60, period: TimeSpan.FromMinutes(1), burst: 60);
+            AddIpTokenBucket(options, RateLimitPolicies.PreviewPerIp, tokensPerPeriod: 240, period: TimeSpan.FromMinutes(1), burst: 60);
 
             AddPersonTokenBucket(options, RateLimitPolicies.CookiesPerPerson, tokensPerPeriod: 1, period: TimeSpan.FromSeconds(1), burst: 3);
             AddPersonTokenBucket(options, RateLimitPolicies.MeSubscribePerPerson, tokensPerPeriod: 5, period: TimeSpan.FromHours(1), burst: 5);

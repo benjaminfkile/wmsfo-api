@@ -189,7 +189,7 @@ Middleware order in `Program.cs`, outermost first:
 3. **Request id and logging scope**: `Activity.Current?.Id ?? HttpContext.TraceIdentifier` becomes `requestId`; every log line in the request carries it.
 4. **Exception handler**: maps `ApiException` to its status and code, `BadHttpRequestException` (body too large, malformed JSON) to `413 payload_too_large` or `400 validation_failed`, `OperationCanceledException` on a client abort to nothing, everything else to `500 internal_error` with the stack logged at Error and never returned.
 5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 32 KB heartbeats. Media bytes never arrive here.
-6. **CORS**: one policy with the exact origins from `WMSFO_CORS_ORIGINS`, methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version`, `SetPreflightMaxAge(600)`, credentials off. Applied to every route except the two callbacks and `/api/health`.
+6. **CORS**: one policy with the exact origins from `WMSFO_CORS_ORIGINS`, methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version, If-None-Match`, exposed header `ETag`, `SetPreflightMaxAge(600)`, credentials off. Applied to every route except the two callbacks and `/api/health`.
 7. **Authentication**: two schemes registered; each endpoint names the one it requires through `RequireAuthorization(policy)`. A request carrying both `Authorization` and `X-Beacon-Key` is `400 validation_failed` before any scheme runs.
 8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0, partitioned by beacon id, person id, or client IP as the table says; over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
 9. **Endpoints**.
@@ -297,7 +297,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `POST /admin/content/publish` | Editor | section 11a.4 | sql.md 8.19; [snapshot] |
 | `GET /admin/content/versions*`, `POST .../restore` | Editor | list, get, restore (11a.5) | sql.md 8.20 |
 | `POST /admin/content/preview-token` | Editor | mint `wpv_`, insert the hash, answer the site URL | sql.md 8.23 |
-| `GET /preview/document` | none (IP-limited) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
+| `GET /preview/document` | none (240/min burst 60 per client IP) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
 | `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (alt and title, [snapshot]), delete with every reference cleared | section 11.2 to 11.5 |
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
@@ -441,7 +441,7 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 
 ### 11a.6 Preview
 
-`POST /admin/content/preview-token` mints `wpv_` + 43 base64url characters, inserts `sha256(token)` with a 15-minute expiry, and answers `{ token, url: WMSFO_SITE_BASE_URL + "/preview?token=" + token, expiresAt }`. `GET /preview/document?token=` (public, IP-limited, no `serverTime`) looks the hash up, then answers `ContentBundle`: the draft document (11a.3, no validation), the media map for every referenced asset whatever its state (a pending reference is a missing image in the preview, which is the point), and the icon map. `Cache-Control: no-store`. The site's `/preview` route is the only consumer.
+`POST /admin/content/preview-token` mints `wpv_` + 43 base64url characters, inserts `sha256(token)` with an expiry of the optional body's `ttlMinutes` (15 to 1440, default 15, out of range `400 validation_failed` on `ttlMinutes`), and answers `{ token, url: WMSFO_SITE_BASE_URL + "/preview?token=" + token, expiresAt }`. `GET /preview/document?token=` (public, IP-limited, no `serverTime`) looks the hash up, then answers `ContentBundle`: the draft document (11a.3, no validation), the media map for every referenced asset whatever its state (a pending reference is a missing image in the preview, which is the point), and the icon map. `Cache-Control: no-store`; `ETag` is the quoted sha256 hex of the body bytes, and a matching `If-None-Match` answers `304` with no body. The site's `/preview` route is the only consumer.
 
 ### 11a.7 Icon library
 

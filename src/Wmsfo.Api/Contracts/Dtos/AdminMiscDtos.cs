@@ -97,6 +97,13 @@ public sealed class PublishContentRequest
     public string? Label { get; set; }
 }
 
+// Optional body of the preview token mint: minutes until expiry, 15 to 1440,
+// 15 when absent.
+public sealed class PreviewTokenRequest
+{
+    public int? TtlMinutes { get; set; }
+}
+
 public sealed class MediaUploadUrlRequest
 {
     public string Filename { get; set; } = "";
