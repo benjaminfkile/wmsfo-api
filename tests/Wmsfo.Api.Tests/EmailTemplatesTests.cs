@@ -171,7 +171,7 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir);
         Assert.Throws<InvalidOperationException>(() =>
             templates.Render(EmailTemplates.SubscriptionVerify,
-                new Dictionary<string, string> { ["verifyUrl"] = "u" }));
+                new Dictionary<string, string> { ["siteUrl"] = "s" }));
     }
 
     [Fact]
@@ -272,8 +272,8 @@ public sealed class EmailTemplatesTests
         Assert.Contains(spec.FooterReason, rendered.Text);
         Assert.Contains(SiteBase, rendered.Text);
         Assert.DoesNotContain("{{", rendered.Text);
-        foreach (var value in values.Values)
-            Assert.Contains(value, rendered.Text);
+        foreach (var (token, value) in values)
+            Assert.Contains(value, spec.SubjectTokens.Contains(token) ? rendered.Subject : rendered.Text);
     }
 
     [Fact]

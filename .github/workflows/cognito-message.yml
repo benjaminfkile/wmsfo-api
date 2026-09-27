@@ -1,0 +1,51 @@
+# docs/platform.md section 9.1a: the Cognito Custom Message Lambda.
+name: cognito-message
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["lambdas/**", "templates/email/**"]
+  pull_request:
+    paths: ["lambdas/**", "templates/email/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
+      - run: node --test lambdas/cognito-message
+
+  deploy:
+    needs: test
+    # Pushes to dev update the dev function; main does not deploy.
+    if: github.event_name == 'push' && github.ref_name == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Package the handler with templates/email/
+        run: |
+          mkdir -p build/templates
+          cp lambdas/cognito-message/index.mjs lambdas/cognito-message/render.mjs lambdas/cognito-message/package.json build/
+          cp -R templates/email build/templates/email
+          rm -rf build/templates/email/_golden
+          (cd build && zip -qr ../cognito-message.zip .)
+      - name: Update the function code
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ secrets.COGNITO_MESSAGE_FUNCTION }}" \
+            --zip-file fileb://cognito-message.zip > /dev/null
+          aws lambda wait function-updated --function-name "${{ secrets.COGNITO_MESSAGE_FUNCTION }}"

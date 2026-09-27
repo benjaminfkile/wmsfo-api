@@ -451,6 +451,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | Sign-in | Email as username (`UsernameAttributes = email`), case-insensitive usernames |
 | Self sign-up | People pools: on, the hosted UI offers sign-up and the site's sign-in link leads there. Admin pools: off (`AllowAdminCreateUserOnly`), every account is created by an operator and invited by email; the admin panel's sign-in page never offers sign-up |
 | Verification | Email, code, sent by Cognito's default sender (no SES integration for pool mail in v1) |
+| Custom message trigger | Every pool: the Lambda `wmsfo-cognito-message-<env>` (section 9.1a) as the Custom Message trigger. It renders the account emails (sign-up and resend code, password reset code, email change and verify code, admin invite) in the layout of the API's emails, `templates/email/_layout.html`, and returns the event unchanged on any failure so Cognito sends its default message |
 | Required attributes | `email` |
 | Password policy | 12 characters minimum, no composition rules, temporary passwords valid 7 days |
 | MFA | Optional, TOTP only, SMS off. Members of `admin` and `editor` enrol TOTP; the API refuses panel requests from users without TOTP (`403 mfa_required`, api.md 6.3) |
@@ -495,6 +496,17 @@ Removing or changing a role: edit the groups; the API sees the change on the nex
 | Quota | The sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000 (one alert to about 20,000 recipients, three times per December). The account's rate is 14 per second and its daily quota 50,000, so a quota increase is an operator to-do (section 18); check both in the console the week before the event |
 | Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set; a notify on dev emails every verified dev subscriber |
 
+Cognito pool mail (section 4.1) is not SES mail: Cognito's default sender delivers it, and the Custom Message Lambda only supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
+
+| Trigger source | Template | Subject |
+|---|---|---|
+| `CustomMessage_SignUp`, `CustomMessage_ResendCode` | `account_signup_code` | Your Santa Tracker code |
+| `CustomMessage_ForgotPassword` | `account_reset_code` | Reset your Santa Tracker password |
+| `CustomMessage_UpdateUserAttribute`, `CustomMessage_VerifyUserAttribute` | `account_email_code` | Confirm your email address |
+| `CustomMessage_AdminCreateUser` | `account_admin_invite` | Your Santa Tracker admin account |
+
+Any other trigger source is returned untouched.
+
 The instance role's SES permission is section 6.
 
 ---
@@ -525,6 +537,10 @@ The second statement is required and lists the admin pool ARN of each environmen
 ### 6.2 CI role
 
 One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository `wmsfo-api`, branches `dev` and `main`, with `ecr:GetAuthorizationToken` on `*` and push permissions (`ecr:BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`, `BatchGetImage`) on the `wmsfo-api` repository. The two beacon repositories (`simulator-beacon`, `legacy-beacon`) use the same role: its trust policy also names their `dev` and `main` refs and their `dev` and `prod` environments, and its ECR grant also covers their repositories. No access keys in GitHub.
+
+### 6.2a Custom Message Lambda
+
+The function `wmsfo-cognito-message-<env>` (Node.js 22, handler `index.handler`, 128 MB, 5 s timeout) runs as its own execution role with only the `AWSLambdaBasicExecutionRole` managed policy (its log group). It calls no AWS API. Each pool invokes it through a resource-based permission for `cognito-idp.amazonaws.com` scoped to that pool's ARN. The CI role (6.2) additionally holds `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on the dev function's ARN, `arn:aws:lambda:<region>:<account-id>:function:<cognito-message-function>`.
 
 ### 6.3 Operators
 
@@ -576,6 +592,10 @@ Settings on every project: framework preset Vite, output `dist`, SPA rewrite (`/
 `wmsfo-api/.github/workflows/deploy.yml`, per api.md 19: test, contract check, OIDC assume role, multi-arch build and push `wmsfo-api:<sha>-<env>`, deploy call, wait for `done`. The deploy job runs for `dev` only until the prod manifest entry and the prod environment secrets exist (section 13); the beacon workflows (9.2a) carry the same condition. Environment secrets (contracts 8.2): `AWS_ROLE_ARN`, `ECR_REPOSITORY`, `GATEWAY_BASE_URL`, `GATEWAY_TOKEN_URL`, `GATEWAY_CLIENT_ID`, `GATEWAY_CLIENT_SECRET`, `GATEWAY_SERVICE_NAME`. The image installs the RDS certificate bundle (api.md 18) so `Trust Server Certificate=false` validates.
 
 The deploy client credential is the existing CI app client on the ops pool with scope `mgmt/deploy`; it cannot upsert the manifest, which is the intended limit.
+
+### 9.1a Cognito Custom Message Lambda
+
+`wmsfo-api/.github/workflows/cognito-message.yml` runs on pull requests and on pushes to `dev` and `main` that touch `lambdas/**` or `templates/email/**`: `node scripts/check-no-infra.mjs` and `node --test lambdas/cognito-message`. On a push to `dev` it zips `lambdas/cognito-message/` with `templates/email/` (without `_golden/`) and runs `aws lambda update-function-code` through the OIDC role of 6.2, the account id masked, with the function name from the `dev` environment secret `COGNITO_MESSAGE_FUNCTION`. `main` does not deploy. The function's environment variables: `CDN_BASE_URL` (the logo URL's base, as `WMSFO_CDN_BASE_URL`), `SITE_BASE_URL` (the layout's site link), and `PANEL_BASE_URL` (the invite's Sign in button). The handler writes one JSON log line per call with the trigger source and the template, never the address or the code.
 
 ### 9.2 Site and admin panel
 
@@ -781,7 +801,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Cognito groups `admin`, `editor`, and `canvasser`; the API decides what each may do.
 - The migration tool imports legacy logos as media assets rather than keeping legacy keys; the legacy bucket is retired.
 - Price class North America and Europe.
-- Cognito pool mail through Cognito's default sender; SES is used only by the API.
+- Cognito pool mail through Cognito's default sender; SES is used only by the API. A Custom Message Lambda gives the account emails the layout of the API's emails; a failure there falls back to Cognito's default message rather than blocking sign-up or sign-in (2026-09-27).
 - One inline IAM policy `wmsfo-api` on the instance role for SES and `AdminGetUser`; the existing broad S3 grant is left as is.
 - CI pushes through an OIDC role; no access keys in GitHub.
 - A second Vercel project per frontend with `dev` as its production branch, rather than relying on pull request previews (which are refused by every allow list).
@@ -802,3 +822,4 @@ Nothing at the moment. Add here as it comes up.
 - **SES daily quota.** Raise the account's daily sending quota above 100,000 before the event (section 5); it is 50,000.
 - **Prod metric filters, dashboard, and alarms.** Dev has the twelve metric filters of 10.2 on the API's log group (namespace `WMSFO/dev`) and the `wmsfo-dev` dashboard of 10.4. Prod needs the same filters in `WMSFO/prod`, the `wmsfo-prod` dashboard, and the alarms of 10.3 at cut-over.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
+- **Cognito Custom Message Lambda.** Create `wmsfo-cognito-message-dev` (Node.js 22, handler `index.handler`) with its execution role (6.2a) and environment variables `CDN_BASE_URL`, `SITE_BASE_URL`, and `PANEL_BASE_URL` (9.1a); grant `cognito-idp.amazonaws.com` invoke permission for the dev people and admin pools and set it as their Custom Message trigger; add `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on it to the CI role; set the `dev` environment secret `COGNITO_MESSAGE_FUNCTION` to its name. Prod gets its own function at cut-over, deployed by hand until the workflow deploys `main`.
