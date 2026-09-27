@@ -110,6 +110,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("The event the public site shows. Set only by POST /admin/events/{id}/current. At most one true (event_one_current).");
             e.Property(x => x.ScheduledAt).HasColumnType("timestamptz")
                 .HasComment("Admin-entered. Required while status_id = 2.");
+            e.Property(x => x.ScheduleTimeZone).HasColumnType("text")
+                .HasComment("IANA zone id the scheduled time was entered in; alert emails render scheduled_at in it (America/Denver when null).");
             e.Property(x => x.WentLiveAt).HasColumnType("timestamptz")
                 .HasComment("Stamped now() on every entry into status 3; admin-patchable.");
             e.Property(x => x.EndedAt).HasColumnType("timestamptz")

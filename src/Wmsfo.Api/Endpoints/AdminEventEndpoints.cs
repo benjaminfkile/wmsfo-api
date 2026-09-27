@@ -78,6 +78,8 @@ public static class AdminEventEndpoints
                 if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 200) v.Field("name", "must be 1 to 200 characters");
                 if (body.FundsPercent < 0 || body.FundsPercent > 100) v.Field("fundsPercent", "must be between 0 and 100");
                 if (body.InheritRoute && body.RouteId is not null) v.Field("routeId", "must be null when inheritRoute is true");
+                if (body.ScheduleTimeZone is not null && !IsKnownTimeZone(body.ScheduleTimeZone))
+                    v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
                 v.ThrowIfInvalid();
 
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -103,8 +105,8 @@ select route_id from event where route_id is not null order by year desc limit 1
 
                     long newId;
                     await using (var insert = new NpgsqlCommand(@"
-insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by, updated_at)
-values ($1, $2, 1, $3, $4, $5, $6, now())
+insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by, schedule_time_zone, updated_at)
+values ($1, $2, 1, $3, $4, $5, $6, $7, now())
 returning id;", conn, tx))
                     {
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
@@ -113,6 +115,7 @@ returning id;", conn, tx))
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.FundsPercent });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)routeId ?? DBNull.Value });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.ScheduleTimeZone ?? DBNull.Value });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
                     }
                     var e = await ReadEventByIdAsync(conn, tx, newId, options, token);
@@ -154,7 +157,8 @@ returning id;", conn, tx))
     }
 
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
-    // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId.
+    // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId,
+    // scheduleTimeZone (an IANA id sets it, null clears it).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
     // routeImageMediaId "" clears the link; a uuid must name a ready raster asset
     // (404 media, 409 media_not_ready, 400 validation_failed for svg or gif).
@@ -187,6 +191,24 @@ returning id;", conn, tx))
                     {
                         v.Field("routeImageMediaId", "must be a uuid, empty string, or null");
                     }
+                }
+                string? scheduleTimeZone = null;
+                bool setScheduleTimeZone = false;
+                var tz = body.ScheduleTimeZone;
+                switch (tz.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Null:
+                        setScheduleTimeZone = true;
+                        break;
+                    case JsonValueKind.String when IsKnownTimeZone(tz.GetString()!):
+                        scheduleTimeZone = tz.GetString();
+                        setScheduleTimeZone = true;
+                        break;
+                    default:
+                        v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
+                        break;
                 }
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
@@ -271,6 +293,10 @@ returning id;", conn, tx))
                     else if (clearRouteImage)
                     {
                         sets.Add("route_image_media_id = null");
+                    }
+                    if (setScheduleTimeZone)
+                    {
+                        Set($"schedule_time_zone = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)scheduleTimeZone ?? DBNull.Value });
                     }
 
                     sets.Add("updated_at = now()");
@@ -1426,7 +1452,7 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
        m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
-       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark
+       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id
@@ -1435,6 +1461,12 @@ left join lateral (
   where entity = 'event' and entity_id = e.id::text
   order by id desc limit 1
 ) a on true";
+
+    // A scheduleTimeZone value: a zone id the runtime resolves, such as
+    // America/Denver.
+    private static bool IsKnownTimeZone(string id) =>
+        !string.IsNullOrWhiteSpace(id) && id.Length <= 64
+        && TimeZoneInfo.TryFindSystemTimeZoneById(id, out _);
 
     private static async Task<EventDto?> ReadEventByIdAsync(
         NpgsqlConnection conn, NpgsqlTransaction? tx, long id, WmsfoOptions options, CancellationToken ct)
@@ -1466,6 +1498,7 @@ left join lateral (
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(13),
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
+            ScheduleTimeZone = reader.IsDBNull(39) ? null : reader.GetString(39),
         };
         if (!reader.IsDBNull(34))
         {

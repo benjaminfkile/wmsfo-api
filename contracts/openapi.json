@@ -4361,6 +4361,12 @@
           },
           "inheritRoute": {
             "type": "boolean"
+          },
+          "scheduleTimeZone": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4745,6 +4751,12 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "scheduleTimeZone": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "wentLiveAt": {
             "type": [
@@ -6690,6 +6702,9 @@
               "null",
               "string"
             ]
+          },
+          "scheduleTimeZone": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },

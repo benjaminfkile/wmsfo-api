@@ -15,6 +15,8 @@ public sealed class EventDto
     public int StatusId { get; set; }
     public bool IsCurrent { get; set; }
     public DateTimeOffset? ScheduledAt { get; set; }
+    // IANA zone id the scheduled time was entered in; null when unset.
+    public string? ScheduleTimeZone { get; set; }
     public DateTimeOffset? WentLiveAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public DateTimeOffset? StatusNotifiedAt { get; set; }
