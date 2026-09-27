@@ -1086,6 +1086,63 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
         }
     }
 
+    // The preview document and the draft response carry the snapshot-level
+    // media (a sponsor logo, a cookie type media icon, the current event's
+    // route poster) next to the document's referenced media, with URLs; an
+    // asset referenced by neither stays absent.
+    [Fact]
+    public async Task Preview_and_draft_media_maps_carry_sponsor_logo_cookie_icon_and_route_poster()
+    {
+        var logo = await UploadAndConfirmRasterAsync("sponsor-logo.png", 400, 200);
+        var cookieIcon = await UploadAndConfirmSvgAsync("cookie-icon.svg");
+        var poster = await UploadAndConfirmRasterAsync("route-poster.png", 800, 600);
+        var unreferenced = await UploadAndConfirmRasterAsync("orphan.png", 300, 300);
+
+        await SeedCurrentEventAsync(2028);
+        await SeedSponsorWithLogoAsync("Logo Co", logo, 2028);
+        await SeedCookieTypeWithMediaIconAsync("Gingerbread", cookieIcon);
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update event set route_image_media_id = $1 where is_current;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(poster) });
+            Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+        }
+
+        var mint = await MintPreviewTokenAsync(null);
+        using var minted = JsonDocument.Parse(await mint.Content.ReadAsStringAsync());
+        var token = minted.RootElement.GetProperty("token").GetString()!;
+        var preview = await _host!.Client.GetAsync($"/preview/document?token={token}");
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        using (var doc = JsonDocument.Parse(await preview.Content.ReadAsStringAsync()))
+        {
+            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, poster, unreferenced);
+        }
+
+        using var draftReq = _host.EditorRequest(HttpMethod.Get, "/admin/content/draft");
+        var draft = await _host.Client.SendAsync(draftReq);
+        Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+        using (var doc = JsonDocument.Parse(await draft.Content.ReadAsStringAsync()))
+        {
+            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, poster, unreferenced);
+        }
+    }
+
+    private void AssertSnapshotLevelMedia(
+        JsonElement media, string logo, string cookieIcon, string poster, string unreferenced)
+    {
+        var cdn = _host!.Options.CdnBaseUrl.TrimEnd('/');
+        Assert.Equal(cdn + "/media/" + logo + "/sponsor-logo.png",
+            media.GetProperty(logo).GetProperty("url").GetString());
+        Assert.Equal(cdn + "/media/" + poster + "/route-poster.png",
+            media.GetProperty(poster).GetProperty("url").GetString());
+        var iconEntry = media.GetProperty(cookieIcon);
+        Assert.Equal("svg", iconEntry.GetProperty("kind").GetString());
+        Assert.StartsWith(cdn + "/media/" + cookieIcon + "/", iconEntry.GetProperty("url").GetString());
+        Assert.False(media.TryGetProperty(unreferenced, out _));
+    }
+
     [Fact]
     public async Task Preview_document_cors_allows_if_none_match_and_exposes_etag()
     {
