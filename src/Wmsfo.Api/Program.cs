@@ -139,7 +139,7 @@ builder.Services.AddHostedService<LeaderMonitor>();
 var templatesRoot = ResolveTemplatesRoot(AppContext.BaseDirectory);
 if (templatesRoot is not null)
 {
-    builder.Services.AddSingleton(_ => EmailTemplates.Load(templatesRoot));
+    builder.Services.AddSingleton(_ => EmailTemplates.Load(templatesRoot, options.CdnBaseUrl, options.SiteBaseUrl));
 }
 if (!options.SesDryRun)
 {

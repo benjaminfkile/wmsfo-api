@@ -87,8 +87,9 @@ Every object is written with exactly these `PutObject` parameters. `{sha256}` is
 | `media/{mediaId}/{filename}` | the declared type: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `image/svg+xml` (verified against the bytes at confirm) | `public, max-age=31536000, immutable` | The admin panel through a presigned `PUT` that the API signs (1.5); the migration tool | Never; tagged `state=pending` until the API confirms, `state=orphaned` when unreferenced for 30 days |
 | `media/{mediaId}/w{width}.webp` | `image/webp` | `public, max-age=31536000, immutable` | API node at confirm (widths 480, 960, 1600 below the source width) | Never; tagged with its original |
 | `icons/{sha256}.svg` | `image/svg+xml` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per icon library change | Never |
+| `email/{sha256}.png` | `image/png` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per email logo change (`templates/email/logo.png`; written when the key is absent) | Never |
 
-No other prefix is written. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
+No prefix other than `live/`, `snapshots/`, `routes/`, `media/`, `icons/`, and `email/` is written. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
 
 `PutObject` call shape the API uses for every JSON object:
 
