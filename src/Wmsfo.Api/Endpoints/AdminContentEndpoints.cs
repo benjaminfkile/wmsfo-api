@@ -12,6 +12,7 @@ using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Security;
 
@@ -1188,8 +1189,8 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 var load = await builder.LoadAsync(conn, null, includeHidden: false, ct);
-                // Media map for referenced ids, whatever state.
-                var mediaIds = DocumentBuilder.CollectReferencedMediaIds(load.WorkingSet);
+                // Media map for the referenced ids plus the snapshot-level ids, whatever state.
+                var mediaIds = await CollectPreviewMediaIdsAsync(conn, load.WorkingSet, ct);
                 var mediaMap = await BuildMediaMapAsync(conn, null, mediaIds, options, ct);
                 var iconsMap = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 if (iconLibrary is not null)
@@ -1517,7 +1518,7 @@ values ($1, $2, $3) returning id;", conn, tx))
                     }
                 }
                 var load = await builder.LoadAsync(conn, null, includeHidden: false, ct);
-                var mediaIds = DocumentBuilder.CollectReferencedMediaIds(load.WorkingSet);
+                var mediaIds = await CollectPreviewMediaIdsAsync(conn, load.WorkingSet, ct);
                 var mediaMap = await BuildMediaMapAsync(conn, null, mediaIds, options, ct);
                 var iconsMap = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 if (iconLibrary is not null)
@@ -1980,6 +1981,18 @@ from section_item where id = $1;", conn, tx);
         var refProblems = await refChecker.CheckAsync(load.WorkingSet, conn, tx, ct);
         problems.AddRange(refProblems);
         return problems;
+    }
+
+    // The document's referenced media ids plus the snapshot-level ids (sponsor
+    // logos, cookie type media icons, the current event's route poster), since
+    // the site resolves the snapshot's sponsors and cookie types against the
+    // preview and draft media map.
+    private static async Task<Guid[]> CollectPreviewMediaIdsAsync(
+        NpgsqlConnection conn, ReferenceChecker.WorkingSet workingSet, CancellationToken ct)
+    {
+        var ids = new HashSet<Guid>(DocumentBuilder.CollectReferencedMediaIds(workingSet));
+        ids.UnionWith(await SnapshotBuilder.CollectSnapshotLevelMediaIdsAsync(conn, null, ct));
+        return ids.ToArray();
     }
 
     private static async Task<SortedDictionary<string, MediaEntry>> BuildMediaMapAsync(

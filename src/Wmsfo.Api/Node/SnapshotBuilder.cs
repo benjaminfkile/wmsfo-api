@@ -125,7 +125,6 @@ returning version;", connection, transaction);
         SnapshotEvent? currentEvent = null;
         int? currentYear = null;
         long? currentRouteId = null;
-        Guid? routePosterMediaId = null;
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
         int flightHistoryMaxPoints = 2000;
@@ -181,7 +180,6 @@ where e.is_current;", conn, tx))
                 };
                 currentYear = currentEvent.Year;
                 currentRouteId = reader.IsDBNull(9) ? null : reader.GetInt64(9);
-                if (!reader.IsDBNull(8)) routePosterMediaId = reader.GetGuid(8);
             }
         }
 
@@ -245,7 +243,6 @@ limit 1;", conn, tx);
         // `lingerMs` uses `linger_ms_override` when set, otherwise the formula
         // `max(sponsor_linger_min_ms, round(amount * sponsor_linger_ms_per_dollar))`
         // with the floor when `amount_donated` is null.
-        var sponsorLogos = new List<Guid>();
         var sponsors = new List<SnapshotSponsor>();
         if (currentYear is not null)
         {
@@ -285,13 +282,11 @@ order by
                 var lingerOverride = reader.IsDBNull(8) ? (int?)null : reader.GetInt32(8);
                 s.LingerMs = ComputeLingerMs(amount, lingerOverride, lingerMsPerDollar, lingerMinMs);
                 sponsors.Add(s);
-                if (!reader.IsDBNull(5)) sponsorLogos.Add(reader.GetGuid(5));
             }
         }
 
         // 6. cookie types.
         var cookieTypes = new List<SnapshotCookieType>();
-        var cookieTypeMediaIds = new List<Guid>();
         await using (var cmd = new NpgsqlCommand(@"
 select id, name, icon, sort from cookie_type where active order by sort, id;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -303,8 +298,6 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
                 {
                     using var doc = JsonDocument.Parse(reader.GetString(2));
                     icon = IconValue.FromStored(doc.RootElement);
-                    if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId))
-                        cookieTypeMediaIds.Add(mediaId);
                 }
                 cookieTypes.Add(new SnapshotCookieType
                 {
@@ -419,9 +412,8 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
         // icons + the current event's route poster (contracts 1.3).
         var mediaIds = new HashSet<Guid>();
         foreach (var id in contentMediaIds) mediaIds.Add(id);
-        foreach (var id in sponsorLogos) mediaIds.Add(id);
-        foreach (var id in cookieTypeMediaIds) mediaIds.Add(id);
-        if (routePosterMediaId is Guid poster) mediaIds.Add(poster);
+        foreach (var id in await CollectSnapshotLevelMediaIdsAsync(conn, tx, ct).ConfigureAwait(false))
+            mediaIds.Add(id);
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (mediaIds.Count > 0)
@@ -451,6 +443,43 @@ order by m.id;", conn, tx);
         snap.Icons = icons;
 
         return snap;
+    }
+
+    // The media ids the snapshot carries beyond the content document: logos of
+    // the sponsors the snapshot lists (the current event's year, active, not
+    // anonymous, can advertise), media icons of active cookie types, and the
+    // current event's route poster. The snapshot media map, the preview
+    // document, and the draft response all add this set to the document's
+    // referenced media.
+    public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)
+    {
+        var ids = new HashSet<Guid>();
+        await using (var cmd = new NpgsqlCommand(@"
+select s.logo_media_id
+from sponsor s
+join sponsor_year y on y.sponsor_id = s.id
+join event e on e.is_current and y.event_year = e.year
+where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is not null
+union
+select route_image_media_id from event
+where is_current and route_image_media_id is not null;", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(reader.GetGuid(0));
+        }
+        await using (var cmd = new NpgsqlCommand(
+            "select icon from cookie_type where active and icon is not null;", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                using var doc = JsonDocument.Parse(reader.GetString(0));
+                var icon = IconValue.FromStored(doc.RootElement);
+                if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId)) ids.Add(mediaId);
+            }
+        }
+        return ids.ToArray();
     }
 
     // contracts 4.5a: walk the place chain from placeId up to at most 32 levels,
