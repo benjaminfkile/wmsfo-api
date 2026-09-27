@@ -6659,25 +6659,13 @@
             "format": "int32"
           },
           "scheduledAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
+            "$ref": "#/components/schemas/JsonElement"
           },
           "wentLiveAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
+            "$ref": "#/components/schemas/JsonElement"
           },
           "endedAt": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
+            "$ref": "#/components/schemas/JsonElement"
           },
           "fundsPercent": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

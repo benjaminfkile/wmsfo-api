@@ -205,6 +205,71 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         Assert.Equal(DBNull.Value, await cmd.ExecuteScalarAsync());
     }
 
+    [Fact]
+    public async Task Patch_datetimes_set_clear_with_null_and_absent_leaves_them()
+    {
+        var id = await CreateEvent(year: 2083);
+
+        var set = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"wentLiveAt\":\"2026-12-19T01:00:00Z\",\"endedAt\":\"2026-12-19T03:00:00-06:00\"}");
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        var setDto = await ReadJsonAsync(set);
+        Assert.Equal(DateTimeOffset.Parse("2026-12-19T01:00:00Z"),
+            setDto.RootElement.GetProperty("wentLiveAt").GetDateTimeOffset());
+        Assert.Equal(DateTimeOffset.Parse("2026-12-19T09:00:00Z"),
+            setDto.RootElement.GetProperty("endedAt").GetDateTimeOffset());
+
+        var untouched = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"name\":\"renamed\"}");
+        Assert.Equal(HttpStatusCode.OK, untouched.StatusCode);
+        Assert.Equal(DateTimeOffset.Parse("2026-12-19T01:00:00Z"),
+            (await ReadJsonAsync(untouched)).RootElement.GetProperty("wentLiveAt").GetDateTimeOffset());
+
+        var cleared = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"wentLiveAt\":null,\"endedAt\":null}");
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        var clearedDto = await ReadJsonAsync(cleared);
+        Assert.Equal(JsonValueKind.Null, clearedDto.RootElement.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, clearedDto.RootElement.GetProperty("endedAt").ValueKind);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select went_live_at, ended_at from event where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.True(reader.IsDBNull(0));
+        Assert.True(reader.IsDBNull(1));
+    }
+
+    [Fact]
+    public async Task Patch_datetime_bad_value_is_400_on_that_field()
+    {
+        var id = await CreateEvent(year: 2084);
+        var bad = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"wentLiveAt\":\"yesterday\"}");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        var doc = await ReadJsonAsync(bad);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+        Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty("wentLiveAt", out _));
+    }
+
+    [Fact]
+    public async Task Patch_scheduledAt_null_while_scheduled_is_409()
+    {
+        var id = await CreateEvent(year: 2085);
+        var setSchedule = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2026-12-19T01:00:00Z\"}");
+        Assert.Equal(HttpStatusCode.OK, setSchedule.StatusCode);
+        var toScheduled = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":2,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, toScheduled.StatusCode);
+
+        var clear = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"scheduledAt\":null}");
+        Assert.Equal(HttpStatusCode.Conflict, clear.StatusCode);
+        Assert.Equal("scheduled_at_required", await ReadCodeAsync(clear));
+    }
+
     // ---------- GET /admin/events/{id} ----------
 
     [Fact]

@@ -20,9 +20,13 @@ public sealed class PatchEventRequest
 {
     public string? Name { get; set; }
     public int? Year { get; set; }
-    public DateTimeOffset? ScheduledAt { get; set; }
-    public DateTimeOffset? WentLiveAt { get; set; }
-    public DateTimeOffset? EndedAt { get; set; }
+    // The three datetimes: an RFC 3339 timestamp sets the value, null
+    // clears it, absent leaves it unchanged. Deserialized as bare
+    // JsonElements so JSON `null` yields `ValueKind == Null` and absent
+    // yields `Undefined` (the ScheduleTimeZone convention below).
+    public JsonElement ScheduledAt { get; set; }
+    public JsonElement WentLiveAt { get; set; }
+    public JsonElement EndedAt { get; set; }
     public int? FundsPercent { get; set; }
     public long? RouteId { get; set; }
     // A string value sets the link (uuid) or clears it (empty string).

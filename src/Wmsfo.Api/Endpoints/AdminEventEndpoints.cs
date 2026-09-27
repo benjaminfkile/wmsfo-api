@@ -210,6 +210,26 @@ returning id;", conn, tx))
                         v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
                         break;
                 }
+                // The three datetimes: a timestamp sets, null clears, absent
+                // leaves unchanged.
+                (bool Set, DateTimeOffset? Value) ReadInstant(JsonElement el, string field)
+                {
+                    switch (el.ValueKind)
+                    {
+                        case JsonValueKind.Undefined:
+                            return (false, null);
+                        case JsonValueKind.Null:
+                            return (true, null);
+                        case JsonValueKind.String when el.TryGetDateTimeOffset(out var dto):
+                            return (true, dto.ToUniversalTime());
+                        default:
+                            v.Field(field, "must be an RFC 3339 timestamp or null");
+                            return (false, null);
+                    }
+                }
+                var scheduledPatch = ReadInstant(body.ScheduledAt, "scheduledAt");
+                var wentLivePatch = ReadInstant(body.WentLiveAt, "wentLiveAt");
+                var endedPatch = ReadInstant(body.EndedAt, "endedAt");
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -268,8 +288,7 @@ returning id;", conn, tx))
                     }
 
                     // scheduled_at null while status = 2 → 409 scheduled_at_required.
-                    var effectiveScheduled = body.ScheduledAt is null && currentScheduled is null ? null
-                        : body.ScheduledAt?.ToUniversalTime() ?? currentScheduled;
+                    var effectiveScheduled = scheduledPatch.Set ? scheduledPatch.Value : currentScheduled;
                     if (currentStatus == 2 && effectiveScheduled is null)
                     {
                         throw new ApiException(StatusCodes.Status409Conflict, "scheduled_at_required", "scheduled_at required for status 2");
@@ -281,9 +300,9 @@ returning id;", conn, tx))
                     var next = 1;
                     if (body.Name is not null) Set($"name = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                     if (body.Year is not null) Set($"year = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year.Value });
-                    if (body.ScheduledAt is not null) Set($"scheduled_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.ScheduledAt.Value.ToUniversalTime() });
-                    if (body.WentLiveAt is not null) Set($"went_live_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.WentLiveAt.Value.ToUniversalTime() });
-                    if (body.EndedAt is not null) Set($"ended_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.EndedAt.Value.ToUniversalTime() });
+                    if (scheduledPatch.Set) Set($"scheduled_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)scheduledPatch.Value ?? DBNull.Value });
+                    if (wentLivePatch.Set) Set($"went_live_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)wentLivePatch.Value ?? DBNull.Value });
+                    if (endedPatch.Set) Set($"ended_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)endedPatch.Value ?? DBNull.Value });
                     if (body.FundsPercent is not null) Set($"funds_percent = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.FundsPercent.Value });
                     if (body.RouteId is not null) Set($"route_id = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.RouteId.Value });
                     if (setRouteImage)
