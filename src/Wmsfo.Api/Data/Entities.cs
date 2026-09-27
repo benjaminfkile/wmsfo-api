@@ -302,6 +302,8 @@ public sealed class MediaAsset
     public string? Sha256 { get; set; }
     public JsonDocument Variants { get; set; } = default!;
     public string? DziKey { get; set; }
+    public Guid? DarkMediaId { get; set; }
+    public bool InvertInDark { get; set; }
     public string Alt { get; set; } = "";
     public string Title { get; set; } = "";
     public string UploadedBy { get; set; } = "";

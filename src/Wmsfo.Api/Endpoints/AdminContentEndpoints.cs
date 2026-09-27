@@ -1944,9 +1944,8 @@ from section_item where id = $1;", conn, tx);
         var map = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (ids.Length == 0) return map;
         var cdn = options.CdnBaseUrl.TrimEnd('/');
-        await using var cmd = new NpgsqlCommand(@"
-select id, s3_key, kind, width, height, alt, variants, dzi_key
-from media_asset where id = any($1) order by id;", conn, tx);
+        await using var cmd = new NpgsqlCommand(MediaMapRows.Select + @"
+where m.id = any($1) order by m.id;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter
         {
             NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid,
@@ -1955,29 +1954,8 @@ from media_asset where id = any($1) order by id;", conn, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
-            var id = reader.GetGuid(0);
-            var key = reader.GetString(1);
-            var kind = reader.GetString(2);
-            int? w = reader.IsDBNull(3) ? null : reader.GetInt32(3);
-            int? h = reader.IsDBNull(4) ? null : reader.GetInt32(4);
-            var alt = reader.GetString(5);
-            var variants = new SortedDictionary<string, string>(StringComparer.Ordinal);
-            using var doc = JsonDocument.Parse(reader.GetString(6));
-            foreach (var e in doc.RootElement.EnumerateObject())
-            {
-                variants[e.Name] = cdn + "/" + e.Value.GetString();
-            }
-            var dziKey = reader.IsDBNull(7) ? null : reader.GetString(7);
-            map[id.ToString()] = new MediaEntry
-            {
-                Url = cdn + "/" + key,
-                Kind = kind,
-                Width = w,
-                Height = h,
-                Alt = alt,
-                Variants = variants,
-                Dzi = dziKey is null ? null : cdn + "/" + dziKey,
-            };
+            var (id, entry) = MediaMapRows.Read(reader, cdn);
+            map[id.ToString()] = entry;
         }
         return map;
     }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 
@@ -109,6 +110,16 @@ public sealed class MediaPatchRequest
 {
     public string? Alt { get; set; }
     public string? Title { get; set; }
+    // A uuid sets the dark version, null clears it, absent leaves it as it is.
+    public Guid? DarkMediaId
+    {
+        get => _darkMediaId;
+        set { _darkMediaId = value; HasDarkMediaId = true; }
+    }
+    [JsonIgnore] public bool HasDarkMediaId { get; private set; }
+    public bool? InvertInDark { get; set; }
+
+    private Guid? _darkMediaId;
 }
 
 public sealed class SettingUpdateRequest

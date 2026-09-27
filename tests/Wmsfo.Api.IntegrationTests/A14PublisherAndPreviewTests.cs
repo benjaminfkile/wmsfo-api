@@ -558,6 +558,54 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(300, entry.GetProperty("height").GetInt32());
     }
 
+    // A51: the published snapshot's entry for an asset with a dark version
+    // carries `dark` ({ url, variants } of the dark asset) and `invertInDark`;
+    // the dark asset has no entry of its own.
+    [Fact]
+    public async Task Publish_media_entry_carries_dark_version_and_invert_in_dark()
+    {
+        await BootstrapFirstBootAsync();
+        var logo = await UploadAndConfirmRasterAsync("site-logo.png", 1024, 512);
+        var darkLogo = await UploadAndConfirmRasterAsync("site-logo-dark.png", 700, 400);
+
+        using (var patch = _host!.EditorRequest(HttpMethod.Patch, $"/admin/media/{logo}"))
+        {
+            patch.Content = new StringContent(
+                $"{{\"darkMediaId\":\"{darkLogo}\",\"invertInDark\":true}}", Encoding.UTF8, "application/json");
+            var patched = await _host.Client.SendAsync(patch);
+            Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
+        }
+
+        var put = await PutSiteSettingsAsync(data =>
+            data["logoMedia"] = new JsonObject { ["mediaId"] = logo, ["alt"] = "Site logo" });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var media = snap.RootElement.GetProperty("media");
+        Assert.False(media.TryGetProperty(darkLogo, out _));
+
+        var cdn = _host.Options.CdnBaseUrl.TrimEnd('/');
+        var entry = media.GetProperty(logo);
+        Assert.True(entry.GetProperty("invertInDark").GetBoolean());
+        var dark = entry.GetProperty("dark");
+        Assert.Equal(cdn + "/media/" + darkLogo + "/site-logo-dark.png", dark.GetProperty("url").GetString());
+        var darkVariants = dark.GetProperty("variants").EnumerateObject().ToArray();
+        var only = Assert.Single(darkVariants);
+        Assert.Equal("480", only.Name);
+        Assert.Equal(cdn + "/media/" + darkLogo + "/w480.webp", only.Value.GetString());
+
+        // Keys follow the documented order: dark and invertInDark after dzi.
+        var keys = entry.EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark" }, keys);
+    }
+
     // A pending asset as `logoMedia` saves as a draft but is a publish problem
     // at /settings/logoMedia/mediaId.
     [Fact]

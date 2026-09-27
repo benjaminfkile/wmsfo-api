@@ -5683,6 +5683,15 @@
               "string"
             ]
           },
+          "darkMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "invertInDark": {
+            "type": "boolean"
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -5720,6 +5729,20 @@
                 "$ref": "#/components/schemas/AuditStampDto"
               }
             ]
+          }
+        }
+      },
+      "MediaDarkEntry": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         }
       },
@@ -5764,6 +5787,19 @@
               "null",
               "string"
             ]
+          },
+          "dark": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MediaDarkEntry"
+              }
+            ]
+          },
+          "invertInDark": {
+            "type": "boolean"
           }
         }
       },
@@ -5780,6 +5816,19 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "darkMediaId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "invertInDark": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -5856,6 +5905,23 @@
           },
           "siteSettings": {
             "type": "boolean"
+          },
+          "darkVersionOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaUsageMediaRef"
+            }
+          }
+        }
+      },
+      "MediaUsageMediaRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
           }
         }
       },

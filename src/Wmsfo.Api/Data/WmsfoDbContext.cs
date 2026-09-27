@@ -359,6 +359,10 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("{ \"480\": \"media/{id}/w480.webp\", \"960\": ..., \"1600\": ... }: the WebP width variants that exist (raster only, widths below the source width).");
             e.Property(x => x.DziKey).HasColumnName("dzi_key").HasColumnType("text")
                 .HasComment("media/<id>/dzi/poster.dzi when a Deep Zoom tile pyramid exists (contracts 1.3b): a raster whose longest side is 2048 px or more.");
+            e.Property(x => x.DarkMediaId).HasColumnName("dark_media_id").HasColumnType("uuid")
+                .HasComment("The dark mode version of this asset (contracts 1.3b): another ready media_asset the site draws in its place in dark mode; null when none. A deleted dark version unlinks.");
+            e.Property(x => x.InvertInDark).HasColumnName("invert_in_dark").HasColumnType("boolean").IsRequired().HasDefaultValue(false)
+                .HasComment("When true the site inverts this asset's colors in dark mode (contracts 1.3b).");
             e.Property(x => x.Alt).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.Title).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired();
@@ -368,6 +372,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.OrphanedAt).HasColumnType("timestamptz");
             e.HasAlternateKey(x => x.S3Key).HasName("media_asset_s3_key_key");
             e.HasIndex(x => new { x.State, x.CreatedAt }).HasDatabaseName("media_asset_state_created");
+            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.DarkMediaId)
+                .HasConstraintName("media_asset_dark_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
         });
 
         // 3.10 sponsor

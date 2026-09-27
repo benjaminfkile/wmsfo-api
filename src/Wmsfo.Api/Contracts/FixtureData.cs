@@ -16,6 +16,7 @@ public static class FixtureData
     public const string HangarMediaId      = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
     public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
     public const string RoutePosterMediaId = "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44";
+    public const string HangarDarkMediaId  = "9d4b2e6f-3c8a-4f1d-8e7b-1a5c0f9d2b55";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
     public static string RouteUrl    => $"{CdnBase}/routes/{RouteSha}.json";
@@ -79,6 +80,16 @@ public static class FixtureData
                     ["960"]  = $"{CdnBase}/media/{HangarMediaId}/w960.webp",
                 },
                 Dzi = $"{CdnBase}/media/{HangarMediaId}/dzi/poster.dzi",
+                Dark = new MediaDarkEntry
+                {
+                    Url = $"{CdnBase}/media/{HangarDarkMediaId}/hangar-night.jpg",
+                    Variants = new SortedDictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["1600"] = $"{CdnBase}/media/{HangarDarkMediaId}/w1600.webp",
+                        ["480"]  = $"{CdnBase}/media/{HangarDarkMediaId}/w480.webp",
+                        ["960"]  = $"{CdnBase}/media/{HangarDarkMediaId}/w960.webp",
+                    },
+                },
             },
             [GingerbreadMediaId] = new MediaEntry
             {
