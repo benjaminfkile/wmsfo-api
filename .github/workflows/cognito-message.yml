@@ -22,8 +22,10 @@ jobs:
 
   deploy:
     needs: test
-    # Pushes to dev update the dev function; main does not deploy.
-    if: github.event_name == 'push' && github.ref_name == 'dev'
+    # Pushes to dev update the dev function; main does not deploy. Until the
+    # function and its secret exist (platform.md 18), the job is skipped so a
+    # dev push stays green before the account-email infrastructure is created.
+    if: github.event_name == 'push' && github.ref_name == 'dev' && secrets.COGNITO_MESSAGE_FUNCTION != ''
     runs-on: ubuntu-latest
     environment: dev
     permissions:
