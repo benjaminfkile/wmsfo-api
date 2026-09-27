@@ -1,0 +1,7 @@
+Santa Tracker
+
+{{content}}
+
+--
+{{footerReason}}
+{{siteUrl}}

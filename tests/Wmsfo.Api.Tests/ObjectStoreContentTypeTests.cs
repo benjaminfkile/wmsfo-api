@@ -39,6 +39,7 @@ public sealed class ObjectStoreContentTypeTests : IDisposable
         yield return new object[] { "media/00000000-0000-0000-0000-000000000001/x.svg", "image/svg+xml", "public, max-age=31536000, immutable" };
         yield return new object[] { "media/00000000-0000-0000-0000-000000000001/w480.webp", "image/webp", "public, max-age=31536000, immutable" };
         yield return new object[] { "icons/deadbeef.svg", "image/svg+xml", "public, max-age=31536000, immutable" };
+        yield return new object[] { "email/deadbeef.png", "image/png", "public, max-age=31536000, immutable" };
     }
 
     [Theory]

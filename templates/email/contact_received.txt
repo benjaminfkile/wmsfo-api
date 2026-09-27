@@ -1,4 +1,8 @@
+New contact form message
+
 From: {{contactName}} <{{contactEmail}}>
 
 Message:
 {{contactMessage}}
+
+Reply to this email to answer the sender directly.

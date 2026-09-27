@@ -1,9 +1,15 @@
+Santa Tracker
+
 Confirm your alerts
 
 Thanks for signing up for Santa Tracker alerts. Confirm this address and we will let you know when Santa's flight is planned, scheduled, and in the air.
 
 Confirm this address by visiting:
-{{verifyUrl}}
+https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 If you did not sign up, ignore this message and no email will follow. You can follow Santa any time at:
-{{siteUrl}}
+https://site.example.com
+
+--
+You are receiving this because someone asked for Santa Tracker alerts at this address.
+https://site.example.com

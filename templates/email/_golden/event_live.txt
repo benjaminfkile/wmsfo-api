@@ -1,0 +1,15 @@
+Santa Tracker
+
+Santa just lifted off
+
+Santa & the reindeer are live! Watch the <tracker> and wave at "Rudolph" as the sleigh passes.
+
+Watch the tracker at:
+https://site.example.com
+
+To stop receiving these alerts, use the one-click link:
+https://site.example.com/alerts/unsubscribe?token=wsu_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+
+--
+You are receiving this because you signed up for Santa Tracker alerts at this address.
+https://site.example.com

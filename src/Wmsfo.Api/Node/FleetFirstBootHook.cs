@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
@@ -13,6 +14,7 @@ namespace Wmsfo.Api.Node;
 //      is unavailable (test hosts don't ship the icons folder)
 //   3. Content version 1 - A14 (SnapshotBootstrap uses a fixture stand-in)
 //   4. Snapshot version 1 - this task
+// Between steps 2 and 4 it writes the email logo (contracts 7.8).
 // The migrator holds the advisory lock across the hook.
 public sealed class FleetFirstBootHook : IFirstBootHook
 {
@@ -52,6 +54,25 @@ public sealed class FleetFirstBootHook : IFirstBootHook
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "icon library ensure failed (non-fatal for tests)");
+            }
+        }
+
+        // The email logo: templates/email/logo.png at email/{sha256}.png, written
+        // when that key is absent (platform.md 1.2). Skipped when the templates
+        // are not registered (test hosts without templates/email/).
+        var emailTemplates = scope.ServiceProvider.GetService<EmailTemplates>();
+        if (emailTemplates is not null && store is not null)
+        {
+            try
+            {
+                if (await emailTemplates.Logo.EnsureWrittenAsync(store, ct).ConfigureAwait(false))
+                {
+                    _logger.LogInformation("email logo written key={Key}", emailTemplates.Logo.Key);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "email logo ensure failed (non-fatal for tests)");
             }
         }
 

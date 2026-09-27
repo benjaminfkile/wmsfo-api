@@ -1,3 +1,5 @@
+Santa's flight has been cancelled
+
 {{customMessage}}
 
 Details at:
