@@ -365,6 +365,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("The dark mode version of this asset (contracts 1.3b): another ready media_asset the site draws in its place in dark mode; null when none. A deleted dark version unlinks.");
             e.Property(x => x.InvertInDark).HasColumnName("invert_in_dark").HasColumnType("boolean").IsRequired().HasDefaultValue(false)
                 .HasComment("When true the site inverts this asset's colors in dark mode (contracts 1.3b).");
+            e.Property(x => x.SmallMediaId).HasColumnName("small_media_id").HasColumnType("uuid")
+                .HasComment("The small screen version of this asset (contracts 1.3b): another ready media_asset the site draws in its place under its 760 px cut; null when none. A deleted small version unlinks.");
             e.Property(x => x.Alt).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.Title).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired();
@@ -376,6 +378,8 @@ public sealed class WmsfoDbContext : DbContext
             e.HasIndex(x => new { x.State, x.CreatedAt }).HasDatabaseName("media_asset_state_created");
             e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.DarkMediaId)
                 .HasConstraintName("media_asset_dark_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.SmallMediaId)
+                .HasConstraintName("media_asset_small_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
         });
 
         // 3.10 sponsor

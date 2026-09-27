@@ -79,7 +79,7 @@ public static class AdminMediaEndpoints
                 var sql = new System.Text.StringBuilder(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -523,7 +523,8 @@ where id = $7 and state = 'pending';", conn, tx))
     }
 
     // PATCH /admin/media/{id} - [snapshot] frame because alt, the dark version,
-    // and invertInDark ride in the snapshot's media map (contracts 1.3b).
+    // invertInDark, and the small version ride in the snapshot's media map
+    // (contracts 1.3b).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/media/{id}",
@@ -562,12 +563,23 @@ where id = $7 and state = 'pending';", conn, tx))
                     if (body.HasDarkMediaId)
                     {
                         if (body.DarkMediaId is Guid darkId)
-                            await RequireDarkVersionAsync(conn, tx, mediaId, darkId, token);
+                            await RequireOtherReadyAssetAsync(conn, tx, mediaId, darkId, "darkMediaId", "dark", token);
                         sets.Add($"dark_media_id = ${next++}");
                         parameters.Add(new NpgsqlParameter
                         {
                             NpgsqlDbType = NpgsqlDbType.Uuid,
                             Value = body.DarkMediaId is Guid g ? g : DBNull.Value,
+                        });
+                    }
+                    if (body.HasSmallMediaId)
+                    {
+                        if (body.SmallMediaId is Guid smallId)
+                            await RequireOtherReadyAssetAsync(conn, tx, mediaId, smallId, "smallMediaId", "small", token);
+                        sets.Add($"small_media_id = ${next++}");
+                        parameters.Add(new NpgsqlParameter
+                        {
+                            NpgsqlDbType = NpgsqlDbType.Uuid,
+                            Value = body.SmallMediaId is Guid sg ? sg : DBNull.Value,
                         });
                     }
                     if (body.InvertInDark is bool invert)
@@ -686,7 +698,7 @@ where id = $7 and state = 'pending';", conn, tx))
         await using var cmd = new NpgsqlCommand(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -739,33 +751,35 @@ where m.id = $1;", conn, tx);
             OrphanedAt = reader.IsDBNull(17) ? null : reader.GetFieldValue<DateTimeOffset>(17),
             DarkMediaId = reader.IsDBNull(19) ? null : reader.GetGuid(19).ToString(),
             InvertInDark = reader.GetBoolean(20),
+            SmallMediaId = reader.IsDBNull(21) ? null : reader.GetGuid(21).ToString(),
         };
-        if (reader.FieldCount > 21 && !reader.IsDBNull(21))
+        if (reader.FieldCount > 22 && !reader.IsDBNull(22))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(21),
-                By = reader.GetString(22),
-                At = reader.GetFieldValue<DateTimeOffset>(23),
+                Action = reader.GetString(22),
+                By = reader.GetString(23),
+                At = reader.GetFieldValue<DateTimeOffset>(24),
             };
         }
         return dto;
     }
 
-    // darkMediaId names another ready asset: 400 for the asset itself, 404
-    // when missing, 409 media_not_ready when pending or orphaned.
-    private static async Task RequireDarkVersionAsync(
-        NpgsqlConnection conn, NpgsqlTransaction tx, Guid mediaId, Guid darkId, CancellationToken ct)
+    // darkMediaId and smallMediaId name another ready asset: 400 for the asset
+    // itself, 404 when missing, 409 media_not_ready when pending or orphaned.
+    private static async Task RequireOtherReadyAssetAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, Guid mediaId, Guid otherId,
+        string field, string version, CancellationToken ct)
     {
-        if (darkId == mediaId)
-            RequestValidation.Throw("darkMediaId", "must name another media asset");
+        if (otherId == mediaId)
+            RequestValidation.Throw(field, "must name another media asset");
         await using var cmd = new NpgsqlCommand("select state from media_asset where id = $1;", conn, tx);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = darkId });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = otherId });
         var state = await cmd.ExecuteScalarAsync(ct) as string;
         if (state is null)
-            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "dark version media not found");
+            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, $"{version} version media not found");
         if (state != "ready")
-            throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "dark version media is not ready");
+            throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", $"{version} version media is not ready");
     }
 
     private static async Task DeletePendingRowAsync(NpgsqlConnection conn, Guid id, CancellationToken ct)

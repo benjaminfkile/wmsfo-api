@@ -577,6 +577,7 @@ create table media_asset (
   dzi_key            text,
   dark_media_id      uuid references media_asset (id) on delete set null,
   invert_in_dark     boolean not null default false,
+  small_media_id     uuid references media_asset (id) on delete set null,
   alt                text not null default '',
   title              text not null default '',
   uploaded_by        text not null,
@@ -590,6 +591,7 @@ create index media_asset_state_created on media_asset (state, created_at);
 comment on column media_asset.dzi_key is 'media/<id>/dzi/poster.dzi when a Deep Zoom tile pyramid exists (contracts 1.3b): a raster whose longest side is 2048 px or more.';
 comment on column media_asset.dark_media_id is 'The dark mode version of this asset (contracts 1.3b): another ready media_asset the site draws in its place in dark mode; null when none. A deleted dark version unlinks.';
 comment on column media_asset.invert_in_dark is 'When true the site inverts this asset''s colors in dark mode (contracts 1.3b).';
+comment on column media_asset.small_media_id is 'The small screen version of this asset (contracts 1.3b): another ready media_asset the site draws in its place under its 760 px cut; null when none. A deleted small version unlinks.';
 
 comment on table media_asset is 'The media library. pending: ticket issued, bytes may or may not be in the bucket. ready: confirmed. orphaned: unreferenced for 30 days, objects tagged for lifecycle expiry; the row is deleted 8 days later.';
 comment on column media_asset.id is 'Minted by the API (UUID v4) when the upload ticket is issued; it is the key segment media/{id}/.';
@@ -917,6 +919,7 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | `location.beacon_id` | `beacon.id` | no action | beacons are never deleted |
 | `sponsor.logo_media_id` | `media_asset.id` | set null | a deleted asset leaves the sponsor without a logo (the delete impact lists the sponsors) |
 | `media_asset.dark_media_id` | `media_asset.id` | set null | a deleted dark version unlinks from the assets it served (the delete impact lists them as "dark version of <filename>") |
+| `media_asset.small_media_id` | `media_asset.id` | set null | a deleted small version unlinks from the assets it served (the delete impact lists them as "small version of <filename>") |
 | `sponsor_year.sponsor_id` | `sponsor.id` | cascade | `DELETE /admin/sponsors/{id}` removes the years in the same statement |
 | `section.page_id` | `page.id` | cascade | `DELETE /admin/pages/{id}` and restore remove sections |
 | `section_item.section_id` | `section.id` | cascade | section delete, page delete, and restore remove items |
@@ -995,9 +998,13 @@ select key, value from app_setting;
 select id, document, media_ids from content_version order by id desc limit 1;
 
 -- the media map: assets the document, the listed sponsors, and the cookie types reference, each with its ready dark version
-select m.id, m.s3_key, m.kind, m.width, m.height, m.alt, m.variants, m.dzi_key, m.invert_in_dark, d.s3_key, d.variants
+-- and its ready small version, the small version with its own ready dark version
+select m.id, m.s3_key, m.kind, m.width, m.height, m.alt, m.variants, m.dzi_key, m.invert_in_dark, d.s3_key, d.variants,
+       s.id, s.s3_key, s.variants, s.invert_in_dark, sd.s3_key, sd.variants
 from media_asset m
 left join media_asset d on d.id = m.dark_media_id and d.state = 'ready'
+left join media_asset s on s.id = m.small_media_id and s.state = 'ready'
+left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'
 where m.id = any($ids)        -- content_version.media_ids, plus sponsor.logo_media_id of the sponsors above, plus cookie_type.icon->>'id' where icon->>'source' = 'media'
   and m.state = 'ready'
 order by m.id;
@@ -1212,7 +1219,7 @@ update snapshot set version = version + 1, url = $url, s3_key = $key, built_at =
 commit;
 ```
 
-`POST /admin/snapshot/rebuild` is this frame with no write. A content publish is this frame with the writes of section 8.19. A media `PATCH` (alt, title, darkMediaId, invertInDark) is this frame with one `update media_asset` statement.
+`POST /admin/snapshot/rebuild` is this frame with no write. A content publish is this frame with the writes of section 8.19. A media `PATCH` (alt, title, darkMediaId, invertInDark, smallMediaId) is this frame with one `update media_asset` statement.
 
 ### 8.6 Set the current event (`POST /admin/events/{id}/current`)
 
@@ -1568,9 +1575,10 @@ select id, name from cookie_type where icon->>'source' = 'media' and icon->>'id'
 select data::text like '%' || $id || '%' from site_setting_draft where id = 1;
 select id, filename from media_asset where dark_media_id = $id;   -- "dark version of <filename>"
 
--- patch (PATCH /admin/media/{id}): darkMediaId must name another ready asset
+-- patch (PATCH /admin/media/{id}): darkMediaId and smallMediaId must each name another ready asset
 select state from media_asset where id = $dark_media_id;   -- none: 404; not ready: 409 media_not_ready; $dark_media_id = $id: 400
-update media_asset set alt = $alt, title = $title, dark_media_id = $dark_media_id, invert_in_dark = $invert_in_dark where id = $id;   -- only the fields present
+select state from media_asset where id = $small_media_id;  -- the same rules
+update media_asset set alt = $alt, title = $title, dark_media_id = $dark_media_id, invert_in_dark = $invert_in_dark, small_media_id = $small_media_id where id = $id;   -- only the fields present
 
 -- delete (DELETE /admin/media/{id}): after every object under media/{id}/ was deleted
 delete from media_asset where id = $id;
@@ -1688,7 +1696,7 @@ Each statement is idempotent; two leaders running it in the same minute delete n
 ### 9.6 Media orphan collection (every hour)
 
 ```sql
--- the referenced set, one pass over the working set, the retained versions, sponsors, cookie types, and the dark versions of ready assets
+-- the referenced set, one pass over the working set, the retained versions, sponsors, cookie types, and the dark and small versions of ready assets
 with refs as (
   select unnest(media_ids) as id from content_version
   union select logo_media_id from sponsor where logo_media_id is not null
@@ -1699,6 +1707,7 @@ with refs as (
     select 1 from section_item i where i.data::text like '%' || m.id || '%')
   union select m.id from media_asset m, site_setting_draft d where d.data::text like '%' || m.id || '%'
   union select dark_media_id from media_asset where state = 'ready' and dark_media_id is not null
+  union select small_media_id from media_asset where state = 'ready' and small_media_id is not null
 )
 select id from refs;
 
@@ -1932,7 +1941,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

@@ -125,8 +125,16 @@ public sealed class MediaPatchRequest
     }
     [JsonIgnore] public bool HasDarkMediaId { get; private set; }
     public bool? InvertInDark { get; set; }
+    // A uuid sets the small version, null clears it, absent leaves it as it is.
+    public Guid? SmallMediaId
+    {
+        get => _smallMediaId;
+        set { _smallMediaId = value; HasSmallMediaId = true; }
+    }
+    [JsonIgnore] public bool HasSmallMediaId { get; private set; }
 
     private Guid? _darkMediaId;
+    private Guid? _smallMediaId;
 }
 
 public sealed class SettingUpdateRequest

@@ -601,9 +601,121 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal("480", only.Name);
         Assert.Equal(cdn + "/media/" + darkLogo + "/w480.webp", only.Value.GetString());
 
-        // Keys follow the documented order: dark and invertInDark after dzi.
+        // Keys follow the documented order: dark and invertInDark after dzi,
+        // then small and smallMediaId.
         var keys = entry.EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark" }, keys);
+        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark", "small", "smallMediaId" }, keys);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("small").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("smallMediaId").ValueKind);
+    }
+
+    // The entry for an asset with a small version embeds `small` (the small
+    // asset's url and variants) with the small asset's own dark resolution
+    // inside it, in the snapshot and the draft media maps; neither the small
+    // asset nor its dark version has an entry of its own.
+    [Fact]
+    public async Task Media_entry_embeds_small_version_with_its_own_dark_resolution()
+    {
+        await BootstrapFirstBootAsync();
+        var logo = await UploadAndConfirmRasterAsync("site-logo.png", 1024, 512);
+        var small = await UploadAndConfirmRasterAsync("site-logo-small.png", 700, 400);
+        var smallDark = await UploadAndConfirmRasterAsync("site-logo-small-dark.png", 600, 300);
+
+        await PatchMediaAsync(small, $"{{\"darkMediaId\":\"{smallDark}\",\"invertInDark\":true}}");
+        await PatchMediaAsync(logo, $"{{\"smallMediaId\":\"{small}\"}}");
+
+        var put = await PutSiteSettingsAsync(data =>
+            data["logoMedia"] = new JsonObject { ["mediaId"] = logo, ["alt"] = "Site logo" });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using (var snap = JsonDocument.Parse(snapshotBytes!))
+        {
+            AssertSmallEmbedded(snap.RootElement.GetProperty("media"), logo, small, smallDark);
+        }
+
+        using var draftReq = _host.EditorRequest(HttpMethod.Get, "/admin/content/draft");
+        var draft = await _host.Client.SendAsync(draftReq);
+        Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+        using (var doc = JsonDocument.Parse(await draft.Content.ReadAsStringAsync()))
+        {
+            AssertSmallEmbedded(doc.RootElement.GetProperty("media"), logo, small, smallDark);
+        }
+    }
+
+    private void AssertSmallEmbedded(JsonElement media, string logo, string small, string smallDark)
+    {
+        var cdn = _host!.Options.CdnBaseUrl.TrimEnd('/');
+        Assert.False(media.TryGetProperty(small, out _));
+        Assert.False(media.TryGetProperty(smallDark, out _));
+
+        var entry = media.GetProperty(logo);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("dark").ValueKind);
+        Assert.Equal(small, entry.GetProperty("smallMediaId").GetString());
+        var embedded = entry.GetProperty("small");
+        Assert.Equal(cdn + "/media/" + small + "/site-logo-small.png", embedded.GetProperty("url").GetString());
+        var variant = Assert.Single(embedded.GetProperty("variants").EnumerateObject().ToArray());
+        Assert.Equal("480", variant.Name);
+        Assert.Equal(cdn + "/media/" + small + "/w480.webp", variant.Value.GetString());
+        Assert.True(embedded.GetProperty("invertInDark").GetBoolean());
+
+        var dark = embedded.GetProperty("dark");
+        Assert.Equal(cdn + "/media/" + smallDark + "/site-logo-small-dark.png", dark.GetProperty("url").GetString());
+        var darkVariant = Assert.Single(dark.GetProperty("variants").EnumerateObject().ToArray());
+        Assert.Equal("480", darkVariant.Name);
+        Assert.Equal(cdn + "/media/" + smallDark + "/w480.webp", darkVariant.Value.GetString());
+
+        Assert.Equal(new[] { "url", "variants", "dark", "invertInDark" },
+            embedded.EnumerateObject().Select(p => p.Name).ToArray());
+    }
+
+    // A small version that is not ready is left out of the entry.
+    [Fact]
+    public async Task Media_entry_small_is_null_when_the_small_version_is_not_ready()
+    {
+        await BootstrapFirstBootAsync();
+        var logo = await UploadAndConfirmRasterAsync("site-logo.png", 1024, 512);
+        var small = await UploadAndConfirmRasterAsync("site-logo-small.png", 700, 400);
+        await PatchMediaAsync(logo, $"{{\"smallMediaId\":\"{small}\"}}");
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update media_asset set state = 'orphaned', orphaned_at = now() where id = $1;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(small) });
+            Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+        }
+
+        var put = await PutSiteSettingsAsync(data =>
+            data["logoMedia"] = new JsonObject { ["mediaId"] = logo, ["alt"] = "Site logo" });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var entry = snap.RootElement.GetProperty("media").GetProperty(logo);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("small").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("smallMediaId").ValueKind);
+    }
+
+    private async Task PatchMediaAsync(string id, string json)
+    {
+        using var patch = _host!.EditorRequest(HttpMethod.Patch, $"/admin/media/{id}");
+        patch.Content = new StringContent(json, Encoding.UTF8, "application/json");
+        var patched = await _host.Client.SendAsync(patch);
+        Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
     }
 
     // -------------------- display on Icon and MediaRef --------------------
