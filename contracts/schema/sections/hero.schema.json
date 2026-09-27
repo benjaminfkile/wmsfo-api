@@ -14,7 +14,8 @@
       "maxItems": 2
     },
     "height": { "enum": ["short", "tall"] },
-    "iconSize": { "enum": ["sm", "md", "lg", "xl", null] }
+    "iconSize": { "enum": ["sm", "md", "lg", "xl", null] },
+    "showLogo": { "type": ["boolean", "null"] }
   },
   "required": ["title", "tagline", "icon", "links", "height"],
   "additionalProperties": false

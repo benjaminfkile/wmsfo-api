@@ -26,6 +26,10 @@ public sealed class SiteSettings
     [JsonPropertyOrder(9)] public string? ContactEmail { get; set; }
     [JsonPropertyOrder(10)] public string? DonateUrl { get; set; }
     [JsonPropertyOrder(11)] public bool AnalyticsEnabled { get; set; }
+    // Optional keys: absent when null (no logoMedia keeps the built-in mark,
+    // headerShowsSiteName defaults to true). LogoMedia is a MediaRef `{ mediaId, alt }`.
+    [JsonPropertyOrder(12), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? LogoMedia { get; set; }
+    [JsonPropertyOrder(13), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? HeaderShowsSiteName { get; set; }
 }
 
 public sealed class SiteTheme
