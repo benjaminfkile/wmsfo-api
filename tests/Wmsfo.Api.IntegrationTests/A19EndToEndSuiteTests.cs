@@ -263,9 +263,18 @@ public sealed class A19EndToEndSuiteTests : IClassFixture<PostgresFixture>, IAsy
         var sponsors = snap.RootElement.GetProperty("sponsors").EnumerateArray().ToArray();
         Assert.Contains(sponsors, s => s.GetProperty("id").GetInt64() == sponsorId);
 
-        // Live-object write followed each admin commit; wait for the bytes to
-        // land and confirm the CDN has them.
+        // Live-object write followed each admin commit, and a later write can land
+        // after the first one is readable: wait until the stored live object is
+        // the one the gateway published last.
+        var deadline = DateTimeOffset.UtcNow + WriterDeadline;
         var liveBytes = await WaitForLiveBytesAsync();
+        while (liveBytes is not null
+               && !liveBytes.AsSpan().SequenceEqual(_host.Gateway.LastPublished)
+               && DateTimeOffset.UtcNow < deadline)
+        {
+            await Task.Delay(50);
+            liveBytes = await TryReadLiveBytesAsync() ?? liveBytes;
+        }
         Assert.NotNull(liveBytes);
         Assert.Equal(_host.Gateway.LastPublished, liveBytes);
     }
