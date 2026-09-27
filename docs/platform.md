@@ -496,7 +496,7 @@ Removing or changing a role: edit the groups; the API sees the change on the nex
 | Quota | The sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000 (one alert to about 20,000 recipients, three times per December). The account's rate is 14 per second and its daily quota 50,000, so a quota increase is an operator to-do (section 18); check both in the console the week before the event |
 | Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set; a notify on dev emails every verified dev subscriber |
 
-Cognito pool mail (section 4.1) is not SES mail: Cognito's default sender delivers it, and the Custom Message Lambda only supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
+Cognito pool mail (section 4.1) sends through the same SES identity: both pools use `DEVELOPER` sending with the identity as `SourceArn`, `From` = `Santa Tracker <no-reply@<mail-domain>>`, and the environment's configuration set, and an identity policy on `<mail-domain>` lets `cognito-idp.amazonaws.com` send, conditioned on the account and the pool ARNs. The Custom Message Lambda supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
 
 | Trigger source | Template | Subject |
 |---|---|---|
@@ -508,6 +508,8 @@ Cognito pool mail (section 4.1) is not SES mail: Cognito's default sender delive
 Any other trigger source is returned untouched.
 
 The instance role's SES permission is section 6.
+
+**Inbound mail (one source of truth).** Every address at `<mail-domain>` receives: the apex MX points at SES inbound (`inbound-smtp.<region>.amazonaws.com`, priority 10). A receipt rule for the domain sits in the account's one active receipt rule set, added after the pre-existing rule and never replacing the set (the set is shared; other domains' receiving lives there too). The rule stores the raw message in `<mail-inbound-bucket>` under `inbound/` (private, 90-day lifecycle) and invokes `<mail-forwarder-fn>` (Node 22, arm64, logs-only role plus `s3:GetObject` on the prefix and `ses:Send*` on the identity), which drops the original DKIM/Sender/Return-Path headers, moves the original `From` to `Reply-To`, re-sends from `contact@<mail-domain>` to the notify inbox, and never throws. `contact@<mail-domain>` is the public address everywhere: the site settings' `contactEmail` (the contact section's mailto) and the API's `WMSFO_CONTACT_NOTIFY_EMAIL`, so form notices and direct mail land in the same place. Replies from the notify inbox go out as the domain through SES SMTP: an IAM user with `ses:SendRawEmail` on the identity only, its SMTP credentials in the secrets manager (`wmsfo-gmail-sendas-smtp`), configured as the mail client's send-as address.
 
 ---
 
