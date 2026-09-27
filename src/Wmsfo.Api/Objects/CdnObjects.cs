@@ -208,6 +208,11 @@ public sealed class MediaEntry
     [JsonPropertyOrder(7)] public MediaDarkEntry? Dark { get; set; }
     // When true the site inverts the asset's colors in dark mode.
     [JsonPropertyOrder(8)] public bool InvertInDark { get; set; }
+    // The small screen version the site draws in this asset's place under its
+    // 760 px cut, or null when the asset has none or it is not ready.
+    [JsonPropertyOrder(9)] public MediaSmallEntry? Small { get; set; }
+    // The id of the small version embedded in small, or null with it.
+    [JsonPropertyOrder(10)] public string? SmallMediaId { get; set; }
 }
 
 // MediaEntry.dark (contracts 1.3b): the dark version's own url and variants,
@@ -216,6 +221,19 @@ public sealed class MediaDarkEntry
 {
     [JsonPropertyOrder(0)] public string Url { get; set; } = "";
     [JsonPropertyOrder(1)] public SortedDictionary<string, string> Variants { get; set; } = new(StringComparer.Ordinal);
+}
+
+// MediaEntry.small (contracts 1.3b): the small version's own url and variants
+// with its own dark resolution, so the site composes small with dark from the
+// one entry.
+public sealed class MediaSmallEntry
+{
+    [JsonPropertyOrder(0)] public string Url { get; set; } = "";
+    [JsonPropertyOrder(1)] public SortedDictionary<string, string> Variants { get; set; } = new(StringComparer.Ordinal);
+    // The small version's ready dark version, or null.
+    [JsonPropertyOrder(2)] public MediaDarkEntry? Dark { get; set; }
+    // When true the site inverts the small version's colors in dark mode.
+    [JsonPropertyOrder(3)] public bool InvertInDark { get; set; }
 }
 
 // Route object contracts 1.4.

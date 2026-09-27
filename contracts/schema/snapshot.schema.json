@@ -281,6 +281,48 @@
           },
           "invertInDark": {
             "type": "boolean"
+          },
+          "small": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "variants": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "dark": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  },
+                  "variants": {
+                    "$ref": "#/properties/media/additionalProperties/properties/dark/properties/variants"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "invertInDark": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "smallMediaId": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false

@@ -753,6 +753,8 @@ with refs as (
     where d.data::text like '%' || m.id::text || '%'
   union select dark_media_id from media_asset
     where state = 'ready' and dark_media_id is not null
+  union select small_media_id from media_asset
+    where state = 'ready' and small_media_id is not null
 )
 select id from refs;";
 

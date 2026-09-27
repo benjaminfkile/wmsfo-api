@@ -5726,6 +5726,12 @@
           "invertInDark": {
             "type": "boolean"
           },
+          "smallMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -5834,6 +5840,22 @@
           },
           "invertInDark": {
             "type": "boolean"
+          },
+          "small": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MediaSmallEntry"
+              }
+            ]
+          },
+          "smallMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5864,6 +5886,40 @@
               "null",
               "boolean"
             ]
+          },
+          "smallMediaId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "MediaSmallEntry": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "dark": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MediaDarkEntry"
+              }
+            ]
+          },
+          "invertInDark": {
+            "type": "boolean"
           }
         }
       },

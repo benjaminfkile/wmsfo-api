@@ -6,8 +6,8 @@ using Wmsfo.Api.Contracts.Dtos;
 namespace Wmsfo.Api.Endpoints.Impact;
 
 // api.md 5b: a media delete clears every reference. FK cascades handle
-// sponsor.logo_media_id, event.route_image_media_id, and
-// media_asset.dark_media_id (set null). Content
+// sponsor.logo_media_id, event.route_image_media_id,
+// media_asset.dark_media_id, and media_asset.small_media_id (set null). Content
 // JSON (sections, items, site settings, content_version.media_ids) and cookie
 // type icons live outside those FKs, so ApplyAsync clears them explicitly.
 public static class MediaImpactQueries
@@ -31,9 +31,12 @@ public static class MediaImpactQueries
             uuidParams, ct).ConfigureAwait(false);
         if (events is not null) impact.Unlinks.Add(events);
 
-        // media_asset.dark_media_id: the assets this one is the dark version of.
+        // media_asset.dark_media_id and small_media_id: the assets this one is
+        // the dark or small version of.
         var darkOf = await ImpactHelpers.CountAndNamesAsync(
-            conn, tx, "media_asset", "media_asset", "'dark version of ' || filename", "dark_media_id = $1",
+            conn, tx, "media_asset", "media_asset",
+            "case when dark_media_id = $1 then 'dark version of ' else 'small version of ' end || filename",
+            "dark_media_id = $1 or small_media_id = $1",
             uuidParams, ct).ConfigureAwait(false);
         if (darkOf is not null) impact.Unlinks.Add(darkOf);
 
@@ -72,8 +75,9 @@ public static class MediaImpactQueries
 
     // ApplyAsync clears content JSON references (sections, items, site settings,
     // cookie_type icon), and clears content_version.media_ids entries.
-    // sponsor.logo_media_id, event.route_image_media_id, and
-    // media_asset.dark_media_id are handled by the FK cascades (set null).
+    // sponsor.logo_media_id, event.route_image_media_id,
+    // media_asset.dark_media_id, and media_asset.small_media_id are handled by
+    // the FK cascades (set null).
     public static async Task ApplyAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, CancellationToken ct)
     {
