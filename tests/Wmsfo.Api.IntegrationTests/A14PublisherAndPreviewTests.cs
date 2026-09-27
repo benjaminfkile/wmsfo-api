@@ -980,6 +980,8 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
         var minted = JsonDocument.Parse(await mintResponse.Content.ReadAsStringAsync());
         var token = minted.RootElement.GetProperty("token").GetString()!;
         Assert.StartsWith("wpv_", token);
+        // The url opens the site's preview route, which fetches the document itself.
+        Assert.Equal("https://site.example.com/preview?token=" + token, minted.RootElement.GetProperty("url").GetString());
 
         // Reuse: the same token resolves until expiry.
         var okResponse = await _host.Client.GetAsync($"/preview/document?token={token}");

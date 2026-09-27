@@ -1448,7 +1448,7 @@ values ($1, $2, $3) returning id;", conn, tx))
                 var dto = new PreviewTokenDto
                 {
                     Token = minted.Token,
-                    Url = options.PublicApiBaseUrl.TrimEnd('/') + "/preview/document?token=" + minted.Token,
+                    Url = options.SiteBaseUrl.TrimEnd('/') + "/preview?token=" + minted.Token,
                     ExpiresAt = expiresAt,
                 };
                 // Audit the create; the token itself is not part of the DTO
