@@ -751,6 +751,8 @@ with refs as (
     select 1 from section_item i where i.data::text like '%' || m.id::text || '%')
   union select m.id from media_asset m, site_setting_draft d
     where d.data::text like '%' || m.id::text || '%'
+  union select dark_media_id from media_asset
+    where state = 'ready' and dark_media_id is not null
 )
 select id from refs;";
 

@@ -132,6 +132,19 @@ public sealed class MediaEntry
     // Absolute CDN URL of the Deep Zoom descriptor when a tile pyramid exists
     // (contracts 1.3b); null on smaller rasters, svg, and gif.
     [JsonPropertyOrder(6)] public string? Dzi { get; set; }
+    // The dark mode version the site draws in this asset's place in dark
+    // mode, or null when the asset has none.
+    [JsonPropertyOrder(7)] public MediaDarkEntry? Dark { get; set; }
+    // When true the site inverts the asset's colors in dark mode.
+    [JsonPropertyOrder(8)] public bool InvertInDark { get; set; }
+}
+
+// MediaEntry.dark (contracts 1.3b): the dark version's own url and variants,
+// the same shape rules as the entry's.
+public sealed class MediaDarkEntry
+{
+    [JsonPropertyOrder(0)] public string Url { get; set; } = "";
+    [JsonPropertyOrder(1)] public SortedDictionary<string, string> Variants { get; set; } = new(StringComparer.Ordinal);
 }
 
 // Route object contracts 1.4.

@@ -464,6 +464,8 @@ public sealed class MediaAssetDto
     public string Url { get; set; } = "";
     public IDictionary<string, string> Variants { get; set; } = new SortedDictionary<string, string>(StringComparer.Ordinal);
     public string? DziUrl { get; set; }
+    public string? DarkMediaId { get; set; }
+    public bool InvertInDark { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ConfirmedAt { get; set; }
@@ -488,11 +490,14 @@ public sealed class MediaUsageDto
     public IList<MediaUsageSponsorRef> Sponsors { get; set; } = new List<MediaUsageSponsorRef>();
     public IList<MediaUsageCookieTypeRef> CookieTypes { get; set; } = new List<MediaUsageCookieTypeRef>();
     public bool SiteSettings { get; set; }
+    // The assets this one is the dark version of ("dark version of <filename>").
+    public IList<MediaUsageMediaRef> DarkVersionOf { get; set; } = new List<MediaUsageMediaRef>();
 }
 
 public sealed class MediaUsagePageRef { public long Id { get; set; } public string Slug { get; set; } = ""; public string Title { get; set; } = ""; }
 public sealed class MediaUsageSponsorRef { public long Id { get; set; } public string Name { get; set; } = ""; }
 public sealed class MediaUsageCookieTypeRef { public long Id { get; set; } public string Name { get; set; } = ""; }
+public sealed class MediaUsageMediaRef { public string Id { get; set; } = ""; public string Filename { get; set; } = ""; }
 
 public sealed class ContentVersionInfoDto
 {

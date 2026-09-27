@@ -413,7 +413,7 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 
 ### 11.5 Usage, patch, delete, orphans
 
-`MediaUsage.ForAsync(id)` runs the five usage statements of sql.md 8.22 and returns `MediaUsage`. `DELETE /admin/media/{id}` never refuses for a reference: in one transaction it clears every reference (section 5b: the content JSON of sections, items, and site settings, cookie type icons, and the `media_ids` of content versions; sponsor logos and event posters go null through their foreign keys), deletes the row, then `ListObjectsV2` under `media/{id}/` and `DeleteObjects`. `PATCH` (alt, title) runs the [snapshot] frame because `alt` rides in the snapshot's media map. `MediaOrphanCollector` (section 13) is the only other writer of media state.
+`MediaUsage.ForAsync(id)` runs the six usage statements of sql.md 8.22 and returns `MediaUsage`. `DELETE /admin/media/{id}` never refuses for a reference: in one transaction it clears every reference (section 5b: the content JSON of sections, items, and site settings, cookie type icons, and the `media_ids` of content versions; sponsor logos, event posters, and dark versions go null through their foreign keys), deletes the row, then `ListObjectsV2` under `media/{id}/` and `DeleteObjects`. `PATCH` (alt, title, darkMediaId, invertInDark) runs the [snapshot] frame because `alt`, the dark version, and `invertInDark` ride in the snapshot's media map; `darkMediaId` must name another `ready` asset (`404`, `409 media_not_ready`, `400` for the asset itself). `MediaOrphanCollector` (section 13) is the only other writer of media state.
 
 ## 11a. Content
 

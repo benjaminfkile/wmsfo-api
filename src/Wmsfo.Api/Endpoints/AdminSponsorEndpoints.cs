@@ -856,7 +856,7 @@ select s.id, s.name, s.contact_person, s.email, s.phone, s.address,
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
        m.unreferenced_since, m.orphaned_at,
-       a.action, a.actor, a.at
+       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark
 from sponsor s
 left join media_asset m on m.id = s.logo_media_id
 left join lateral (
@@ -1032,6 +1032,8 @@ select key, value from app_setting where key in ('sponsor_linger_ms_per_dollar',
                 UnreferencedSince = reader.IsDBNull(27) ? null : reader.GetFieldValue<DateTimeOffset>(27),
                 OrphanedAt = reader.IsDBNull(28) ? null : reader.GetFieldValue<DateTimeOffset>(28),
                 Url = cdn + "/" + s3Key,
+                DarkMediaId = reader.IsDBNull(32) ? null : reader.GetGuid(32).ToString(),
+                InvertInDark = reader.GetBoolean(33),
             };
         }
         if (!reader.IsDBNull(29))

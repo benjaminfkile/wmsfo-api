@@ -435,11 +435,9 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (mediaIds.Count > 0)
         {
-            await using var cmd = new NpgsqlCommand(@"
-select id, s3_key, kind, width, height, alt, variants, dzi_key
-from media_asset
-where id = any($1) and state = 'ready'
-order by id;", conn, tx);
+            await using var cmd = new NpgsqlCommand(MediaMapRows.Select + @"
+where m.id = any($1) and m.state = 'ready'
+order by m.id;", conn, tx);
             var idsArray = mediaIds.ToArray();
             cmd.Parameters.Add(new NpgsqlParameter
             {
@@ -450,32 +448,8 @@ order by id;", conn, tx);
             var cdn = _options.CdnBaseUrl.TrimEnd('/');
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                var id = reader.GetGuid(0);
-                var key = reader.GetString(1);
-                var kind = reader.GetString(2);
-                int? width = reader.IsDBNull(3) ? null : reader.GetInt32(3);
-                int? height = reader.IsDBNull(4) ? null : reader.GetInt32(4);
-                var alt = reader.GetString(5);
-                var variantsJson = reader.GetString(6);
-                var dziKey = reader.IsDBNull(7) ? null : reader.GetString(7);
-                var variants = new SortedDictionary<string, string>(StringComparer.Ordinal);
-                using (var doc = JsonDocument.Parse(variantsJson))
-                {
-                    foreach (var e in doc.RootElement.EnumerateObject())
-                    {
-                        variants[e.Name] = cdn + "/" + e.Value.GetString();
-                    }
-                }
-                media[id.ToString()] = new MediaEntry
-                {
-                    Url = cdn + "/" + key,
-                    Kind = kind,
-                    Width = width,
-                    Height = height,
-                    Alt = alt,
-                    Variants = variants,
-                    Dzi = dziKey is null ? null : cdn + "/" + dziKey,
-                };
+                var (id, entry) = MediaMapRows.Read(reader, cdn);
+                media[id.ToString()] = entry;
             }
         }
         snap.Media = media;
