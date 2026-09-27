@@ -109,6 +109,7 @@
       "required": ["label", "href", "icon", "newTab"],
       "additionalProperties": false
     },
+    "CardOpacity": { "type": ["integer", "null"], "exclusiveMinimum": -1, "maximum": 100 },
     "Presentation": {
       "type": "object",
       "properties": {
@@ -155,7 +156,9 @@
           ]
         },
         "card": { "type": ["boolean", "null"] },
-        "iconSize": { "enum": ["sm", "md", "lg", "xl", null] }
+        "iconSize": { "enum": ["sm", "md", "lg", "xl", null] },
+        "cardOpacityLight": { "$ref": "#/$defs/CardOpacity" },
+        "cardOpacityDark": { "$ref": "#/$defs/CardOpacity" }
       },
       "required": ["width", "align", "background", "spacing", "iconBefore", "iconAfter", "anchor"],
       "additionalProperties": false

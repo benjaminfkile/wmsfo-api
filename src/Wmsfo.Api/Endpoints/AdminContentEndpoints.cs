@@ -1661,6 +1661,8 @@ values ($1, $2, $3) returning id;", conn, tx))
         // The optional keys are stored only when set.
         if (p.Card is bool card) obj["card"] = card;
         if (p.IconSize is not null) obj["iconSize"] = p.IconSize;
+        if (p.CardOpacityLight is int light) obj["cardOpacityLight"] = light;
+        if (p.CardOpacityDark is int dark) obj["cardOpacityDark"] = dark;
         return obj;
     }
 

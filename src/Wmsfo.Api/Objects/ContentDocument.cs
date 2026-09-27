@@ -39,6 +39,9 @@ public sealed class SiteTheme
     // Default true so a published document without `ornaments` still means ornaments on
     // (contracts 1.3a; introduced in contracts 15).
     [JsonPropertyOrder(2)] public bool Ornaments { get; set; } = true;
+    // Optional keys: absent when null (absent means 100, a fully opaque card fill).
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? CardOpacityLight { get; set; }
+    [JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? CardOpacityDark { get; set; }
 }
 
 public sealed class LinkValue
@@ -89,6 +92,9 @@ public sealed class Presentation
     // Optional keys: absent when null (card defaults to true, iconSize to "sm").
     [JsonPropertyOrder(7), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Card { get; set; }
     [JsonPropertyOrder(8), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? IconSize { get; set; }
+    // Optional keys: absent when null (absent falls back to the sitewide value for the theme).
+    [JsonPropertyOrder(9), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? CardOpacityLight { get; set; }
+    [JsonPropertyOrder(10), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? CardOpacityDark { get; set; }
 
     public static JsonNode BackgroundNone() => new JsonObject { ["kind"] = "none" };
 }

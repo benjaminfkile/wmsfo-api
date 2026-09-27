@@ -15,7 +15,9 @@
       "properties": {
         "snowDefault": { "type": "boolean" },
         "lightsDefault": { "type": "boolean" },
-        "ornaments": { "type": "boolean" }
+        "ornaments": { "type": "boolean" },
+        "cardOpacityLight": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/CardOpacity" },
+        "cardOpacityDark": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/CardOpacity" }
       },
       "required": ["snowDefault", "lightsDefault"],
       "additionalProperties": false

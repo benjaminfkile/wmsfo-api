@@ -367,6 +367,8 @@ type Presentation = {
   anchor: string | null;                                       // ^[a-z0-9]+(-[a-z0-9]+)*$, unique within a page
   card?: boolean | null;                                       // absent or null means true: the section renders in a card; never applied to `map`
   iconSize?: "sm" | "md" | "lg" | "xl" | null;                 // size of iconBefore and iconAfter; absent or null means "sm"
+  cardOpacityLight?: number | null;                            // integer, 0 to 100; the card fill's opacity in the light theme; absent or null means the sitewide value
+  cardOpacityDark?: number | null;                             // integer, 0 to 100; the card fill's opacity in the dark theme; absent or null means the sitewide value
 };
 type Block =
   | { kind: "heading"; level: 1 | 2 | 3; text: Inline; icon: Icon | null }
@@ -417,7 +419,13 @@ type SiteSettings = {
   homeNavLabel: Inline;                      // required; the nav entry for "/"
   logo: Icon | null;
   favicon: Icon | null;
-  theme: { snowDefault: boolean; lightsDefault: boolean; ornaments: boolean };   // seasonal layers and the background ornaments only; colours, fonts, and light/dark are the site's own (site.md 7.7)
+  theme: {                                   // seasonal layers, the background ornaments, and the card fill opacity only; colours, fonts, and light/dark are the site's own (site.md 7.7)
+    snowDefault: boolean;
+    lightsDefault: boolean;
+    ornaments: boolean;
+    cardOpacityLight?: number | null;        // integer, 0 to 100; the card fill's opacity in the light theme; absent or null means 100
+    cardOpacityDark?: number | null;         // integer, 0 to 100; the card fill's opacity in the dark theme; absent or null means 100
+  };
   navExtraLinks: Link[];                     // 0 to 5, appended after the pages
   footerLinks: Link[];                       // 0 to 10
   footerText: Inline | null;
@@ -429,9 +437,11 @@ type SiteSettings = {
 };
 ```
 
+**Card opacity.** The card's fill can be translucent, per theme, sitewide (`settings.theme.cardOpacityLight` and `cardOpacityDark`) and per section (`presentation.cardOpacityLight` and `cardOpacityDark`). All four are optional integers from 0 (a clear fill) to 100 (an opaque fill); the published document carries them only when set. For the theme in use the site resolves the value in this order: the section's value, then the sitewide value, then 100. The value is the alpha of the card's fill only: the panel colour or the `token` background. A `media` background image is the fill and is unaffected. The border, the shadow, and the content (text, icons, images, controls) stay opaque; only the fill's alpha changes. A section with `card` false has no card, so its opacity values have no effect. The range holds at both validation levels: a write with a value outside 0 to 100 is `400 validation_failed` at the field's path.
+
 `logoMedia` and `headerShowsSiteName` are optional: the published document carries them only when they are not null, and a reader treats an absent or null value as the default. `logoMedia` is a `MediaRef` like any other: publish requires a ready asset, and the snapshot's `media` map carries it. `logo` stays as it is. The hero's `showLogo: true` draws the `logoMedia` image in place of the hero `icon`, sized by the hero's `iconSize`; the pixel size of each size name is the site's (site.md), not the contract's.
 
-**Validation, two levels.** The panel and the API run the same schemas. *Draft* validation, applied to every working-set write, is the kind's schema with `required`, `minLength`, `minItems`, and `minimum` removed at every level: types, enums, and unknown properties are enforced, incompleteness is not, and references are not checked. *Publish* validation, applied by `POST /admin/content/publish` and reported by `GET /admin/content/status`, is the full schema plus: every `MediaRef` and media-sourced `Icon` names a media asset with `state = ready`; every library icon id exists; every `Link.href` and inline link matches the href rule; a site path href names an existing, non-hidden page slug; `anchor` values are unique within a page; `map` sections sit only on the `live` page; `settings` satisfies its schema. Problems are reported as `{ path, message }` with `path` a JSON pointer inside the section's `data` or `presentation`, the item's `data`, or the settings.
+**Validation, two levels.** The panel and the API run the same schemas. *Draft* validation, applied to every working-set write, is the kind's schema with `required`, `minLength`, `minItems`, and `minimum` removed at every level: types, enums, and unknown properties are enforced, incompleteness is not, and references are not checked; the card opacity fields keep their 0 to 100 range at this level too. *Publish* validation, applied by `POST /admin/content/publish` and reported by `GET /admin/content/status`, is the full schema plus: every `MediaRef` and media-sourced `Icon` names a media asset with `state = ready`; every library icon id exists; every `Link.href` and inline link matches the href rule; a site path href names an existing, non-hidden page slug; `anchor` values are unique within a page; `map` sections sit only on the `live` page; `settings` satisfies its schema. Problems are reported as `{ path, message }` with `path` a JSON pointer inside the section's `data` or `presentation`, the item's `data`, or the settings.
 
 **Extensibility rules.** A new section or block kind is one schema file, one registry entry, and one component on each side; nothing else changes. New optional fields are added to a schema with a default and need no migration, no republish, and no panel change (forms are generated from the schemas). The primitives are the only shared vocabulary; a kind never invents its own shape for an icon, a link, a media reference, or text. `schemaVersion` on the document changes only when a published document could no longer be read by the previous site; the site treats an unknown value like an unknown snapshot version (1.9).
 
@@ -2413,7 +2423,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - The route object is `{ schemaVersion, name, points[{ lat, lng, recordedAt }] }` with no other keys, 2 to 50,000 points; a re-upload with identical content returns the existing route; routes can be deleted when unreferenced. It is a flight recording for replay, export, and tests; the site never fetches it.
 - The route the public sees is a poster image: a raster media asset linked to the event as `route_image_media_id`, carried in the snapshot as `event.routeImageMediaId`, shown by `route_preview` as a picture or a pan-and-zoom viewer. The tracker shows only where Santa is; its "flight history" toggle draws the recording linked to the event as a projected route, embedded in the snapshot as `event.flightHistory` (thinned to `flight_history_max_points`) so the first snapshot fetched carries it and the admin sets it per event through `routeId`.
 - Sponsors carry no tiers. Display order is pinned sponsors by position, then amount donated descending; the carousel plays that order and never shuffles. `sponsor_year.pinned_position` and `linger_ms_override` are per year; `PUT /admin/sponsors/order/{eventYear}` sets the whole pinned list atomically.
-- Site settings carry only the seasonal layer defaults (`snowDefault`, `lightsDefault`) and the background ornaments switch (`ornaments`). Colours, type, and the light/dark/system choice are the site's own; the visitor's scheme choice is stored in the browser and never published.
+- Site settings carry only the seasonal layer defaults (`snowDefault`, `lightsDefault`), the background ornaments switch (`ornaments`), and the card fill opacity per theme (`cardOpacityLight`, `cardOpacityDark`; 1.3a). Colours, type, and the light/dark/system choice are the site's own; the visitor's scheme choice is stored in the browser and never published.
 - API keys (`wak_`) reach every admin group by capability, can carry every capability or a chosen subset, can expire, are minted only by a Cognito admin with TOTP, and can never touch the key endpoints.
 - The S3 PUT inside an admin transaction gets one attempt with a 3 s timeout so fixes never wait longer than that on the event row lock.
 - `amountDonated` is a JSON number with two decimals, parsed as decimal by the API and never computed with by clients.
