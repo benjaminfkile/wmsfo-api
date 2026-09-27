@@ -1,0 +1,9 @@
+{
+  "name": "cognito-message",
+  "private": true,
+  "type": "module",
+  "main": "index.test.mjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}
