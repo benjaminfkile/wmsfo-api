@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Wmsfo.Api.Contracts.Dtos;
 
 // POST /admin/events (contracts 4.5 Events).
@@ -9,6 +11,8 @@ public sealed class CreateEventRequest
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
     public bool InheritRoute { get; set; }
+    // IANA zone id (e.g. America/Denver) the scheduled time was entered in.
+    public string? ScheduleTimeZone { get; set; }
 }
 
 // PATCH /admin/events/{id} - any of the listed fields.
@@ -24,6 +28,10 @@ public sealed class PatchEventRequest
     // A string value sets the link (uuid) or clears it (empty string).
     // Null / absent leaves the current value unchanged.
     public string? RouteImageMediaId { get; set; }
+    // An IANA zone id sets the zone, null clears it, absent leaves the row
+    // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
+    // `ValueKind == Null` and absent yields `Undefined`.
+    public JsonElement ScheduleTimeZone { get; set; }
 }
 
 // POST /admin/events/{id}/status.

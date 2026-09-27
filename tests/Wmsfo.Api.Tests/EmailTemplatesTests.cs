@@ -97,12 +97,33 @@ public sealed class EmailTemplatesTests
     }
 
     [Fact]
-    public void StockParagraph_uses_scheduled_time_when_available()
+    public void StockParagraph_renders_in_america_denver_when_no_zone_is_set()
     {
-        var scheduled = new DateTimeOffset(2027, 12, 24, 17, 0, 0, TimeSpan.Zero);
-        var stock = EmailTemplates.StockParagraph(2, "Santa 2027", scheduled);
-        Assert.Contains("Santa 2027", stock);
-        Assert.Contains("Mountain time", stock);
+        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
+        var stock = EmailTemplates.StockParagraph(2, "Santa 2026", scheduled);
+        Assert.Contains("Santa 2026", stock);
+        Assert.Contains("Sat, Dec 19 2026 at 6:00 PM (America/Denver)", stock);
+        Assert.DoesNotContain("Mountain time", stock);
+    }
+
+    [Fact]
+    public void StockParagraph_renders_in_the_event_zone_when_set()
+    {
+        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
+        var stock = EmailTemplates.StockParagraph(2, "Santa 2026", scheduled, "America/Chicago");
+        Assert.Contains("Sat, Dec 19 2026 at 7:00 PM (America/Chicago)", stock);
+        Assert.DoesNotContain("America/Denver", stock);
+        Assert.DoesNotContain("Mountain time", stock);
+    }
+
+    [Fact]
+    public void FormatScheduleTime_falls_back_to_america_denver_for_an_unknown_zone()
+    {
+        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
+        Assert.Equal("Sat, Dec 19 2026 at 6:00 PM (America/Denver)",
+            EmailTemplates.FormatScheduleTime(scheduled, "Nowhere/Nothing"));
+        Assert.Equal("Sat, Dec 19 2026 at 6:00 PM (America/Denver)",
+            EmailTemplates.FormatScheduleTime(scheduled, null));
     }
 
     [Fact]

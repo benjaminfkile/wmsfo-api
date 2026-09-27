@@ -32,6 +32,7 @@ public sealed class Event
     public short StatusId { get; set; }
     public bool IsCurrent { get; set; }
     public DateTimeOffset? ScheduledAt { get; set; }
+    public string? ScheduleTimeZone { get; set; }
     public DateTimeOffset? WentLiveAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public int FundsPercent { get; set; }

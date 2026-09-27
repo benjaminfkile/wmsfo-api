@@ -142,6 +142,69 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
     }
 
+    [Fact]
+    public async Task Create_with_scheduleTimeZone_stores_and_returns_it()
+    {
+        var body = "{\"year\":2080,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":false,\"scheduleTimeZone\":\"America/Chicago\"}";
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal("America/Chicago", dto.RootElement.GetProperty("scheduleTimeZone").GetString());
+        var id = dto.RootElement.GetProperty("id").GetInt64();
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select schedule_time_zone from event where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        Assert.Equal("America/Chicago", await cmd.ExecuteScalarAsync());
+
+        using var req = _host!.AdminRequest(HttpMethod.Get, $"/admin/events/{id}");
+        var get = await _host.Client.SendAsync(req);
+        var got = await ReadJsonAsync(get);
+        Assert.Equal("America/Chicago", got.RootElement.GetProperty("scheduleTimeZone").GetString());
+    }
+
+    [Fact]
+    public async Task Create_unknown_scheduleTimeZone_is_400_on_that_field()
+    {
+        var body = "{\"year\":2081,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":false,\"scheduleTimeZone\":\"Mars/Olympus_Mons\"}";
+        var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var doc = await ReadJsonAsync(response);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+        Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty("scheduleTimeZone", out _));
+    }
+
+    [Fact]
+    public async Task Patch_scheduleTimeZone_sets_rejects_unknown_and_clears_with_null()
+    {
+        var id = await CreateEvent(year: 2082);
+
+        var set = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"scheduleTimeZone\":\"Europe/London\"}");
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        Assert.Equal("Europe/London", (await ReadJsonAsync(set)).RootElement.GetProperty("scheduleTimeZone").GetString());
+
+        var untouched = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"name\":\"renamed\"}");
+        Assert.Equal(HttpStatusCode.OK, untouched.StatusCode);
+        Assert.Equal("Europe/London", (await ReadJsonAsync(untouched)).RootElement.GetProperty("scheduleTimeZone").GetString());
+
+        var bad = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"scheduleTimeZone\":\"Nowhere/Nothing\"}");
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+        var badDoc = await ReadJsonAsync(bad);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, badDoc.RootElement.GetProperty("code").GetString());
+        Assert.True(badDoc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty("scheduleTimeZone", out _));
+
+        var clear = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", "{\"scheduleTimeZone\":null}");
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        Assert.Equal(JsonValueKind.Null, (await ReadJsonAsync(clear)).RootElement.GetProperty("scheduleTimeZone").ValueKind);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select schedule_time_zone from event where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        Assert.Equal(DBNull.Value, await cmd.ExecuteScalarAsync());
+    }
+
     // ---------- GET /admin/events/{id} ----------
 
     [Fact]

@@ -73,12 +73,14 @@ public sealed class EmailTemplates
 
     // The template's stock paragraph, used for {{customMessage}} when the
     // admin did not supply a custom message on the status change / notify.
-    public static string StockParagraph(int statusId, string eventName, DateTimeOffset? scheduledAt) => statusId switch
+    // The scheduled time renders in scheduleTimeZone (see FormatScheduleTime).
+    public static string StockParagraph(int statusId, string eventName, DateTimeOffset? scheduledAt,
+        string? scheduleTimeZone = null) => statusId switch
     {
         1 => $"{eventName} is on the calendar. A specific time will be announced when it is known.",
         2 => scheduledAt is null
             ? $"{eventName} is scheduled."
-            : $"{eventName} is scheduled. Lift-off is planned for {FormatMountainTime(scheduledAt.Value)} Mountain time.",
+            : $"{eventName} is scheduled. Lift-off is planned for {FormatScheduleTime(scheduledAt.Value, scheduleTimeZone)}.",
         3 => $"{eventName} is live. Watch Santa's flight now.",
         4 => $"{eventName} has ended. Thanks for flying along.",
         5 => $"{eventName} has been cancelled.",
@@ -157,21 +159,26 @@ public sealed class EmailTemplates
         });
     }
 
-    public static string FormatMountainTime(DateTimeOffset when)
+    public const string DefaultScheduleTimeZone = "America/Denver";
+
+    // The wall time of `value` in the IANA zone `zoneId`, followed by that
+    // zone's id in parentheses. A null or unresolvable zone renders in
+    // America/Denver. e.g. Sat, Dec 19 2026 at 6:00 PM (America/Denver)
+    public static string FormatScheduleTime(DateTimeOffset value, string? zoneId)
     {
-        var mountain = MountainTimeZone();
-        var local = TimeZoneInfo.ConvertTime(when.ToUniversalTime(), mountain);
-        // e.g. Fri, Dec 24 2027 at 5:00 PM MST
-        return local.ToString("ddd, MMM d yyyy 'at' h:mm tt zzz", CultureInfo.InvariantCulture);
+        var (zone, id) = ResolveScheduleZone(zoneId);
+        var local = TimeZoneInfo.ConvertTime(value.ToUniversalTime(), zone);
+        var wall = local.ToString("ddd, MMM d yyyy 'at' h:mm tt", CultureInfo.InvariantCulture);
+        return $"{wall} ({id})";
     }
 
-    private static TimeZoneInfo MountainTimeZone()
+    private static (TimeZoneInfo Zone, string Id) ResolveScheduleZone(string? zoneId)
     {
-        try { return TimeZoneInfo.FindSystemTimeZoneById("America/Denver"); }
-        catch (TimeZoneNotFoundException)
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Mountain Standard Time");
-        }
+        if (!string.IsNullOrWhiteSpace(zoneId) && TimeZoneInfo.TryFindSystemTimeZoneById(zoneId, out var found))
+            return (found, zoneId);
+        if (TimeZoneInfo.TryFindSystemTimeZoneById(DefaultScheduleTimeZone, out var fallback))
+            return (fallback, DefaultScheduleTimeZone);
+        return (TimeZoneInfo.FindSystemTimeZoneById("Mountain Standard Time"), DefaultScheduleTimeZone);
     }
 
     // First 60 characters of a message body, used as the {{messagePreview}}
