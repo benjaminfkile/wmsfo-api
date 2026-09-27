@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
@@ -1423,15 +1424,25 @@ from content_version order by id desc limit 1;", conn))
 
     // --- POST /admin/content/preview-token ---
 
+    private const int PreviewTtlDefaultMinutes = 15;
+    private const int PreviewTtlMinMinutes = 15;
+    private const int PreviewTtlMaxMinutes = 1440;
+
     private static void MapPreviewToken(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/content/preview-token",
-            async (HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections,
-                   WmsfoOptions options, CancellationToken ct) =>
+            async (PreviewTokenRequest? body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
+                var ttlMinutes = body?.TtlMinutes ?? PreviewTtlDefaultMinutes;
+                if (ttlMinutes < PreviewTtlMinMinutes || ttlMinutes > PreviewTtlMaxMinutes)
+                {
+                    RequestValidation.Throw("ttlMinutes",
+                        $"must be an integer from {PreviewTtlMinMinutes} to {PreviewTtlMaxMinutes}");
+                }
                 var minted = Keys.MintPreviewToken();
-                var expiresAt = DateTimeOffset.UtcNow.AddMinutes(15);
+                var expiresAt = DateTimeOffset.UtcNow.AddMinutes(ttlMinutes);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 long previewId;
@@ -1469,6 +1480,8 @@ values ($1, $2, $3) returning id;", conn, tx))
                 return Results.Json(dto, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminContent")
+            .Accepts<PreviewTokenRequest>(isOptional: true, "application/json")
+            .WithBodyLimit(BodyLimits.JsonDefault)
             .Produces<PreviewTokenDto>(StatusCodes.Status201Created)
             .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Content)
@@ -1517,14 +1530,41 @@ values ($1, $2, $3) returning id;", conn, tx))
                     Media = mediaMap,
                     Icons = iconsMap,
                 };
-                return Results.Ok(bundle);
+                // The ETag is the quoted sha256 hex of the exact bytes sent, so the
+                // body is serialized here with the same options Results.Ok uses.
+                var jsonOptions = ctx.RequestServices
+                    .GetService<Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>()?
+                    .Value.SerializerOptions ?? JsonSerializerOptions.Web;
+                var bytes = JsonSerializer.SerializeToUtf8Bytes(bundle, jsonOptions);
+                var etag = "\"" + CanonicalJson.Sha256Hex(bytes) + "\"";
+                ctx.Response.Headers.ETag = etag;
+                if (IfNoneMatchHits(ctx.Request, etag))
+                {
+                    return Results.StatusCode(StatusCodes.Status304NotModified);
+                }
+                return Results.Bytes(bytes, "application/json; charset=utf-8");
             })
             .WithTags("Public")
             .Produces<ContentBundleDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified)
             .RequireRateLimiting(RateLimitPolicies.PreviewPerIp);
     }
 
     // --- helpers ------------------------------------------------------------------
+
+    // True when If-None-Match lists the given strong ETag, or is `*`.
+    private static bool IfNoneMatchHits(HttpRequest request, string etag)
+    {
+        foreach (var header in request.Headers.IfNoneMatch)
+        {
+            if (string.IsNullOrEmpty(header)) continue;
+            foreach (var part in header.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (part == "*" || string.Equals(part, etag, StringComparison.Ordinal)) return true;
+            }
+        }
+        return false;
+    }
 
     private static ApiException NotFound(string message) =>
         new(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, message);

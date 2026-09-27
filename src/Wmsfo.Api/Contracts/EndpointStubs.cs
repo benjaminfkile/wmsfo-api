@@ -187,7 +187,8 @@ public static class EndpointStubs
     {
         app.MapGet("/preview/document", NotImplemented)
             .WithTags("Public")
-            .Produces<ContentBundleDto>(StatusCodes.Status200OK);
+            .Produces<ContentBundleDto>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified);
     }
 
     // Exposed for hosts that need the stub metadata (openapi export, EndpointStubTests).
@@ -246,7 +247,8 @@ public static class EndpointStubs
         {
             app.MapGet("/preview/document", NotImplemented)
                 .WithTags("Public")
-                .Produces<ContentBundleDto>(StatusCodes.Status200OK);
+                .Produces<ContentBundleDto>(StatusCodes.Status200OK)
+                .Produces(StatusCodes.Status304NotModified);
         }
     }
 
@@ -633,6 +635,7 @@ public static class EndpointStubs
 
         app.MapPost("/admin/content/preview-token", NotImplemented)
             .WithTags("AdminContent")
+            .Accepts<PreviewTokenRequest>(isOptional: true, "application/json")
             .Produces<PreviewTokenDto>(StatusCodes.Status201Created);
     }
 
