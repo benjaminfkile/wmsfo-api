@@ -505,6 +505,134 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal("xl", data.GetProperty("iconSize").GetString());
     }
 
+    // -------------------- card opacity --------------------
+
+    // Site settings with the card opacity pair save, the PUT and the GET return
+    // the pair, and the published settings carry it under `theme`.
+    [Fact]
+    public async Task Site_settings_card_opacity_pair_saves_returns_and_publishes()
+    {
+        await BootstrapFirstBootAsync();
+
+        var put = await PutSiteSettingsAsync(data =>
+        {
+            var theme = data["theme"]!.AsObject();
+            theme["cardOpacityLight"] = 80;
+            theme["cardOpacityDark"] = 0;
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        using (var saved = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
+        {
+            var theme = saved.RootElement.GetProperty("data").GetProperty("theme");
+            Assert.Equal(80, theme.GetProperty("cardOpacityLight").GetInt32());
+            Assert.Equal(0, theme.GetProperty("cardOpacityDark").GetInt32());
+            Assert.Empty(saved.RootElement.GetProperty("problems").EnumerateArray());
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, "/admin/site-settings"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var read = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var theme = read.RootElement.GetProperty("data").GetProperty("theme");
+            Assert.Equal(80, theme.GetProperty("cardOpacityLight").GetInt32());
+            Assert.Equal(0, theme.GetProperty("cardOpacityDark").GetInt32());
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var published = version.RootElement.GetProperty("settings").GetProperty("theme");
+        Assert.Equal(80, published.GetProperty("cardOpacityLight").GetInt32());
+        Assert.Equal(0, published.GetProperty("cardOpacityDark").GetInt32());
+    }
+
+    // A section presentation with the card opacity pair round-trips through the
+    // PATCH response, the admin page read, and the published document; a
+    // presentation without the pair publishes without the keys.
+    [Fact]
+    public async Task Presentation_card_opacity_pair_round_trips()
+    {
+        await BootstrapFirstBootAsync();
+        var (pageId, sectionId) = await FindSectionAsync("about", "rich_text");
+        var (_, otherId) = await FindSectionAsync("no-event", "hero");
+
+        var patch = await PatchSectionAsync(sectionId,
+            "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+            + "\"spacing\":\"normal\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null,"
+            + "\"cardOpacityLight\":100,\"cardOpacityDark\":35}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+        {
+            var pres = patched.RootElement.GetProperty("presentation");
+            Assert.Equal(100, pres.GetProperty("cardOpacityLight").GetInt32());
+            Assert.Equal(35, pres.GetProperty("cardOpacityDark").GetInt32());
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var pres = page.RootElement.GetProperty("sections").EnumerateArray()
+                .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+                .GetProperty("presentation");
+            Assert.Equal(100, pres.GetProperty("cardOpacityLight").GetInt32());
+            Assert.Equal(35, pres.GetProperty("cardOpacityDark").GetInt32());
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var published = FindPublishedPresentation(version.RootElement, sectionId);
+        Assert.Equal(100, published.GetProperty("cardOpacityLight").GetInt32());
+        Assert.Equal(35, published.GetProperty("cardOpacityDark").GetInt32());
+        var other = FindPublishedPresentation(version.RootElement, otherId);
+        Assert.False(other.TryGetProperty("cardOpacityLight", out _));
+        Assert.False(other.TryGetProperty("cardOpacityDark", out _));
+    }
+
+    // A card opacity outside 0 to 100 is 400 validation_failed on the field, for
+    // the section presentation and for the site settings theme.
+    [Theory]
+    [InlineData(101)]
+    [InlineData(-1)]
+    public async Task Card_opacity_out_of_range_is_400_on_the_field(int value)
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("about", "rich_text");
+
+        foreach (var key in new[] { "cardOpacityLight", "cardOpacityDark" })
+        {
+            var patch = await PatchSectionAsync(sectionId,
+                "{\"presentation\":{\"width\":\"wide\",\"align\":\"start\",\"background\":{\"kind\":\"none\"},"
+                + "\"spacing\":\"normal\",\"iconBefore\":null,\"iconAfter\":null,\"anchor\":null,"
+                + $"\"{key}\":{value}}}}}");
+            Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+            using (var doc = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+            {
+                Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+                Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty($"/{key}", out _));
+            }
+
+            var put = await PutSiteSettingsAsync(data => data["theme"]!.AsObject()[key] = value);
+            Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
+            using (var doc = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
+            {
+                Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+                Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields").TryGetProperty($"/theme/{key}", out _));
+            }
+        }
+    }
+
     // -------------------- site logo --------------------
 
     // Site settings with `logoMedia` naming a ready asset and `headerShowsSiteName`

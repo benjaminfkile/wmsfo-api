@@ -353,6 +353,8 @@ public sealed class PresentationDto
     public string? Anchor { get; set; }
     public bool? Card { get; set; }
     public string? IconSize { get; set; }
+    public int? CardOpacityLight { get; set; }
+    public int? CardOpacityDark { get; set; }
 }
 
 public sealed class PageAdminDto
