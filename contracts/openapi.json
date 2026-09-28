@@ -526,6 +526,25 @@
         }
       }
     },
+    "/admin/events/{id}/route-map": {
+      "get": {
+        "tags": [
+          "AdminEvents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteMapResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/events/{id}/current": {
       "post": {
         "tags": [
@@ -8020,6 +8039,99 @@
         "properties": {
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "RouteMap": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteMapPoint"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RouteMapTimelineEntry"
+            }
+          },
+          "durationMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "timed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RouteMapPoint": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "lng": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "RouteMapResponse": {
+        "type": "object",
+        "properties": {
+          "routeMap": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMap"
+              }
+            ]
+          }
+        }
+      },
+      "RouteMapTimelineEntry": {
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lat": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "lng": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },

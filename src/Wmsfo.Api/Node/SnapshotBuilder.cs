@@ -176,6 +176,7 @@ where e.is_current;", conn, tx))
                     FundsPercent = reader.GetInt32(7),
                     RouteImageMediaId = reader.IsDBNull(8) ? null : reader.GetGuid(8).ToString(),
                     FlightHistory = null,
+                    RouteMap = null,
                     LatestMessage = null,
                 };
                 currentYear = currentEvent.Year;
@@ -206,9 +207,10 @@ limit 1;", conn, tx);
             }
         }
 
-        // 4. flight history: when the current event links a route (route_id),
-        // read the route row's `name` and `s3_key`, then read the route object
-        // from the object store and thin its points. The linked route is small
+        // 4. flight history and route map: when the current event links a
+        // route (route_id), read the route row's `name` and `s3_key`, then read
+        // the route object from the object store, thin its points, and build
+        // the route map from them. The linked route is small
         // (at most 50,000 points, cap of 5 MB - contracts 1.4), so the read
         // stays cheap enough to run inside the admin transaction; api.md 10.2
         // documents this choice as the default.
@@ -229,9 +231,15 @@ limit 1;", conn, tx);
             }
             if (routeS3Key is not null)
             {
-                currentEvent.FlightHistory = await LoadFlightHistoryAsync(
-                    linkedRouteId, routeName ?? "", routeS3Key, flightHistoryMaxPoints, ct)
-                    .ConfigureAwait(false);
+                var route = await LoadRouteObjectAsync(linkedRouteId, routeS3Key, ct).ConfigureAwait(false);
+                if (route is not null)
+                {
+                    currentEvent.FlightHistory = BuildFlightHistory(
+                        linkedRouteId, routeName ?? "", route, flightHistoryMaxPoints);
+                    // The route map (contracts 1.3) is built from the same points.
+                    var mapSettings = await RouteMapSettings.ReadAsync(conn, tx, ct).ConfigureAwait(false);
+                    currentEvent.RouteMap = BuildRouteMap(linkedRouteId, route, mapSettings);
+                }
             }
         }
 
@@ -519,14 +527,11 @@ limit 1;", conn, tx);
         return Math.Max(minMs, computed);
     }
 
-    // Fetches the linked route's stored object from the object store, decodes
-    // it as a RouteObject, then thins the point list to at most `maxPoints` by
-    // keeping every `ceil(n / max)`-th point starting from the first and always
-    // including the last (contracts 1.3, api.md 10.2). A missing or unreadable
-    // object logs at Warning and leaves flightHistory null so the snapshot
-    // still commits.
-    private async Task<SnapshotFlightHistory?> LoadFlightHistoryAsync(
-        long routeId, string routeName, string s3Key, int maxPoints, CancellationToken ct)
+    // Fetches the linked route's stored object from the object store and
+    // decodes it as a RouteObject. A missing or unreadable object logs at
+    // Warning and returns null, which leaves flightHistory and routeMap null so
+    // the snapshot still commits.
+    private async Task<RouteObject?> LoadRouteObjectAsync(long routeId, string s3Key, CancellationToken ct)
     {
         try
         {
@@ -537,21 +542,38 @@ limit 1;", conn, tx);
                     "flight history route object missing; routeId={RouteId} key={Key}", routeId, s3Key);
                 return null;
             }
-            var route = JsonSerializer.Deserialize<RouteObject>(content.Bytes, ContentReadOptions);
-            if (route is null) return null;
-            var thinned = ThinPoints(route.Points, maxPoints);
-            var name = string.IsNullOrEmpty(routeName) ? route.Name : routeName;
-            return new SnapshotFlightHistory
-            {
-                RouteId = routeId,
-                Name = name,
-                Points = thinned,
-            };
+            return JsonSerializer.Deserialize<RouteObject>(content.Bytes, ContentReadOptions);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "flight history load failed; routeId={RouteId} key={Key}", routeId, s3Key);
+            return null;
+        }
+    }
+
+    // The route's points thinned to at most `maxPoints` by keeping every
+    // `ceil(n / max)`-th point starting from the first and always including
+    // the last (contracts 1.3, api.md 10.2).
+    private static SnapshotFlightHistory BuildFlightHistory(
+        long routeId, string routeName, RouteObject route, int maxPoints) => new()
+    {
+        RouteId = routeId,
+        Name = string.IsNullOrEmpty(routeName) ? route.Name : routeName,
+        Points = ThinPoints(route.Points, maxPoints),
+    };
+
+    // The route map of contracts 1.3; a build failure logs at Warning and
+    // leaves routeMap null so the snapshot still commits.
+    private RouteMap? BuildRouteMap(long routeId, RouteObject route, RouteMapSettings settings)
+    {
+        try
+        {
+            return RouteMapBuilder.Build(route.Points, settings);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "route map build failed; routeId={RouteId}", routeId);
             return null;
         }
     }

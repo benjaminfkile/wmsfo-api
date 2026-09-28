@@ -70,7 +70,10 @@ public sealed class SnapshotEvent
     [JsonPropertyOrder(7)] public int FundsPercent { get; set; }
     [JsonPropertyOrder(8)] public string? RouteImageMediaId { get; set; }
     [JsonPropertyOrder(9)] public SnapshotFlightHistory? FlightHistory { get; set; }
-    [JsonPropertyOrder(10)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    // The linked recording processed for the route map (contracts 1.3); null
+    // when no recording is linked.
+    [JsonPropertyOrder(10)] public RouteMap? RouteMap { get; set; }
+    [JsonPropertyOrder(11)] public SnapshotLatestMessage? LatestMessage { get; set; }
 }
 
 public sealed class SnapshotFlightHistory
@@ -85,6 +88,29 @@ public sealed class SnapshotFlightPoint
     [JsonPropertyOrder(0)] public double Lat { get; set; }
     [JsonPropertyOrder(1)] public double Lng { get; set; }
     [JsonPropertyOrder(2)] public DateTimeOffset? RecordedAt { get; set; }
+}
+
+// A recording processed for the site's route map (contracts 1.3): the smoothed
+// path, the position at every 5 minute mark, and the duration in whole minutes.
+public sealed class RouteMap
+{
+    [JsonPropertyOrder(0)] public IList<RouteMapPoint> Path { get; set; } = new List<RouteMapPoint>();
+    [JsonPropertyOrder(1)] public IList<RouteMapTimelineEntry> Timeline { get; set; } = new List<RouteMapTimelineEntry>();
+    [JsonPropertyOrder(2)] public int DurationMinutes { get; set; }
+    [JsonPropertyOrder(3)] public bool Timed { get; set; }
+}
+
+public sealed class RouteMapPoint
+{
+    [JsonPropertyOrder(0)] public double Lat { get; set; }
+    [JsonPropertyOrder(1)] public double Lng { get; set; }
+}
+
+public sealed class RouteMapTimelineEntry
+{
+    [JsonPropertyOrder(0)] public int Minutes { get; set; }
+    [JsonPropertyOrder(1)] public double Lat { get; set; }
+    [JsonPropertyOrder(2)] public double Lng { get; set; }
 }
 
 public sealed class SnapshotLatestMessage

@@ -135,6 +135,25 @@ public static class FixtureData
                         new() { Lat = 46.8730, Lng = -114.0030, RecordedAt = DateTimeOffset.Parse("2025-12-22T01:31:37.000Z") },
                     },
                 },
+                RouteMap = new RouteMap
+                {
+                    Path = new List<RouteMapPoint>
+                    {
+                        new() { Lat = 46.8721, Lng = -114.0012 },
+                        new() { Lat = 46.874032, Lng = -114.008311 },
+                        new() { Lat = 46.879514, Lng = -114.015027 },
+                        new() { Lat = 46.886203, Lng = -114.017446 },
+                    },
+                    Timeline = new List<RouteMapTimelineEntry>
+                    {
+                        new() { Minutes = 0,  Lat = 46.8721,   Lng = -114.0012 },
+                        new() { Minutes = 5,  Lat = 46.874818, Lng = -114.009274 },
+                        new() { Minutes = 10, Lat = 46.881297, Lng = -114.015672 },
+                        new() { Minutes = 12, Lat = 46.886203, Lng = -114.017446 },
+                    },
+                    DurationMinutes = 12,
+                    Timed = true,
+                },
                 LatestMessage = new SnapshotLatestMessage
                 {
                     Id = 12,

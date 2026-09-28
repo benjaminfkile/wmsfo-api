@@ -25,6 +25,11 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Every test class holds its own database and connection pools; four classes at a time stay inside a 50 connection server. -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wmsfo.Api\Wmsfo.Api.csproj" />
     <ProjectReference Include="..\..\tools\Wmsfo.Migrate\Wmsfo.Migrate.csproj" />

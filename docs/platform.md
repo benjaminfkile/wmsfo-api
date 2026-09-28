@@ -25,6 +25,7 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | `<cognito-prefix>` | The hosted UI domain prefix; `<cognito-domain>` is `<cognito-prefix>.auth.<region>.amazoncognito.com`. |
 | `<asg-name>` | The gateway fleet's Auto Scaling group. |
 | `<distribution-arn>` | The CloudFront distribution's ARN, used by the bucket policy's origin access control condition. |
+| `<basemap-build-url>` | A published OpenStreetMap basemap build in PMTiles form, the source of the route basemap extract (1.8). |
 
 ### 0.2 What differs between dev and prod
 
@@ -89,7 +90,7 @@ Every object is written with exactly these `PutObject` parameters. `{sha256}` is
 | `icons/{sha256}.svg` | `image/svg+xml` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per icon library change | Never |
 | `email/{sha256}.png` | `image/png` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per email logo change (`templates/email/logo.png`; written when the key is absent) | Never |
 
-No prefix other than `live/`, `snapshots/`, `routes/`, `media/`, `icons/`, and `email/` is written. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
+No prefix other than `live/`, `snapshots/`, `routes/`, `media/`, `icons/`, and `email/` is written by the API; the operator uploads `basemap/` by hand (1.8) and nothing else writes, tags, or deletes under it. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
 
 `PutObject` call shape the API uses for every JSON object:
 
@@ -242,6 +243,31 @@ curl -si -X OPTIONS -H "Origin: https://<admin-domain>" -H "Access-Control-Reque
 # the lifecycle rules exist
 aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
 # expect: wmsfo-media-pending (Tag state=pending, Expiration Days 1), wmsfo-media-orphaned (Tag state=orphaned, Expiration Days 7)
+```
+
+### 1.8 Route basemap
+
+The `map` style of the `route_preview` section (contracts 1.3a) and the admin panel's poster generator draw `event.routeMap` over a self-hosted OpenStreetMap basemap served from the CDN, so no third-party tile service is called. The site and the panel read the folder from `VITE_ROUTE_BASEMAP_URL` (contracts 8.3, 8.4): the tiles are one PMTiles archive at `<base>/tiles.pmtiles`, read with HTTP range requests, and the labels' glyphs are at `<base>/glyphs/{fontstack}/{range}.pbf`. The value is `https://<cdn-domain>/basemap` in each environment.
+
+Build it once per region change, on the operator's machine, with the `pmtiles` CLI:
+
+```sh
+# a bounded extract of an OSM basemap build: the route region's bounding box, zoom 0 to 15
+pmtiles extract <basemap-build-url> tiles.pmtiles --bbox=<min-lng>,<min-lat>,<max-lng>,<max-lat> --maxzoom=15
+# the glyph set the basemap style names, laid out as glyphs/{fontstack}/{range}.pbf
+# (copied from the basemap build's font assets into ./glyphs)
+
+aws s3 cp tiles.pmtiles s3://<bucket>/basemap/tiles.pmtiles \
+  --content-type application/octet-stream --cache-control "public, max-age=86400"
+aws s3 cp glyphs s3://<bucket>/basemap/glyphs --recursive \
+  --content-type application/x-protobuf --cache-control "public, max-age=86400"
+```
+
+`<basemap-build-url>` is the URL of a published OSM basemap PMTiles build; the bounding box covers every route the site shows with some margin. Then set `VITE_ROUTE_BASEMAP_URL` on the four Vercel projects of section 8 and redeploy them. After replacing either upload, invalidate `/basemap/*` on the distribution so the one day cache does not serve the old archive. Range requests and the `Access-Control-Allow-Origin: *` header of 1.6.2 need no extra distribution setting; check with:
+
+```sh
+curl -sI -H "Range: bytes=0-16383" https://<cdn-domain>/basemap/tiles.pmtiles | head -1
+# expect: HTTP/2 206
 ```
 
 ---
@@ -825,4 +851,5 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - **Prod metric filters, dashboard, and alarms.** Dev has the twelve metric filters of 10.2 on the API's log group (namespace `WMSFO/dev`) and the `wmsfo-dev` dashboard of 10.4. Prod needs the same filters in `WMSFO/prod`, the `wmsfo-prod` dashboard, and the alarms of 10.3 at cut-over.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
 - **Cognito Custom Message Lambda, prod.** Dev is done (the function, its role, invoke permissions, the trigger on both dev pools, the CI grant and secret). Prod gets its own function at cut-over, deployed by hand until the workflow deploys main, and the prod pools get the same DEVELOPER sending, identity policy condition, and trigger.
+- **Route basemap.** Build the bounded PMTiles extract and the glyph set, upload them under `basemap/` in each environment's bucket, and set `VITE_ROUTE_BASEMAP_URL` on the site and panel projects (1.8).
 - **Cut-over mail cleanup.** Remove the unused wmsfo-cognito-dev identity policy on the personal domain identity; the legacy PHP mail relay and its contact address on the old flyover domain retire with the legacy stack.
