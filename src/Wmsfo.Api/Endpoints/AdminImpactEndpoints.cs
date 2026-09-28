@@ -30,6 +30,7 @@ public static class AdminImpactEndpoints
         MapSubscriber(app);
         MapPerson(app);
         MapContactMessage(app);
+        MapPoster(app);
     }
 
     private static void MapEvent(IEndpointRouteBuilder app) => Register(app,
@@ -158,6 +159,14 @@ public static class AdminImpactEndpoints
         {
             if (!await ExistsAsync(conn, "contact_message", id, ct)) return null;
             return await ContactMessageImpactQueries.PreviewAsync(conn, null, id, ct);
+        });
+
+    private static void MapPoster(IEndpointRouteBuilder app) => Register(app,
+        "/admin/posters/{id:long}/impact", ApiKeyCapabilities.Events, AuthPolicies.Editor,
+        async (id, conn, ct) =>
+        {
+            if (!await ExistsAsync(conn, "poster", id, ct)) return null;
+            return await PosterImpactQueries.PreviewAsync(conn, null, id, ct);
         });
 
     private static void Register(

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Contracts.Dtos;
@@ -16,7 +17,9 @@ public sealed class CreateEventRequest
     public string? ScheduleTimeZone { get; set; }
 }
 
-// PATCH /admin/events/{id} - any of the listed fields.
+// PATCH /admin/events/{id} - any of the listed fields; any other field is
+// 400 validation_failed.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PatchEventRequest
 {
     public string? Name { get; set; }
@@ -37,10 +40,6 @@ public sealed class PatchEventRequest
     // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
     // `ValueKind == Null` and absent yields `Undefined`.
     public JsonElement ScheduleTimeZone { get; set; }
-    // A JSON object sets the poster layout, null clears it, absent leaves
-    // the row unchanged (the same bare JsonElement convention). The API
-    // stores it opaquely; it never reaches the snapshot.
-    public JsonElement PosterLayout { get; set; }
 }
 
 // POST /admin/events/{id}/status.
@@ -89,8 +88,9 @@ public sealed class PatchEventMessageRequest
     public DateTimeOffset? EventTime { get; set; }
 }
 
-// GET /admin/events/{id}/route-map: the event's route map (contracts 1.3), or
-// null when no recording is linked.
+// GET /admin/events/{id}/route-map and GET /admin/routes/{id}/route-map: the
+// route map (contracts 1.3) of the event's linked recording or of the route
+// itself; null when the event has no recording linked.
 public sealed class RouteMapResponse
 {
     public RouteMap? RouteMap { get; set; }

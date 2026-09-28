@@ -128,6 +128,8 @@ public sealed class A25Host : IAsyncDisposable
         AdminRouteEndpoints.MapAll(app);
         AdminSponsorEndpoints.MapAll(app);
         AdminSettingsEndpoints.MapAll(app);
+        AdminPosterEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()

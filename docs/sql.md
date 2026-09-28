@@ -33,6 +33,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `event_status_history` | Every status change, and every later announcement of a status, with whether subscribers were told | Status change and notify transactions | hundreds |
 | `event_message` | Messages shown on the site | Admin writes; migration tool | hundreds |
 | `route` | Uploaded route objects (metadata; bytes live on the CDN) | Route upload; migration tool | tens |
+| `poster` | The admin panel's poster documents: a name, an optional recording, the opaque layout | `/admin/posters` writes; route delete (unlinks) | tens |
 | `beacon` | Trusted senders, hashed key, telemetry, health stamps | Admin writes; ingest; heartbeat; chores | tens |
 | `beacon_enrollment_token` | One-time QR enrollment tokens | Beacon create, rotate, enroll; nightly cleanup | tens |
 | `beacon_log` | Red-Nose debug log uploads | `POST /beacons/logs`; nightly cleanup | tens per month |
@@ -124,7 +125,6 @@ create table event (
   status_notified_at timestamptz,
   next_seq      bigint not null default 1,
   latest_fix    jsonb,
-  poster_layout jsonb,
   created_by    text not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -144,7 +144,6 @@ comment on column event.route_image_media_id is 'The route poster the site shows
 comment on column event.status_notified_at is 'When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.';
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
 comment on column event.latest_fix is 'The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).';
-comment on column event.poster_layout is 'The admin panel''s poster composer layout, stored opaquely (contracts 4.5). A JSON object of at most 32 KB canonical; never in the snapshot or on the site.';
 ```
 
 ### 3.4 `event_status_history`
@@ -793,6 +792,26 @@ comment on table qr_scan is 'A public visit to a printed address. Salted IP hash
 
 On the columns: `place.parent_id` cascades, so deleting a place takes its subtree; `qr_attachment.place_id` sets null on delete, so a stay outlives its place (the API answers `placeId` null and an empty `placePath`); `qr_attachment.to_at` null marks the open attachment (one per code by the partial unique index); `qr_scan.ip_hash` is a salted hash and the row holds nothing else about the visitor; `qr_scan` and `audit_log` are never pruned.
 
+### 3.31 `poster`
+
+```sql
+create table poster (
+  id         bigint generated always as identity primary key,
+  name       text not null check (char_length(name) between 1 and 200),
+  route_id   bigint references route (id) on delete set null,
+  layout     jsonb,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+comment on table poster is 'A poster the admin panel composes: a name, an optional flight recording for its map, and the panel''s layout document. Admin only; never in the snapshot or on the site.';
+comment on column poster.route_id is 'The flight recording the poster''s map is built from; null when unlinked. Set null when the route is deleted.';
+comment on column poster.layout is 'The admin panel''s poster composer layout, stored opaquely (contracts 4.5 Posters). A JSON object of at most 32 KB canonical; null when unset.';
+```
+
+The check is named `poster_name_check`. `created_by` is the audit text of contracts 3.1 (the email claim or `key:<name>`), like `place` and `qr_code`; every write also records an `audit_log` row with entity `poster`. The list reads `order by id desc` over a table of tens of rows, so no index beyond the primary key; `route_id` sets null on delete like `event.route_id`, which is not indexed either.
+
 
 ## 4. Indexes
 
@@ -804,6 +823,7 @@ Every index, including the ones created implicitly by primary keys and unique co
 |---|---|---|
 | `event_status_pkey`, `event_status_name_key` | pk `(id)`, unique `(name)` | FK checks |
 | `route_pkey` | pk `(id)` | lookups by id; event join |
+| `poster_pkey` | pk `(id)` | every poster read and write; the list (`order by id desc`) |
 | `route_s3_key_key` | unique `(s3_key)` | duplicate upload detection (`POST /admin/routes` looks up by `s3_key` before the PUT and maps a `23505` after it to "return the existing row") |
 | `event_pkey` | pk `(id)` | every event write; joins |
 | `event_year_key` | unique `(year)` | `409 year_taken` (pre-check plus `23505` mapping); the ordered admin list; migration idempotency |
@@ -910,6 +930,7 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 |---|---|---|---|
 | `event.status_id` | `event_status.id` | no action | lookup rows are never deleted |
 | `event.route_id` | `route.id` | set null | a deleted flight recording unlinks from its events (the delete impact lists them) |
+| `poster.route_id` | `route.id` | set null | a deleted flight recording unlinks from its posters (the delete impact lists them) |
 | `event.route_image_media_id` | `media_asset.id` | set null | a deleted poster asset unlinks from its events |
 | `event_status_history.outbox_id` | `outbox.id` | set null | the history row outlives the pruned outbox row |
 | `event_status_history.event_id` | `event.id` | cascade | history goes with the event |
@@ -1943,7 +1964,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

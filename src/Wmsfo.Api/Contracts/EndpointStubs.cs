@@ -34,7 +34,8 @@ public static class EndpointStubs
         includeAdminContentStubs: true,
         includeAdminApiKeysStubs: true,
         includeQrPlacesStubs: true,
-        includeAdminImpactStubs: true);
+        includeAdminImpactStubs: true,
+        includeAdminPostersStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -60,7 +61,8 @@ public static class EndpointStubs
         bool includeAdminContentStubs = true,
         bool includeAdminApiKeysStubs = true,
         bool includeQrPlacesStubs = true,
-        bool includeAdminImpactStubs = true)
+        bool includeAdminImpactStubs = true,
+        bool includeAdminPostersStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -87,6 +89,7 @@ public static class EndpointStubs
         if (includeRealtimeStubs) MapRealtime(app);
         if (includeQrPlacesStubs) MapQrAndPlaces(app);
         if (includeAdminImpactStubs) MapAdminImpact(app);
+        if (includeAdminPostersStubs) MapAdminPosters(app);
     }
 
     // A36 / api.md 5b: `GET /admin/<resource>/{id}/impact` per deletable
@@ -116,6 +119,7 @@ public static class EndpointStubs
         MapLong(app, "/admin/subscribers/{id:long}/impact");
         MapLong(app, "/admin/people/{id:long}/impact");
         MapLong(app, "/admin/contact-messages/{id:long}/impact");
+        MapLong(app, "/admin/posters/{id:long}/impact");
     }
 
     // A33: QR codes, places, and the public scan beacon. Real handlers live in
@@ -380,6 +384,10 @@ public static class EndpointStubs
         app.MapGet("/admin/routes/{id:long}", NotImplemented)
             .WithTags("AdminRoutes")
             .Produces<RouteDto>(StatusCodes.Status200OK);
+
+        app.MapGet("/admin/routes/{id:long}/route-map", NotImplemented)
+            .WithTags("AdminRoutes")
+            .Produces<RouteMapResponse>(StatusCodes.Status200OK);
 
         app.MapPost("/admin/routes", NotImplemented)
             .WithTags("AdminRoutes")
@@ -727,6 +735,31 @@ public static class EndpointStubs
 
         app.MapDelete("/admin/people/{id:long}", NotImplemented)
             .WithTags("AdminInbox")
+            .Produces(StatusCodes.Status204NoContent);
+    }
+
+    private static void MapAdminPosters(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/posters", NotImplemented)
+            .WithTags("AdminPosters")
+            .Produces<ItemsResponse<PosterSummaryDto>>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/posters", NotImplemented)
+            .WithTags("AdminPosters")
+            .Accepts<CreatePosterRequest>("application/json")
+            .Produces<PosterDto>(StatusCodes.Status201Created);
+
+        app.MapGet("/admin/posters/{id:long}", NotImplemented)
+            .WithTags("AdminPosters")
+            .Produces<PosterDto>(StatusCodes.Status200OK);
+
+        app.MapPatch("/admin/posters/{id:long}", NotImplemented)
+            .WithTags("AdminPosters")
+            .Accepts<PatchPosterRequest>("application/json")
+            .Produces<PosterDto>(StatusCodes.Status200OK);
+
+        app.MapDelete("/admin/posters/{id:long}", NotImplemented)
+            .WithTags("AdminPosters")
             .Produces(StatusCodes.Status204NoContent);
     }
 

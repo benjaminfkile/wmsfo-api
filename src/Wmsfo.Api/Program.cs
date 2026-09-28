@@ -324,6 +324,8 @@ AdminAuditEndpoints.MapAll(app);
 // A33: QR codes, places, and the public scan beacon (contracts 4.5a).
 QrEndpoints.MapAll(app);
 PlaceEndpoints.MapAll(app);
+// Posters: the admin panel's poster documents (contracts 4.5 Posters).
+AdminPosterEndpoints.MapAll(app);
 // A36: `GET /admin/<resource>/{id}/impact` previews for every deletable
 // resource (contracts 4.5 Delete impact, api.md 5b).
 AdminImpactEndpoints.MapAll(app);
@@ -348,7 +350,8 @@ EndpointStubs.MapAll(app,
     includeAdminContentStubs: false,
     includeAdminApiKeysStubs: false,
     includeQrPlacesStubs: false,
-    includeAdminImpactStubs: false);
+    includeAdminImpactStubs: false,
+    includeAdminPostersStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

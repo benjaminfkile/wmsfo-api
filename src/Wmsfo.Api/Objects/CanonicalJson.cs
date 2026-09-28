@@ -41,8 +41,8 @@ public static class CanonicalJson
     public static byte[] SerializeToUtf8Bytes<T>(T value) =>
         JsonSerializer.SerializeToUtf8Bytes(value, Options);
 
-    // An opaque JSON document (one the API stores without a DTO, such as an
-    // event's posterLayout) in canonical form: object properties in ascending
+    // An opaque JSON document (one the API stores without a DTO, such as a
+    // poster's layout) in canonical form: object properties in ascending
     // ordinal order at every depth (the last of duplicate names wins), no
     // indentation, the default encoder, numbers written as they were read.
     public static byte[] SerializeOpaqueToUtf8Bytes(JsonElement value)

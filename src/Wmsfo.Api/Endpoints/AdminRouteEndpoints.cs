@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -7,6 +8,7 @@ using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Endpoints;
@@ -26,6 +28,7 @@ public static class AdminRouteEndpoints
     {
         MapList(app);
         MapGet(app);
+        MapRouteMap(app);
         MapCreate(app);
         MapFromEvent(app);
         MapDelete(app);
@@ -70,6 +73,49 @@ public static class AdminRouteEndpoints
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.Routes)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // GET /admin/routes/{id}/route-map → 200 { routeMap } built from this
+    // recording with the current route_map_* settings, exactly as the
+    // snapshot builds event.routeMap; 404 for an unknown route. Editor, so the
+    // panel's poster composer renders any recording's map.
+    private static void MapRouteMap(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/routes/{id:long}/route-map",
+            async (long id, WmsfoConnectionStrings connections, IObjectStore store, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                string? s3Key = null;
+                await using (var cmd = new NpgsqlCommand("select s3_key from route where id = $1;", conn))
+                {
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    s3Key = await cmd.ExecuteScalarAsync(ct) as string;
+                }
+                if (s3Key is null)
+                    throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
+                var routeMap = await BuildRouteMapAsync(conn, store, s3Key, ct);
+                return Results.Ok(new RouteMapResponse { RouteMap = routeMap });
+            })
+            .WithTags("AdminRoutes")
+            .Produces<RouteMapResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Routes)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // Reads the route object at s3Key and builds its route map with the
+    // current route_map_* settings; null when the object cannot be read.
+    internal static async Task<RouteMap?> BuildRouteMapAsync(
+        NpgsqlConnection conn, IObjectStore store, string s3Key, CancellationToken ct)
+    {
+        var content = await store.GetObjectAsync(s3Key, ct);
+        var route = content is null
+            ? null
+            : JsonSerializer.Deserialize<RouteObject>(content.Bytes, CanonicalJson.Options);
+        if (route is null) return null;
+        var settings = await RouteMapSettings.ReadAsync(conn, null, ct);
+        return RouteMapBuilder.Build(route.Points, settings);
     }
 
     // POST /admin/routes - upload. 5 MB body limit (checked first); 400 for
@@ -164,8 +210,8 @@ order by seq;", conn))
     }
 
     // DELETE /admin/routes/{id} - preview impact + apply (no-op) + delete row
-    // + audit + delete the object (api.md 5b). event.route_id sets null on
-    // delete (contracts 4.5 Delete impact).
+    // + audit + delete the object (api.md 5b). event.route_id and
+    // poster.route_id set null on delete (contracts 4.5 Delete impact).
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/routes/{id:long}",
