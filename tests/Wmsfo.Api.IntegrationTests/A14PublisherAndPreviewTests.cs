@@ -633,6 +633,119 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         }
     }
 
+    // -------------------- route preview controls --------------------
+
+    // A route_preview section with both control switches false round-trips through
+    // the PATCH response, the admin page read, and the published document.
+    [Fact]
+    public async Task Route_preview_controls_both_false_round_trip()
+    {
+        await BootstrapFirstBootAsync();
+        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
+
+        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(
+            ",\"controls\":{\"fullscreen\":false,\"terrain\":false}"));
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+        {
+            AssertControlsBothFalse(patched.RootElement.GetProperty("data"));
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            AssertControlsBothFalse(FindAdminSectionData(page.RootElement, sectionId));
+        }
+
+        await PublishAsync();
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        AssertControlsBothFalse(FindPublishedData(version.RootElement, sectionId));
+    }
+
+    // A route_preview section without `controls` round-trips without the key.
+    [Fact]
+    public async Task Route_preview_absent_controls_round_trip_absent()
+    {
+        await BootstrapFirstBootAsync();
+        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
+
+        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(""));
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
+        {
+            Assert.False(patched.RootElement.GetProperty("data").TryGetProperty("controls", out _));
+        }
+
+        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
+        {
+            var get = await _host.Client.SendAsync(getReq);
+            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            Assert.False(FindAdminSectionData(page.RootElement, sectionId).TryGetProperty("controls", out _));
+        }
+
+        await PublishAsync();
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var published = FindPublishedData(version.RootElement, sectionId);
+        Assert.Equal("map", published.GetProperty("style").GetString());
+        Assert.False(published.TryGetProperty("controls", out _));
+    }
+
+    // A non-boolean switch and an unknown key inside `controls` are 400
+    // validation_failed on the field.
+    [Theory]
+    [InlineData("{\"fullscreen\":\"x\"}", "/controls/fullscreen")]
+    [InlineData("{\"terrain\":1}", "/controls/terrain")]
+    [InlineData("{\"satellite\":true}", "/controls/satellite")]
+    public async Task Route_preview_bad_controls_are_400_on_the_field(string controls, string field)
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
+
+        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson($",\"controls\":{controls}"));
+        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+        using var doc = JsonDocument.Parse(await patch.Content.ReadAsStringAsync());
+        Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+        var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
+        Assert.True(fields.TryGetProperty(field, out _), $"no problem on {field}: {fields}");
+    }
+
+    // A PATCH body setting route_preview data in the `map` style, with `extra`
+    // appended after `emptyText`.
+    private static string RoutePreviewDataJson(string extra) =>
+        "{\"data\":{\"heading\":\"The route\",\"style\":\"map\",\"disclaimer\":null,"
+        + "\"emptyText\":\"Soon.\"" + extra + "}}";
+
+    private static void AssertControlsBothFalse(JsonElement data)
+    {
+        var controls = data.GetProperty("controls");
+        Assert.False(controls.GetProperty("fullscreen").GetBoolean());
+        Assert.False(controls.GetProperty("terrain").GetBoolean());
+    }
+
+    private static JsonElement FindAdminSectionData(JsonElement page, long sectionId) =>
+        page.GetProperty("sections").EnumerateArray()
+            .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+            .GetProperty("data");
+
+    private static JsonElement FindPublishedData(JsonElement document, long sectionId) =>
+        document.GetProperty("pages").EnumerateArray()
+            .SelectMany(p => p.GetProperty("sections").EnumerateArray())
+            .Single(s => s.GetProperty("id").GetInt64() == sectionId)
+            .GetProperty("data");
+
+    private async Task PublishAsync()
+    {
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
     // -------------------- site logo --------------------
 
     // Site settings with `logoMedia` naming a ready asset and `headerShowsSiteName`

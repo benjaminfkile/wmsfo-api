@@ -270,6 +270,19 @@ curl -sI -H "Range: bytes=0-16383" https://<cdn-domain>/basemap/tiles.pmtiles | 
 # expect: HTTP/2 206
 ```
 
+The terrain archive sits beside the basemap at `<base>/terrain.pmtiles`: a raster-dem PMTiles archive in terrarium encoding, which the site's hillshade reads when a visitor turns on the `route_preview` terrain toggle (contracts 1.3a). The site hides the toggle when the archive is missing, so the route map works without it. The operator fetches terrarium elevation tiles from a public elevation tile set for the same bounding box as `tiles.pmtiles` at zooms 0 to 13 into an MBTiles file, converts it, and uploads it with the same Cache-Control:
+
+```sh
+# terrarium elevation tiles for the same bounding box, zoom 0 to 13, gathered into terrain.mbtiles
+# (fetched from <elevation-tiles-url>)
+pmtiles convert terrain.mbtiles terrain.pmtiles
+
+aws s3 cp terrain.pmtiles s3://<bucket>/basemap/terrain.pmtiles \
+  --content-type application/octet-stream --cache-control "public, max-age=86400"
+```
+
+`<elevation-tiles-url>` is the tile URL template of a public terrarium-encoded elevation tile set. After replacing it, invalidate `/basemap/*` as for the basemap.
+
 ---
 
 ## 2. Database
@@ -851,5 +864,5 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - **Prod metric filters, dashboard, and alarms.** Dev has the twelve metric filters of 10.2 on the API's log group (namespace `WMSFO/dev`) and the `wmsfo-dev` dashboard of 10.4. Prod needs the same filters in `WMSFO/prod`, the `wmsfo-prod` dashboard, and the alarms of 10.3 at cut-over.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
 - **Cognito Custom Message Lambda, prod.** Dev is done (the function, its role, invoke permissions, the trigger on both dev pools, the CI grant and secret). Prod gets its own function at cut-over, deployed by hand until the workflow deploys main, and the prod pools get the same DEVELOPER sending, identity policy condition, and trigger.
-- **Route basemap.** Build the bounded PMTiles extract and the glyph set, upload them under `basemap/` in each environment's bucket, and set `VITE_ROUTE_BASEMAP_URL` on the site and panel projects (1.8).
+- **Route basemap.** Build the bounded PMTiles extract, the glyph set, and the terrain archive, upload them under `basemap/` in each environment's bucket, and set `VITE_ROUTE_BASEMAP_URL` on the site and panel projects (1.8).
 - **Cut-over mail cleanup.** Remove the unused wmsfo-cognito-dev identity policy on the personal domain identity; the legacy PHP mail relay and its contact address on the old flyover domain retire with the legacy stack.
