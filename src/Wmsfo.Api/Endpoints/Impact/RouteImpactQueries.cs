@@ -4,8 +4,9 @@ using Wmsfo.Api.Contracts.Dtos;
 
 namespace Wmsfo.Api.Endpoints.Impact;
 
-// api.md 5b: routes' delete unlinks the events that reference it (FK is set
-// null); the preview lists that group so the caller sees it before the delete.
+// api.md 5b: routes' delete unlinks the events and the posters that reference
+// it (both FKs set null); the preview lists those groups so the caller sees
+// them before the delete.
 public static class RouteImpactQueries
 {
     public static async Task<DeleteImpactDto> PreviewAsync(
@@ -17,10 +18,14 @@ public static class RouteImpactQueries
             conn, tx, "event", "event", "name", "route_id = $1",
             parameters, ct).ConfigureAwait(false);
         if (events is not null) impact.Unlinks.Add(events);
+        var posters = await ImpactHelpers.CountAndNamesAsync(
+            conn, tx, "poster", "poster", "name", "route_id = $1",
+            parameters, ct).ConfigureAwait(false);
+        if (posters is not null) impact.Unlinks.Add(posters);
         return impact;
     }
 
-    // The FK sets null on delete; ApplyAsync is a no-op.
+    // The FKs set null on delete; ApplyAsync is a no-op.
     public static Task ApplyAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, long id, CancellationToken ct)
         => Task.CompletedTask;

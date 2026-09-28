@@ -42,7 +42,6 @@ public sealed class Event
     public DateTimeOffset? StatusNotifiedAt { get; set; }
     public long NextSeq { get; set; }
     public JsonDocument? LatestFix { get; set; }
-    public JsonDocument? PosterLayout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -434,6 +433,17 @@ public sealed class QrCode
     public string Note { get; set; } = "";
     public long? OpensPageId { get; set; }
     public string? ForwardUrl { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+public sealed class Poster
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public long? RouteId { get; set; }   // null when unlinked or once the route is deleted
+    public JsonDocument? Layout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

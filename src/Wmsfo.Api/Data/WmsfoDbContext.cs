@@ -57,6 +57,7 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<QrCode> QrCode => Set<QrCode>();
     public DbSet<QrAttachment> QrAttachment => Set<QrAttachment>();
     public DbSet<QrScan> QrScan => Set<QrScan>();
+    public DbSet<Poster> Poster => Set<Poster>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -129,8 +130,6 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
             e.Property(x => x.LatestFix).HasColumnType("jsonb").HasColumnName("latest_fix")
                 .HasComment("The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).");
-            e.Property(x => x.PosterLayout).HasColumnType("jsonb").HasColumnName("poster_layout")
-                .HasComment("The admin panel's poster composer layout, stored opaquely (contracts 4.5). A JSON object of at most 32 KB canonical; never in the snapshot or on the site.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
@@ -916,6 +915,28 @@ public sealed class WmsfoDbContext : DbContext
             e.HasIndex(x => new { x.EventId, x.At })
                 .HasDatabaseName("qr_scan_event")
                 .IsDescending(false, true);
+        });
+
+        // 3.31 poster
+        mb.Entity<Poster>(e =>
+        {
+            e.ToTable("poster", t =>
+            {
+                t.HasComment("A poster the admin panel composes: a name, an optional flight recording for its map, and the panel's layout document. Admin only; never in the snapshot or on the site.");
+                t.HasCheckConstraint("poster_name_check", "char_length(name) between 1 and 200");
+            });
+            e.HasKey(x => x.Id).HasName("poster_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Name).HasColumnType("text").IsRequired();
+            e.Property(x => x.RouteId).HasColumnType("bigint")
+                .HasComment("The flight recording the poster's map is built from; null when unlinked. Set null when the route is deleted.");
+            e.Property(x => x.Layout).HasColumnType("jsonb")
+                .HasComment("The admin panel's poster composer layout, stored opaquely (contracts 4.5 Posters). A JSON object of at most 32 KB canonical; null when unset.");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
+                .HasConstraintName("poster_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
         });
 
         // 3.28 icon_library_state

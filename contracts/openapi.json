@@ -878,6 +878,25 @@
         }
       }
     },
+    "/admin/routes/{id}/route-map": {
+      "get": {
+        "tags": [
+          "AdminRoutes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteMapResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/routes/from-event/{eventId}": {
       "post": {
         "tags": [
@@ -3093,6 +3112,127 @@
         }
       }
     },
+    "/admin/posters/{id}/impact": {
+      "get": {
+        "tags": [
+          "AdminImpact"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteImpactDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/posters": {
+      "get": {
+        "tags": [
+          "AdminPosters"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfPosterSummaryDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminPosters"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePosterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosterDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/posters/{id}": {
+      "get": {
+        "tags": [
+          "AdminPosters"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosterDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "AdminPosters"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchPosterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PosterDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AdminPosters"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/admin/snapshot": {
       "get": {
         "tags": [
@@ -4452,6 +4592,21 @@
           }
         }
       },
+      "CreatePosterRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "routeId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateSectionItemRequest": {
         "type": "object",
         "properties": {
@@ -4837,16 +4992,6 @@
               }
             ]
           },
-          "posterLayout": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            ]
-          },
           "createdBy": {
             "type": "string"
           },
@@ -5211,6 +5356,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PlaceDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfPosterSummaryDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PosterSummaryDto"
             }
           }
         }
@@ -6787,11 +6943,9 @@
           },
           "scheduleTimeZone": {
             "$ref": "#/components/schemas/JsonElement"
-          },
-          "posterLayout": {
-            "$ref": "#/components/schemas/JsonElement"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "PatchPageRequest": {
         "type": "object",
@@ -6880,6 +7034,24 @@
             "type": "boolean"
           }
         }
+      },
+      "PatchPosterRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "routeId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "additionalProperties": false
       },
       "PatchQrCodeRequest": {
         "type": "object",
@@ -7404,6 +7576,91 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "PosterDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "routeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "layout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
+          }
+        }
+      },
+      "PosterSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "routeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -9045,6 +9302,9 @@
     },
     {
       "name": "AdminImpact"
+    },
+    {
+      "name": "AdminPosters"
     },
     {
       "name": "AdminDiagnostics"
