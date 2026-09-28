@@ -37,6 +37,10 @@ public sealed class PatchEventRequest
     // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
     // `ValueKind == Null` and absent yields `Undefined`.
     public JsonElement ScheduleTimeZone { get; set; }
+    // A JSON object sets the poster layout, null clears it, absent leaves
+    // the row unchanged (the same bare JsonElement convention). The API
+    // stores it opaquely; it never reaches the snapshot.
+    public JsonElement PosterLayout { get; set; }
 }
 
 // POST /admin/events/{id}/status.

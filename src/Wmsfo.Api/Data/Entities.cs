@@ -42,6 +42,7 @@ public sealed class Event
     public DateTimeOffset? StatusNotifiedAt { get; set; }
     public long NextSeq { get; set; }
     public JsonDocument? LatestFix { get; set; }
+    public JsonDocument? PosterLayout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

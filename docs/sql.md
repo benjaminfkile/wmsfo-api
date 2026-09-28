@@ -124,6 +124,7 @@ create table event (
   status_notified_at timestamptz,
   next_seq      bigint not null default 1,
   latest_fix    jsonb,
+  poster_layout jsonb,
   created_by    text not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
@@ -143,6 +144,7 @@ comment on column event.route_image_media_id is 'The route poster the site shows
 comment on column event.status_notified_at is 'When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.';
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
 comment on column event.latest_fix is 'The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).';
+comment on column event.poster_layout is 'The admin panel''s poster composer layout, stored opaquely (contracts 4.5). A JSON object of at most 32 KB canonical; never in the snapshot or on the site.';
 ```
 
 ### 3.4 `event_status_history`

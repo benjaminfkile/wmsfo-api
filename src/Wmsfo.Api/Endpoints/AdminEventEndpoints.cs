@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -211,7 +212,10 @@ where e.id = $1;", conn))
 
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
     // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId,
-    // scheduleTimeZone (an IANA id sets it, null clears it).
+    // scheduleTimeZone (an IANA id sets it, null clears it), posterLayout (a
+    // JSON object of at most 32 KB canonical sets it, null clears it; stored
+    // opaquely and never in the snapshot, so a body carrying only
+    // posterLayout runs without the snapshot frame).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
     // routeImageMediaId "" clears the link; a uuid must name a ready raster asset
     // (404 media, 409 media_not_ready, 400 validation_failed for svg or gif).
@@ -263,6 +267,32 @@ where e.id = $1;", conn))
                         v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
                         break;
                 }
+                string? posterLayout = null;
+                bool setPosterLayout = false;
+                var layout = body.PosterLayout;
+                switch (layout.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Null:
+                        setPosterLayout = true;
+                        break;
+                    case JsonValueKind.Object:
+                        var canonical = CanonicalJson.SerializeOpaqueToUtf8Bytes(layout);
+                        if (canonical.Length > PosterLayoutMaxBytes)
+                        {
+                            v.Field("posterLayout", "must be at most 32768 bytes as canonical JSON");
+                        }
+                        else
+                        {
+                            posterLayout = Encoding.UTF8.GetString(canonical);
+                            setPosterLayout = true;
+                        }
+                        break;
+                    default:
+                        v.Field("posterLayout", "must be a JSON object or null");
+                        break;
+                }
                 // The three datetimes: a timestamp sets, null clears, absent
                 // leaves unchanged.
                 (bool Set, DateTimeOffset? Value) ReadInstant(JsonElement el, string field)
@@ -286,7 +316,12 @@ where e.id = $1;", conn))
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
-                var (dto, _) = await snap.RunAsync<EventDto>(async (conn, tx, token) =>
+                var onlyPosterLayout = setPosterLayout
+                    && body.Name is null && body.Year is null && body.FundsPercent is null
+                    && body.RouteId is null && body.RouteImageMediaId is null
+                    && !setScheduleTimeZone && !scheduledPatch.Set && !wentLivePatch.Set && !endedPatch.Set;
+
+                AdminSnapshotTransaction.WriteFunc<EventDto> write = async (conn, tx, token) =>
                 {
                     short currentStatus = 0;
                     DateTimeOffset? currentScheduled = null;
@@ -370,6 +405,10 @@ where e.id = $1;", conn))
                     {
                         Set($"schedule_time_zone = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)scheduleTimeZone ?? DBNull.Value });
                     }
+                    if (setPosterLayout)
+                    {
+                        Set($"poster_layout = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)posterLayout ?? DBNull.Value });
+                    }
 
                     sets.Add("updated_at = now()");
                     var setClause = string.Join(", ", sets);
@@ -389,7 +428,10 @@ where e.id = $1;", conn))
                         before, updated, token);
                     updated.Audit = stamp;
                     return updated;
-                }, ct);
+                };
+                var dto = onlyPosterLayout
+                    ? await snap.RunWithoutSnapshotAsync(write, ct)
+                    : (await snap.RunAsync(write, ct)).Value;
                 return Results.Ok(dto);
             })
             .WithTags("AdminEvents")
@@ -1524,7 +1566,8 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
        m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
-       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id
+       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id,
+       e.poster_layout
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id
@@ -1533,6 +1576,9 @@ left join lateral (
   where entity = 'event' and entity_id = e.id::text
   order by id desc limit 1
 ) a on true";
+
+    // The largest posterLayout accepted, in bytes of its canonical JSON.
+    private const int PosterLayoutMaxBytes = 32 * 1024;
 
     // A scheduleTimeZone value: a zone id the runtime resolves, such as
     // America/Denver.
@@ -1572,6 +1618,12 @@ left join lateral (
             StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
             ScheduleTimeZone = reader.IsDBNull(39) ? null : reader.GetString(39),
         };
+        if (!reader.IsDBNull(41))
+        {
+            using var stored = JsonDocument.Parse(reader.GetString(41));
+            using var canonical = JsonDocument.Parse(CanonicalJson.SerializeOpaqueToUtf8Bytes(stored.RootElement));
+            dto.PosterLayout = canonical.RootElement.Clone();
+        }
         if (!reader.IsDBNull(34))
         {
             dto.Audit = new AuditStampDto

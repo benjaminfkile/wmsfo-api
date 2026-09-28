@@ -4837,6 +4837,16 @@
               }
             ]
           },
+          "posterLayout": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
           "createdBy": {
             "type": "string"
           },
@@ -6776,6 +6786,9 @@
             ]
           },
           "scheduleTimeZone": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "posterLayout": {
             "$ref": "#/components/schemas/JsonElement"
           }
         }
