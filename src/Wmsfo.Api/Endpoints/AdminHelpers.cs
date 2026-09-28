@@ -132,6 +132,26 @@ public sealed class AdminSnapshotTransaction
         }
     }
 
+    // Runs the caller's write in a plain transaction with no snapshot lock,
+    // rebuild, or live-object write, for a write that changes nothing the
+    // snapshot carries. The same constraint mapping applies.
+    public async Task<T> RunWithoutSnapshotAsync<T>(WriteFunc<T> write, CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = new NpgsqlConnection(_connections.App);
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+            await using var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false);
+            var value = await write(conn, tx, ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            return value;
+        }
+        catch (PostgresException ex) when (ConstraintErrorMapping.Map(ex) is { } mapped)
+        {
+            throw mapped;
+        }
+    }
+
     // Overload for a write with no return value (e.g., DELETE handlers).
     public async Task<long> RunAsync(WriteFunc<object?> write, CancellationToken ct)
     {

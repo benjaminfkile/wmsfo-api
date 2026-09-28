@@ -41,6 +41,50 @@ public static class CanonicalJson
     public static byte[] SerializeToUtf8Bytes<T>(T value) =>
         JsonSerializer.SerializeToUtf8Bytes(value, Options);
 
+    // An opaque JSON document (one the API stores without a DTO, such as an
+    // event's posterLayout) in canonical form: object properties in ascending
+    // ordinal order at every depth (the last of duplicate names wins), no
+    // indentation, the default encoder, numbers written as they were read.
+    public static byte[] SerializeOpaqueToUtf8Bytes(JsonElement value)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
+        {
+            Encoder = JavaScriptEncoder.Default,
+            Indented = false,
+        }))
+        {
+            WriteOpaque(writer, value);
+        }
+        return buffer.WrittenSpan.ToArray();
+    }
+
+    private static void WriteOpaque(Utf8JsonWriter writer, JsonElement value)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var properties = new SortedDictionary<string, JsonElement>(StringComparer.Ordinal);
+                foreach (var property in value.EnumerateObject()) properties[property.Name] = property.Value;
+                writer.WriteStartObject();
+                foreach (var (name, child) in properties)
+                {
+                    writer.WritePropertyName(name);
+                    WriteOpaque(writer, child);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var child in value.EnumerateArray()) WriteOpaque(writer, child);
+                writer.WriteEndArray();
+                break;
+            default:
+                value.WriteTo(writer);
+                break;
+        }
+    }
+
     public static string Sha256Hex(byte[] bytes) =>
         Convert.ToHexStringLower(SHA256.HashData(bytes));
 

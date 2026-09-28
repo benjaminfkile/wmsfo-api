@@ -25,6 +25,9 @@ public sealed class EventDto
     public string? RouteUrl { get; set; }
     public string? RouteImageMediaId { get; set; }
     public MediaAssetDto? RouteImage { get; set; }
+    // The admin panel's poster composer layout, an opaque JSON object in
+    // canonical form (properties in ordinal order); null when unset.
+    public JsonElement? PosterLayout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
