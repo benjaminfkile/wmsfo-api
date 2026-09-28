@@ -815,7 +815,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 
 ## 17. Needs a decision
 
-Nothing at the moment. Add here as it comes up.
+- **A new home for the mailboxes when WorkMail sunsets.** WorkMail is closed to new customers and will eventually end for existing ones. The organization holds four mailboxes (three on the personal domain, plus contact-us@<mail-domain>); they migrate together to whatever replaces it. Nothing to do until AWS names a date.
 
 ## 18. Operator to-do
 
@@ -824,4 +824,5 @@ Nothing at the moment. Add here as it comes up.
 - **SES daily quota.** Raise the account's daily sending quota above 100,000 before the event (section 5); it is 50,000.
 - **Prod metric filters, dashboard, and alarms.** Dev has the twelve metric filters of 10.2 on the API's log group (namespace `WMSFO/dev`) and the `wmsfo-dev` dashboard of 10.4. Prod needs the same filters in `WMSFO/prod`, the `wmsfo-prod` dashboard, and the alarms of 10.3 at cut-over.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
-- **Cognito Custom Message Lambda.** Create `wmsfo-cognito-message-dev` (Node.js 22, handler `index.handler`) with its execution role (6.2a) and environment variables `CDN_BASE_URL`, `SITE_BASE_URL`, and `PANEL_BASE_URL` (9.1a); grant `cognito-idp.amazonaws.com` invoke permission for the dev people and admin pools and set it as their Custom Message trigger; add `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on it to the CI role; set the `dev` environment secret `COGNITO_MESSAGE_FUNCTION` to its name. Prod gets its own function at cut-over, deployed by hand until the workflow deploys `main`.
+- **Cognito Custom Message Lambda, prod.** Dev is done (the function, its role, invoke permissions, the trigger on both dev pools, the CI grant and secret). Prod gets its own function at cut-over, deployed by hand until the workflow deploys main, and the prod pools get the same DEVELOPER sending, identity policy condition, and trigger.
+- **Cut-over mail cleanup.** Remove the unused wmsfo-cognito-dev identity policy on the personal domain identity; the legacy PHP mail relay and its contact address on the old flyover domain retire with the legacy stack.
