@@ -15,6 +15,32 @@
         "terrain": { "type": "boolean" }
       },
       "additionalProperties": false
+    },
+    "landmarks": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[\\s\\S]+$" },
+          "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+          "lng": { "type": "number", "minimum": -180, "maximum": 180 }
+        },
+        "required": ["name", "lat", "lng"],
+        "additionalProperties": false
+      }
+    },
+    "pois": {
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[a-z0-9_]+$" }
+        }
+      },
+      "required": ["kinds"],
+      "additionalProperties": false
     }
   },
   "required": ["heading", "style", "disclaimer", "emptyText"],
