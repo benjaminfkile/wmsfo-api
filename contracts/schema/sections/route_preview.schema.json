@@ -7,7 +7,15 @@
     "heading": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/InlineNullable" },
     "style": { "enum": ["image", "viewer", "map"] },
     "disclaimer": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/InlineNullable" },
-    "emptyText": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Inline" }
+    "emptyText": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Inline" },
+    "controls": {
+      "type": "object",
+      "properties": {
+        "fullscreen": { "type": "boolean" },
+        "terrain": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
   },
   "required": ["heading", "style", "disclaimer", "emptyText"],
   "additionalProperties": false
