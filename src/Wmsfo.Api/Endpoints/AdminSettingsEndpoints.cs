@@ -9,6 +9,7 @@ using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Node;
 
 namespace Wmsfo.Api.Endpoints;
 
@@ -41,6 +42,9 @@ public static class AdminSettingsEndpoints
         new("location_min_interval_ms",     250,    0,  60000),
         new("location_min_distance_m",        0,    0,  10000, IsInteger: false),
         new("hub_enabled",                    1,    0,      1, IsBoolean: true),
+        new(RouteMapSettings.SimplifyToleranceKey, RouteMapSettings.DefaultSimplifyToleranceM,     1,   500),
+        new(RouteMapSettings.MaxPointsKey,         RouteMapSettings.DefaultMaxPoints,            100, 10000),
+        new(RouteMapSettings.DefaultDurationKey,   RouteMapSettings.DefaultDefaultDurationMinutes, 10, 720),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =

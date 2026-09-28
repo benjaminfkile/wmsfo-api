@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Contracts.Dtos;
 
@@ -82,4 +83,11 @@ public sealed class PatchEventMessageRequest
 {
     public string? Body { get; set; }
     public DateTimeOffset? EventTime { get; set; }
+}
+
+// GET /admin/events/{id}/route-map: the event's route map (contracts 1.3), or
+// null when no recording is linked.
+public sealed class RouteMapResponse
+{
+    public RouteMap? RouteMap { get; set; }
 }

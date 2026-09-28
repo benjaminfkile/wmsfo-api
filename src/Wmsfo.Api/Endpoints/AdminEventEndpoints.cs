@@ -9,6 +9,7 @@ using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Endpoints;
@@ -24,6 +25,7 @@ public static class AdminEventEndpoints
         MapList(app);
         MapCreate(app);
         MapGet(app);
+        MapRouteMap(app);
         MapPatch(app);
         MapDelete(app);
         MapCurrent(app);
@@ -152,6 +154,57 @@ returning id;", conn, tx))
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // GET /admin/events/{id}/route-map → 200 { routeMap } for any event, built
+    // exactly as the snapshot's event.routeMap from the event's linked
+    // recording and the current settings; routeMap is null when no recording
+    // is linked or its object cannot be read. 404 for an unknown event.
+    private static void MapRouteMap(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/events/{id:long}/route-map",
+            async (long id, WmsfoConnectionStrings connections, IObjectStore store, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                bool found = false;
+                string? s3Key = null;
+                await using (var cmd = new NpgsqlCommand(@"
+select r.s3_key
+from event e
+left join route r on r.id = e.route_id
+where e.id = $1;", conn))
+                {
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    await using var reader = await cmd.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct))
+                    {
+                        found = true;
+                        s3Key = reader.IsDBNull(0) ? null : reader.GetString(0);
+                    }
+                }
+                if (!found) throw NotFound();
+
+                RouteMap? routeMap = null;
+                if (s3Key is not null)
+                {
+                    var content = await store.GetObjectAsync(s3Key, ct);
+                    var route = content is null
+                        ? null
+                        : JsonSerializer.Deserialize<RouteObject>(content.Bytes, CanonicalJson.Options);
+                    if (route is not null)
+                    {
+                        var settings = await RouteMapSettings.ReadAsync(conn, null, ct);
+                        routeMap = RouteMapBuilder.Build(route.Points, settings);
+                    }
+                }
+                return Results.Ok(new RouteMapResponse { RouteMap = routeMap });
+            })
+            .WithTags("AdminEvents")
+            .Produces<RouteMapResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
             .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }

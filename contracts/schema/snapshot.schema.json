@@ -90,6 +90,54 @@
           },
           "additionalProperties": false
         },
+        "routeMap": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "path": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "timeline": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "minutes": {
+                    "type": "integer"
+                  },
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "durationMinutes": {
+              "type": "integer"
+            },
+            "timed": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
         "latestMessage": {
           "type": [
             "object",

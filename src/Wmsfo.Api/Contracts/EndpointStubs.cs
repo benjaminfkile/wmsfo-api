@@ -304,6 +304,10 @@ public static class EndpointStubs
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK);
 
+        app.MapGet("/admin/events/{id:long}/route-map", NotImplemented)
+            .WithTags("AdminEvents")
+            .Produces<RouteMapResponse>(StatusCodes.Status200OK);
+
         app.MapPatch("/admin/events/{id:long}", NotImplemented)
             .WithTags("AdminEvents")
             .Accepts<PatchEventRequest>("application/json")

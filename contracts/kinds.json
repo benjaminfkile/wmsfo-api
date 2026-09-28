@@ -233,7 +233,7 @@
     {
       "kind": "route_preview",
       "title": "Route preview",
-      "description": "This year's route poster as a linked picture or a pan-and-zoom viewer.",
+      "description": "This year's route poster as a linked picture or a pan-and-zoom viewer, or the flight recording as a map with a time slider.",
       "live": true,
       "hasItems": false,
       "allowedRoles": null,

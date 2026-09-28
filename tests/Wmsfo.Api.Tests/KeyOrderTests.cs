@@ -38,10 +38,13 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "routeImageMediaId", "flightHistory", "latestMessage",
+            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "latestMessage",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
+        var expectedRouteMap = new[] { "path", "timeline", "durationMinutes", "timed" };
+        var expectedRouteMapPoint = new[] { "lat", "lng" };
+        var expectedTimelineEntry = new[] { "minutes", "lat", "lng" };
         var expectedLatestMessage = new[] { "id", "body", "eventTime", "createdAt" };
         var expectedSponsor = new[]
         {
@@ -55,6 +58,10 @@ public class KeyOrderTests
         Assert.Equal(expectedEvent, KeysOf(root.GetProperty("event")));
         Assert.Equal(expectedFlightHistory, KeysOf(root.GetProperty("event").GetProperty("flightHistory")));
         Assert.Equal(expectedFlightPoint, KeysOf(root.GetProperty("event").GetProperty("flightHistory").GetProperty("points")[0]));
+        var routeMap = root.GetProperty("event").GetProperty("routeMap");
+        Assert.Equal(expectedRouteMap, KeysOf(routeMap));
+        Assert.Equal(expectedRouteMapPoint, KeysOf(routeMap.GetProperty("path")[0]));
+        Assert.Equal(expectedTimelineEntry, KeysOf(routeMap.GetProperty("timeline")[0]));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));
