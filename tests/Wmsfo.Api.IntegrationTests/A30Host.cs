@@ -112,6 +112,7 @@ public sealed class A30Host : IAsyncDisposable
             .UseSnakeCaseNamingConvention());
         builder.Services.AddSingleton<IServerClock, SystemServerClock>();
         builder.Services.AddSingleton(sp => IconLibrary.Load(TestPaths.IconsDir, options.CdnBaseUrl));
+        builder.Services.AddSingleton(SharedContent.Validator);
         builder.Services.AddSingleton<SnapshotBuilder>();
         builder.Services.AddSingleton<LiveObjectWriter>();
         builder.Services.AddSingleton<BeaconRateLimiter>();

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
@@ -157,7 +158,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
         // 2. current event (nullable).
         await using (var cmd = new NpgsqlCommand(@"
 select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.route_image_media_id, e.route_id
+       e.funds_percent, e.route_image_media_id, e.route_id, e.route_map_config
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -177,6 +178,7 @@ where e.is_current;", conn, tx))
                     RouteImageMediaId = reader.IsDBNull(8) ? null : reader.GetGuid(8).ToString(),
                     FlightHistory = null,
                     RouteMap = null,
+                    RouteMapConfig = reader.IsDBNull(10) ? null : RouteMapConfigRules.FromStored(reader.GetString(10)),
                     LatestMessage = null,
                 };
                 currentYear = currentEvent.Year;
@@ -455,8 +457,9 @@ order by m.id;", conn, tx);
 
     // The media ids the snapshot carries beyond the content document: logos of
     // the sponsors the snapshot lists (the current event's year, active, not
-    // anonymous, can advertise), media icons of active cookie types, and the
-    // current event's route poster. The snapshot media map, the preview
+    // anonymous, can advertise), media icons of active cookie types, the
+    // current event's route poster, and the media icons of the current event's
+    // route map landmarks. The snapshot media map, the preview
     // document, and the draft response all add this set to the document's
     // referenced media.
     public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
@@ -485,6 +488,16 @@ where is_current and route_image_media_id is not null;", conn, tx))
                 using var doc = JsonDocument.Parse(reader.GetString(0));
                 var icon = IconValue.FromStored(doc.RootElement);
                 if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId)) ids.Add(mediaId);
+            }
+        }
+        await using (var cmd = new NpgsqlCommand(
+            "select route_map_config from event where is_current and route_map_config is not null;", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var config = RouteMapConfigRules.FromStored(reader.GetString(0));
+                if (config is not null) ids.UnionWith(RouteMapConfigRules.MediaIds(config));
             }
         }
         return ids.ToArray();

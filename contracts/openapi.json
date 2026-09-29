@@ -3972,6 +3972,9 @@
           },
           "poster": {
             "type": "boolean"
+          },
+          "routeMapConfig": {
+            "type": "boolean"
           }
         }
       },
@@ -4989,6 +4992,16 @@
               },
               {
                 "$ref": "#/components/schemas/MediaAssetDto"
+              }
+            ]
+          },
+          "routeMapConfig": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapConfig"
               }
             ]
           },
@@ -6943,6 +6956,9 @@
           },
           "scheduleTimeZone": {
             "$ref": "#/components/schemas/JsonElement"
+          },
+          "routeMapConfig": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         },
         "additionalProperties": false
@@ -8340,6 +8356,139 @@
           }
         }
       },
+      "RouteMapConfig": {
+        "type": "object",
+        "properties": {
+          "display": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapDisplay"
+              }
+            ]
+          },
+          "controls": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapControls"
+              }
+            ]
+          },
+          "landmarks": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RouteMapLandmark"
+            }
+          },
+          "pois": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapPois"
+              }
+            ]
+          }
+        }
+      },
+      "RouteMapControls": {
+        "type": "object",
+        "properties": {
+          "fullscreen": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "terrain": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "RouteMapDisplay": {
+        "type": "object",
+        "properties": {
+          "timeLabelIntervalMinutes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "arrows": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "arrowSize": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "routeWidth": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RouteMapLandmark": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "lat": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "lng": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "icon": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IconValue"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "RouteMapPoint": {
         "type": "object",
         "properties": {
@@ -8358,6 +8507,17 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "RouteMapPois": {
+        "type": "object",
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

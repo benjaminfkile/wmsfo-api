@@ -154,6 +154,24 @@ public static class FixtureData
                     DurationMinutes = 12,
                     Timed = true,
                 },
+                RouteMapConfig = new RouteMapConfig
+                {
+                    Display = new RouteMapDisplay { TimeLabelIntervalMinutes = 10, RouteWidth = "thick" },
+                    Controls = new RouteMapControls { Terrain = false },
+                    Landmarks = new List<RouteMapLandmark>
+                    {
+                        new()
+                        {
+                            Name = "Caras Park",
+                            Lat = 46.8703,
+                            Lng = -113.9958,
+                            Icon = new IconValue { Source = "library", Id = "tree" },
+                            Description = "The downtown tree lighting starts here.",
+                        },
+                        new() { Name = "Fort Missoula", Lat = 46.8455, Lng = -114.0569 },
+                    },
+                    Pois = new RouteMapPois { Kinds = new List<string> { "hospital", "park" } },
+                },
                 LatestMessage = new SnapshotLatestMessage
                 {
                     Id = 12,

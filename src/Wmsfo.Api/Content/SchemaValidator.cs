@@ -6,7 +6,7 @@ using Wmsfo.Api.Contracts.Dtos;
 namespace Wmsfo.Api.Content;
 
 // SchemaValidator (api.md 11a.2): validates section data, item data, presentation, and
-// site settings at either level. `Draft` uses the derived lenient schema (`required`,
+// site settings at either level, and an event's route map configuration. `Draft` uses the derived lenient schema (`required`,
 // `minLength`, `minItems`, `minimum` stripped at every level); unknown properties are still
 // rejected. `Publish` uses the full schema. Semantic checks (references, hrefs, anchors,
 // map-on-live) live in `ReferenceChecker` (A13); this class does structural checks only.
@@ -34,6 +34,7 @@ public sealed class SchemaValidator
     private readonly JsonSchema _draftPrimitives;
     private readonly JsonSchema _presentationPublish;
     private readonly JsonSchema _presentationDraft;
+    private readonly JsonSchema _routeMapConfig;
 
     public SchemaValidator(KindRegistry registry)
     {
@@ -74,6 +75,7 @@ public sealed class SchemaValidator
 
         _presentationPublish = ExtractDef(registry.PrimitivesNode, "Presentation", isDraft: false);
         _presentationDraft = ExtractDef(registry.PrimitivesNode, "Presentation", isDraft: true);
+        _routeMapConfig = ExtractDef(registry.PrimitivesNode, "RouteMapConfig", isDraft: false);
     }
 
     public IReadOnlyList<ProblemDto> ValidateSectionData(string kind, JsonNode? data, ValidationLevel level)
@@ -106,6 +108,11 @@ public sealed class SchemaValidator
         var presentation = level == ValidationLevel.Draft ? _presentationDraft : _presentationPublish;
         return Evaluate(presentation, data);
     }
+
+    // An event's route map configuration (`$defs/RouteMapConfig`). It has no draft
+    // state, so the full schema always applies.
+    public IReadOnlyList<ProblemDto> ValidateRouteMapConfig(JsonNode? data) =>
+        Evaluate(_routeMapConfig, data);
 
     public IReadOnlyList<ProblemDto> ValidateDocument(JsonNode? data, ValidationLevel level)
     {

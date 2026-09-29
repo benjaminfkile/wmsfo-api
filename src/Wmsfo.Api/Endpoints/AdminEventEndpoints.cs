@@ -7,8 +7,10 @@ using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 
@@ -201,7 +203,9 @@ where e.id = $1;", conn))
 
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
     // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId,
-    // scheduleTimeZone (an IANA id sets it, null clears it).
+    // scheduleTimeZone (an IANA id sets it, null clears it), routeMapConfig (a
+    // RouteMapConfig object sets it, null clears it; landmark icons are checked
+    // like every icon: a known library id, or a ready media asset).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
     // routeImageMediaId "" clears the link; a uuid must name a ready raster asset
     // (404 media, 409 media_not_ready, 400 validation_failed for svg or gif).
@@ -210,6 +214,7 @@ where e.id = $1;", conn))
         app.MapPatch("/admin/events/{id:long}",
             async (long id, PatchEventRequest body, HttpContext ctx,
                    AdminSnapshotTransaction snap, AuditRecorder audit,
+                   SchemaValidator validator, IconLibrary icons,
                    WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
@@ -251,6 +256,24 @@ where e.id = $1;", conn))
                         break;
                     default:
                         v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
+                        break;
+                }
+                RouteMapConfig? routeMapConfig = null;
+                bool setRouteMapConfig = false;
+                var mapConfig = body.RouteMapConfig;
+                switch (mapConfig.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Null:
+                        setRouteMapConfig = true;
+                        break;
+                    case JsonValueKind.Object:
+                        routeMapConfig = RouteMapConfigRules.Read(mapConfig, "routeMapConfig", validator, icons, v);
+                        setRouteMapConfig = routeMapConfig is not null;
+                        break;
+                    default:
+                        v.Field("routeMapConfig", "must be an object or null");
                         break;
                 }
                 // The three datetimes: a timestamp sets, null clears, absent
@@ -330,6 +353,22 @@ where e.id = $1;", conn))
                         }
                     }
 
+                    // Landmark media icons: each must name a ready media asset.
+                    if (routeMapConfig is not null)
+                    {
+                        foreach (var mediaId in RouteMapConfigRules.MediaIds(routeMapConfig).Distinct())
+                        {
+                            await using var read = new NpgsqlCommand(
+                                "select state from media_asset where id = $1;", conn, tx);
+                            read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
+                            var state = await read.ExecuteScalarAsync(token);
+                            if (state is null || state is DBNull)
+                                throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
+                            if (!string.Equals((string)state, "ready", StringComparison.Ordinal))
+                                throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "media asset is not ready");
+                        }
+                    }
+
                     // scheduled_at null while status = 2 → 409 scheduled_at_required.
                     var effectiveScheduled = scheduledPatch.Set ? scheduledPatch.Value : currentScheduled;
                     if (currentStatus == 2 && effectiveScheduled is null)
@@ -359,6 +398,11 @@ where e.id = $1;", conn))
                     if (setScheduleTimeZone)
                     {
                         Set($"schedule_time_zone = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)scheduleTimeZone ?? DBNull.Value });
+                    }
+                    if (setRouteMapConfig)
+                    {
+                        var stored = routeMapConfig is null ? null : RouteMapConfigRules.Serialize(routeMapConfig);
+                        Set($"route_map_config = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)stored ?? DBNull.Value });
                     }
 
                     sets.Add("updated_at = now()");
@@ -886,7 +930,8 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     // Creates a new event in status 1, not current, funds 0, no scheduled time;
     // copy.sponsors copies year's sponsor_year rows (with pinned/linger) to the
     // new year (skipping sponsors that already have it); copy.route links the
-    // source's routeId; copy.poster links the source's routeImageMediaId. Not
+    // source's routeId; copy.poster links the source's routeImageMediaId;
+    // copy.routeMapConfig copies the source's route map configuration. Not
     // snapshot-affecting (the new event is not current).
     private static void MapClone(IEndpointRouteBuilder app)
     {
@@ -904,6 +949,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                 var copySponsors = body.Copy?.Sponsors ?? false;
                 var copyRoute = body.Copy?.Route ?? false;
                 var copyPoster = body.Copy?.Poster ?? false;
+                var copyRouteMapConfig = body.Copy?.RouteMapConfig ?? false;
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
@@ -913,8 +959,9 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                     int sourceYear;
                     long? sourceRouteId;
                     Guid? sourcePosterId;
+                    string? sourceRouteMapConfig;
                     await using (var read = new NpgsqlCommand(
-                        "select year, route_id, route_image_media_id from event where id = $1 for update;", conn, tx))
+                        "select year, route_id, route_image_media_id, route_map_config from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(ct);
@@ -922,19 +969,21 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         sourceYear = reader.GetInt32(0);
                         sourceRouteId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
                         sourcePosterId = reader.IsDBNull(2) ? null : reader.GetGuid(2);
+                        sourceRouteMapConfig = reader.IsDBNull(3) ? null : reader.GetString(3);
                     }
 
                     long newId;
                     try
                     {
                         await using var ins = new NpgsqlCommand(@"
-insert into event (year, name, status_id, is_current, funds_percent, route_id, route_image_media_id, created_by, updated_at)
-values ($1, $2, 1, false, 0, $3, $4, $5, now()) returning id;", conn, tx);
+insert into event (year, name, status_id, is_current, funds_percent, route_id, route_image_media_id, created_by, updated_at, route_map_config)
+values ($1, $2, 1, false, 0, $3, $4, $5, now(), $6) returning id;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)(copyRoute ? sourceRouteId : null) ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = (object?)(copyPoster ? sourcePosterId : null) ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)(copyRouteMapConfig ? sourceRouteMapConfig : null) ?? DBNull.Value });
                         newId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
                     }
                     catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.EventYearKey)
@@ -1514,7 +1563,8 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.size_bytes, m.width, m.height, m.sha256, m.variants,
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
        m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
-       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id
+       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id,
+       e.route_map_config
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id
@@ -1561,6 +1611,7 @@ left join lateral (
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
             StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
             ScheduleTimeZone = reader.IsDBNull(39) ? null : reader.GetString(39),
+            RouteMapConfig = reader.IsDBNull(41) ? null : RouteMapConfigRules.FromStored(reader.GetString(41)),
         };
         if (!reader.IsDBNull(34))
         {

@@ -40,6 +40,10 @@ public sealed class PatchEventRequest
     // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
     // `ValueKind == Null` and absent yields `Undefined`.
     public JsonElement ScheduleTimeZone { get; set; }
+    // A RouteMapConfig object sets the event's route map configuration, null
+    // clears it, absent leaves the row unchanged (the same bare JsonElement
+    // convention).
+    public JsonElement RouteMapConfig { get; set; }
 }
 
 // POST /admin/events/{id}/status.
@@ -71,6 +75,7 @@ public sealed class CloneEventCopy
     public bool Sponsors { get; set; }
     public bool Route { get; set; }
     public bool Poster { get; set; }
+    public bool RouteMapConfig { get; set; }
 }
 
 // POST /admin/events/{id}/messages.

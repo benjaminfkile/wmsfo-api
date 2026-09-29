@@ -73,7 +73,10 @@ public sealed class SnapshotEvent
     // The linked recording processed for the route map (contracts 1.3); null
     // when no recording is linked.
     [JsonPropertyOrder(10)] public RouteMap? RouteMap { get; set; }
-    [JsonPropertyOrder(11)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    // The event's route map configuration (contracts 1.3); null when the event
+    // has none.
+    [JsonPropertyOrder(11)] public RouteMapConfig? RouteMapConfig { get; set; }
+    [JsonPropertyOrder(12)] public SnapshotLatestMessage? LatestMessage { get; set; }
 }
 
 public sealed class SnapshotFlightHistory
@@ -111,6 +114,51 @@ public sealed class RouteMapTimelineEntry
     [JsonPropertyOrder(0)] public int Minutes { get; set; }
     [JsonPropertyOrder(1)] public double Lat { get; set; }
     [JsonPropertyOrder(2)] public double Lng { get; set; }
+}
+
+// An event's route map configuration (contracts 1.3, `$defs/RouteMapConfig` in
+// primitives.schema.json): the display knobs, the control switches, the
+// landmarks, and the POI kinds of the site's route map. Every key is optional
+// and absent when null; an absent key keeps the built-in behaviour.
+public sealed class RouteMapConfig
+{
+    [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapDisplay? Display { get; set; }
+    [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapControls? Controls { get; set; }
+    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<RouteMapLandmark>? Landmarks { get; set; }
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapPois? Pois { get; set; }
+}
+
+// The route map display knobs; an absent key means the built-in default
+// (15, true, "medium", "normal").
+public sealed class RouteMapDisplay
+{
+    [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeLabelIntervalMinutes { get; set; }
+    [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Arrows { get; set; }
+    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ArrowSize { get; set; }
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RouteWidth { get; set; }
+}
+
+// The route map control switches; an absent key means true.
+public sealed class RouteMapControls
+{
+    [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Fullscreen { get; set; }
+    [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Terrain { get; set; }
+}
+
+// One admin-curated landmark; icon and description are absent when null.
+public sealed class RouteMapLandmark
+{
+    [JsonPropertyOrder(0)] public string Name { get; set; } = "";
+    [JsonPropertyOrder(1)] public double Lat { get; set; }
+    [JsonPropertyOrder(2)] public double Lng { get; set; }
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IconValue? Icon { get; set; }
+    [JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; set; }
+}
+
+// The basemap tile POI kinds the route map keeps when zoomed in.
+public sealed class RouteMapPois
+{
+    [JsonPropertyOrder(0)] public IList<string> Kinds { get; set; } = new List<string>();
 }
 
 public sealed class SnapshotLatestMessage
