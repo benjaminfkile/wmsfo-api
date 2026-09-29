@@ -110,13 +110,55 @@
       "additionalProperties": false
     },
     "CardOpacity": { "type": ["integer", "null"], "exclusiveMinimum": -1, "maximum": 100 },
-    "RouteMapDisplay": {
+    "RouteMapConfig": {
       "type": "object",
       "properties": {
-        "timeLabelIntervalMinutes": { "enum": [0, 5, 10, 15, 30] },
-        "arrows": { "type": "boolean" },
-        "arrowSize": { "enum": ["small", "medium", "large", "xlarge"] },
-        "routeWidth": { "enum": ["thin", "normal", "thick", "xthick"] }
+        "display": {
+          "type": "object",
+          "properties": {
+            "timeLabelIntervalMinutes": { "enum": [0, 5, 10, 15, 30] },
+            "arrows": { "type": "boolean" },
+            "arrowSize": { "enum": ["small", "medium", "large", "xlarge"] },
+            "routeWidth": { "enum": ["thin", "normal", "thick", "xthick"] }
+          },
+          "additionalProperties": false
+        },
+        "controls": {
+          "type": "object",
+          "properties": {
+            "fullscreen": { "type": "boolean" },
+            "terrain": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "landmarks": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[\\s\\S]+$" },
+              "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+              "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+              "icon": { "$ref": "#/$defs/Icon" },
+              "description": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[\\s\\S]+$" }
+            },
+            "required": ["name", "lat", "lng"],
+            "additionalProperties": false
+          }
+        },
+        "pois": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[a-z0-9_]+$" }
+            }
+          },
+          "required": ["kinds"],
+          "additionalProperties": false
+        }
       },
       "additionalProperties": false
     },

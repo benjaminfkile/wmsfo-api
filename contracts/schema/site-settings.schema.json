@@ -54,8 +54,7 @@
         { "type": "null" }
       ]
     },
-    "headerShowsSiteName": { "type": ["boolean", "null"] },
-    "routeMap": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/RouteMapDisplay" }
+    "headerShowsSiteName": { "type": ["boolean", "null"] }
   },
   "required": [
     "siteName", "tagline", "homeNavLabel", "logo", "favicon", "theme",

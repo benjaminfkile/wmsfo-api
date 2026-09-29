@@ -270,7 +270,7 @@ curl -sI -H "Range: bytes=0-16383" https://<cdn-domain>/basemap/tiles.pmtiles | 
 # expect: HTTP/2 206
 ```
 
-The terrain archive sits beside the basemap at `<base>/terrain.pmtiles`: a raster-dem PMTiles archive in terrarium encoding, which the site's hillshade reads when a visitor turns on the `route_preview` terrain toggle (contracts 1.3a). The site hides the toggle when the archive is missing, so the route map works without it. The operator fetches terrarium elevation tiles from a public elevation tile set for the same bounding box as `tiles.pmtiles` at zooms 0 to 13 into an MBTiles file, converts it, and uploads it with the same Cache-Control:
+The terrain archive sits beside the basemap at `<base>/terrain.pmtiles`: a raster-dem PMTiles archive in terrarium encoding, which the site's hillshade reads when a visitor turns on the route map's terrain toggle (the `map` style of `route_preview`, shown unless the current event's `routeMapConfig.controls.terrain` is false; contracts 1.3). The site hides the toggle when the archive is missing, so the route map works without it. The operator fetches terrarium elevation tiles from a public elevation tile set for the same bounding box as `tiles.pmtiles` at zooms 0 to 13 into an MBTiles file, converts it, and uploads it with the same Cache-Control:
 
 ```sh
 # terrarium elevation tiles for the same bounding box, zoom 0 to 13, gathered into terrain.mbtiles

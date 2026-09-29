@@ -138,6 +138,127 @@
           },
           "additionalProperties": false
         },
+        "routeMapConfig": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "display": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "timeLabelIntervalMinutes": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "arrows": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "arrowSize": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "routeWidth": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "controls": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "fullscreen": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "terrain": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "landmarks": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "icon": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "source": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "display": true
+                    },
+                    "additionalProperties": false
+                  },
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "pois": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "kinds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "latestMessage": {
           "type": [
             "object",

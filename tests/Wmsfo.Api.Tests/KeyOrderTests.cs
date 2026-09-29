@@ -38,13 +38,16 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "latestMessage",
+            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
         var expectedRouteMap = new[] { "path", "timeline", "durationMinutes", "timed" };
         var expectedRouteMapPoint = new[] { "lat", "lng" };
         var expectedTimelineEntry = new[] { "minutes", "lat", "lng" };
+        var expectedRouteMapConfig = new[] { "display", "controls", "landmarks", "pois" };
+        var expectedRouteMapDisplay = new[] { "timeLabelIntervalMinutes", "routeWidth" };
+        var expectedLandmark = new[] { "name", "lat", "lng", "icon", "description" };
         var expectedLatestMessage = new[] { "id", "body", "eventTime", "createdAt" };
         var expectedSponsor = new[]
         {
@@ -62,6 +65,10 @@ public class KeyOrderTests
         Assert.Equal(expectedRouteMap, KeysOf(routeMap));
         Assert.Equal(expectedRouteMapPoint, KeysOf(routeMap.GetProperty("path")[0]));
         Assert.Equal(expectedTimelineEntry, KeysOf(routeMap.GetProperty("timeline")[0]));
+        var routeMapConfig = root.GetProperty("event").GetProperty("routeMapConfig");
+        Assert.Equal(expectedRouteMapConfig, KeysOf(routeMapConfig));
+        Assert.Equal(expectedRouteMapDisplay, KeysOf(routeMapConfig.GetProperty("display")));
+        Assert.Equal(expectedLandmark, KeysOf(routeMapConfig.GetProperty("landmarks")[0]));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));

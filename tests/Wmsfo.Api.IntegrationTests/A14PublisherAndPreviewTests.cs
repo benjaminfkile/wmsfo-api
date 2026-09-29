@@ -633,41 +633,13 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         }
     }
 
-    // -------------------- route preview controls --------------------
+    // -------------------- route preview keys --------------------
 
-    // A route_preview section with both control switches false round-trips through
-    // the PATCH response, the admin page read, and the published document.
+    // A route_preview section with its four keys round-trips through the PATCH
+    // response, the admin page read, and the published document, and carries
+    // nothing else.
     [Fact]
-    public async Task Route_preview_controls_both_false_round_trip()
-    {
-        await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(
-            ",\"controls\":{\"fullscreen\":false,\"terrain\":false}"));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            AssertControlsBothFalse(patched.RootElement.GetProperty("data"));
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertControlsBothFalse(FindAdminSectionData(page.RootElement, sectionId));
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertControlsBothFalse(FindPublishedData(version.RootElement, sectionId));
-    }
-
-    // A route_preview section without `controls` round-trips without the key.
-    [Fact]
-    public async Task Route_preview_absent_controls_round_trip_absent()
+    public async Task Route_preview_four_keys_round_trip()
     {
         await BootstrapFirstBootAsync();
         var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
@@ -676,7 +648,7 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
         using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
         {
-            Assert.False(patched.RootElement.GetProperty("data").TryGetProperty("controls", out _));
+            AssertRoutePreviewFourKeys(patched.RootElement.GetProperty("data"));
         }
 
         using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
@@ -684,130 +656,27 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
             var get = await _host.Client.SendAsync(getReq);
             Assert.Equal(HttpStatusCode.OK, get.StatusCode);
             using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            Assert.False(FindAdminSectionData(page.RootElement, sectionId).TryGetProperty("controls", out _));
+            AssertRoutePreviewFourKeys(FindAdminSectionData(page.RootElement, sectionId));
         }
 
         await PublishAsync();
         var (_, versionJson) = await ReadNewestVersionAsync();
         using var version = JsonDocument.Parse(versionJson);
-        var published = FindPublishedData(version.RootElement, sectionId);
-        Assert.Equal("map", published.GetProperty("style").GetString());
-        Assert.False(published.TryGetProperty("controls", out _));
+        AssertRoutePreviewFourKeys(FindPublishedData(version.RootElement, sectionId));
     }
 
-    // A non-boolean switch and an unknown key inside `controls` are 400
-    // validation_failed on the field.
+    // The route map keys live on the event (routeMapConfig), so a route_preview
+    // section carrying `controls`, `landmarks`, `display`, or `pois` is 400
+    // validation_failed on the key.
     [Theory]
-    [InlineData("{\"fullscreen\":\"x\"}", "/controls/fullscreen")]
-    [InlineData("{\"terrain\":1}", "/controls/terrain")]
-    [InlineData("{\"satellite\":true}", "/controls/satellite")]
-    public async Task Route_preview_bad_controls_are_400_on_the_field(string controls, string field)
+    [InlineData(",\"controls\":{\"fullscreen\":false}", "/controls")]
+    [InlineData(",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]", "/landmarks")]
+    [InlineData(",\"display\":{\"arrows\":false}", "/display")]
+    [InlineData(",\"pois\":{\"kinds\":[\"school\"]}", "/pois")]
+    public async Task Route_preview_route_map_keys_are_400_on_the_key(string extra, string field)
     {
         await BootstrapFirstBootAsync();
         var (_, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson($",\"controls\":{controls}"));
-        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
-        using var doc = JsonDocument.Parse(await patch.Content.ReadAsStringAsync());
-        Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
-        var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
-        Assert.True(fields.TryGetProperty(field, out _), $"no problem on {field}: {fields}");
-    }
-
-    // A route_preview section with landmarks and POI kinds round-trips through the
-    // PATCH response, the admin page read, and the published document.
-    [Fact]
-    public async Task Route_preview_landmarks_and_pois_round_trip()
-    {
-        await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(
-            ",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99},"
-            + "{\"name\":\"Airport\",\"lat\":46.92,\"lng\":-114.09}],"
-            + "\"pois\":{\"kinds\":[\"school\",\"place_of_worship\"]}"));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            AssertLandmarksAndPois(patched.RootElement.GetProperty("data"));
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertLandmarksAndPois(FindAdminSectionData(page.RootElement, sectionId));
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertLandmarksAndPois(FindPublishedData(version.RootElement, sectionId));
-    }
-
-    // An empty `pois.kinds` round-trips as an empty array.
-    [Fact]
-    public async Task Route_preview_empty_poi_kinds_round_trip_empty()
-    {
-        await BootstrapFirstBootAsync();
-        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(",\"pois\":{\"kinds\":[]}"));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync());
-        Assert.Equal(0, patched.RootElement.GetProperty("data").GetProperty("pois").GetProperty("kinds").GetArrayLength());
-    }
-
-    // A route_preview section without `landmarks` or `pois` round-trips without either key.
-    [Fact]
-    public async Task Route_preview_absent_landmarks_and_pois_round_trip_absent()
-    {
-        await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(""));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            AssertNoLandmarksOrPois(patched.RootElement.GetProperty("data"));
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertNoLandmarksOrPois(FindAdminSectionData(page.RootElement, sectionId));
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertNoLandmarksOrPois(FindPublishedData(version.RootElement, sectionId));
-    }
-
-    // Too many landmarks, an empty landmark name, an out of range latitude, a bad POI
-    // kind token, and an unknown key inside either object are 400 validation_failed on
-    // the field.
-    [Theory]
-    [InlineData("toomany", "/landmarks")]
-    [InlineData(",\"landmarks\":[{\"name\":\"\",\"lat\":46.87,\"lng\":-114.0}]", "/landmarks/0/name")]
-    [InlineData(",\"landmarks\":[{\"name\":\"North\",\"lat\":90.5,\"lng\":-114.0}]", "/landmarks/0/lat")]
-    [InlineData(",\"pois\":{\"kinds\":[\"school\",\"Bad-Kind\"]}", "/pois/kinds/1")]
-    [InlineData(",\"landmarks\":[{\"name\":\"A\",\"lat\":46.87,\"lng\":-114.0,\"url\":\"x\"}]", "/landmarks/0/url")]
-    [InlineData(",\"pois\":{\"kinds\":[],\"zoom\":14}", "/pois/zoom")]
-    public async Task Route_preview_bad_landmarks_and_pois_are_400_on_the_field(string extra, string field)
-    {
-        await BootstrapFirstBootAsync();
-        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        if (extra == "toomany")
-        {
-            var landmarks = Enumerable.Range(0, 51)
-                .Select(i => $"{{\"name\":\"L{i}\",\"lat\":46.87,\"lng\":-114.0}}");
-            extra = ",\"landmarks\":[" + string.Join(",", landmarks) + "]";
-        }
 
         var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(extra));
         Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
@@ -817,238 +686,33 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.True(fields.TryGetProperty(field, out _), $"no problem on {field}: {fields}");
     }
 
-    private static void AssertLandmarksAndPois(JsonElement data)
-    {
-        var landmarks = data.GetProperty("landmarks");
-        Assert.Equal(2, landmarks.GetArrayLength());
-        Assert.Equal("Courthouse", landmarks[0].GetProperty("name").GetString());
-        Assert.Equal(46.87, landmarks[0].GetProperty("lat").GetDouble());
-        Assert.Equal(-113.99, landmarks[0].GetProperty("lng").GetDouble());
-        Assert.Equal("Airport", landmarks[1].GetProperty("name").GetString());
-        var kinds = data.GetProperty("pois").GetProperty("kinds").EnumerateArray().Select(k => k.GetString()).ToArray();
-        Assert.Equal(new[] { "school", "place_of_worship" }, kinds);
-    }
-
-    private static void AssertNoLandmarksOrPois(JsonElement data)
-    {
-        Assert.False(data.TryGetProperty("landmarks", out _));
-        Assert.False(data.TryGetProperty("pois", out _));
-    }
-
-    // -------------------- route map display --------------------
-
-    private const string FullRouteMapDisplayJson =
-        "{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\"}";
-
-    // Site settings with every `routeMap` key save, the PUT and the GET return the
-    // block, and the published settings carry it.
+    // Site settings carry no route map block: a `routeMap` object is 400
+    // validation_failed on the key, and the starter settings publish without it.
     [Fact]
-    public async Task Site_settings_route_map_block_with_every_key_round_trips()
+    public async Task Site_settings_route_map_block_is_400()
     {
         await BootstrapFirstBootAsync();
 
-        var put = await PutSiteSettingsAsync(data => data["routeMap"] = JsonNode.Parse(FullRouteMapDisplayJson));
-        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
-        using (var saved = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
-        {
-            AssertFullRouteMapDisplay(saved.RootElement.GetProperty("data").GetProperty("routeMap"));
-            Assert.Empty(saved.RootElement.GetProperty("problems").EnumerateArray());
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, "/admin/site-settings"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var read = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertFullRouteMapDisplay(read.RootElement.GetProperty("data").GetProperty("routeMap"));
-        }
-
-        await PublishAsync();
         var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertFullRouteMapDisplay(version.RootElement.GetProperty("settings").GetProperty("routeMap"));
-    }
-
-    // The starter settings publish without `routeMap`; an empty `routeMap`
-    // saves, reads back, and publishes as an empty object.
-    [Fact]
-    public async Task Site_settings_route_map_block_with_no_keys_round_trips()
-    {
-        await BootstrapFirstBootAsync();
-
-        var (_, absentJson) = await ReadNewestVersionAsync();
-        using (var absent = JsonDocument.Parse(absentJson))
+        using (var version = JsonDocument.Parse(versionJson))
         {
-            Assert.False(absent.RootElement.GetProperty("settings").TryGetProperty("routeMap", out _));
+            Assert.False(version.RootElement.GetProperty("settings").TryGetProperty("routeMap", out _));
         }
 
-        var put = await PutSiteSettingsAsync(data => data["routeMap"] = new JsonObject());
-        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
-        using (var saved = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
-        {
-            AssertEmptyObject(saved.RootElement.GetProperty("data").GetProperty("routeMap"));
-            Assert.Empty(saved.RootElement.GetProperty("problems").EnumerateArray());
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, "/admin/site-settings"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var read = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertEmptyObject(read.RootElement.GetProperty("data").GetProperty("routeMap"));
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertEmptyObject(version.RootElement.GetProperty("settings").GetProperty("routeMap"));
-    }
-
-    // A route_preview `display` with every key, and one with no keys, round-trips
-    // through the PATCH response, the admin page read, and the published document.
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Route_preview_display_round_trips(bool everyKey)
-    {
-        await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
-        var display = everyKey ? FullRouteMapDisplayJson : "{}";
-        Action<JsonElement> check = everyKey ? AssertFullRouteMapDisplay : AssertEmptyObject;
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(",\"display\":" + display));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            check(patched.RootElement.GetProperty("data").GetProperty("display"));
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            check(FindAdminSectionData(page.RootElement, sectionId).GetProperty("display"));
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        check(FindPublishedData(version.RootElement, sectionId).GetProperty("display"));
-    }
-
-    // A bad enum value, a wrong type, or an unknown key inside the display knobs is
-    // 400 validation_failed on the field, for the site settings `routeMap` and for
-    // the route_preview `display`.
-    [Theory]
-    [InlineData("{\"timeLabelIntervalMinutes\":20}", "timeLabelIntervalMinutes")]
-    [InlineData("{\"timeLabelIntervalMinutes\":-5}", "timeLabelIntervalMinutes")]
-    [InlineData("{\"arrows\":\"yes\"}", "arrows")]
-    [InlineData("{\"arrowSize\":\"huge\"}", "arrowSize")]
-    [InlineData("{\"routeWidth\":\"wide\"}", "routeWidth")]
-    [InlineData("{\"arrows\":true,\"color\":\"red\"}", "color")]
-    public async Task Route_map_display_bad_values_are_400_on_the_field(string display, string key)
-    {
-        await BootstrapFirstBootAsync();
-        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
-
-        var put = await PutSiteSettingsAsync(data => data["routeMap"] = JsonNode.Parse(display));
+        var put = await PutSiteSettingsAsync(data => data["routeMap"] = JsonNode.Parse("{\"arrows\":false}"));
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        using (var doc = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
-        {
-            Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
-            var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
-            Assert.True(fields.TryGetProperty($"/routeMap/{key}", out _), $"no problem on /routeMap/{key}: {fields}");
-        }
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(",\"display\":" + display));
-        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
-        using (var doc = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
-            var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
-            Assert.True(fields.TryGetProperty($"/display/{key}", out _), $"no problem on /display/{key}: {fields}");
-        }
-    }
-
-    // A landmark with an icon and a description round-trips through the PATCH
-    // response, the admin page read, and the published document.
-    [Fact]
-    public async Task Route_preview_landmark_icon_and_description_round_trip()
-    {
-        await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
-        var description = new string('d', 300);
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(
-            ",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99,"
-            + "\"icon\":{\"source\":\"library\",\"id\":\"sleigh\"},\"description\":\"" + description + "\"},"
-            + "{\"name\":\"Airport\",\"lat\":46.92,\"lng\":-114.09}]"));
-        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
-        using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
-        {
-            AssertLandmarkIconAndDescription(patched.RootElement.GetProperty("data"), description);
-        }
-
-        using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
-        {
-            var get = await _host.Client.SendAsync(getReq);
-            Assert.Equal(HttpStatusCode.OK, get.StatusCode);
-            using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertLandmarkIconAndDescription(FindAdminSectionData(page.RootElement, sectionId), description);
-        }
-
-        await PublishAsync();
-        var (_, versionJson) = await ReadNewestVersionAsync();
-        using var version = JsonDocument.Parse(versionJson);
-        AssertLandmarkIconAndDescription(FindPublishedData(version.RootElement, sectionId), description);
-    }
-
-    // A landmark description of 301 characters, an empty description, or an icon
-    // that is not an Icon is 400 validation_failed on the field.
-    [Theory]
-    [InlineData("\"description\":\"" + "LONG" + "\"", "/landmarks/0/description")]
-    [InlineData("\"description\":\"\"", "/landmarks/0/description")]
-    [InlineData("\"icon\":{\"source\":\"clipart\",\"id\":\"sleigh\"}", "/landmarks/0/icon")]
-    public async Task Route_preview_bad_landmark_icon_or_description_is_400_on_the_field(string entry, string field)
-    {
-        await BootstrapFirstBootAsync();
-        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
-        entry = entry.Replace("LONG", new string('d', 301), StringComparison.Ordinal);
-
-        var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(
-            ",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99," + entry + "}]"));
-        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
-        using var doc = JsonDocument.Parse(await patch.Content.ReadAsStringAsync());
+        using var doc = JsonDocument.Parse(await put.Content.ReadAsStringAsync());
         Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
         var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
-        Assert.True(fields.TryGetProperty(field, out _), $"no problem on {field}: {fields}");
+        Assert.True(fields.TryGetProperty("/routeMap", out _), $"no problem on /routeMap: {fields}");
     }
 
-    private static void AssertFullRouteMapDisplay(JsonElement display)
+    private static void AssertRoutePreviewFourKeys(JsonElement data)
     {
-        Assert.Equal(0, display.GetProperty("timeLabelIntervalMinutes").GetInt32());
-        Assert.False(display.GetProperty("arrows").GetBoolean());
-        Assert.Equal("xlarge", display.GetProperty("arrowSize").GetString());
-        Assert.Equal("xthick", display.GetProperty("routeWidth").GetString());
-    }
-
-    private static void AssertEmptyObject(JsonElement value)
-    {
-        Assert.Equal(JsonValueKind.Object, value.ValueKind);
-        Assert.Empty(value.EnumerateObject());
-    }
-
-    private static void AssertLandmarkIconAndDescription(JsonElement data, string description)
-    {
-        var landmarks = data.GetProperty("landmarks");
-        Assert.Equal(2, landmarks.GetArrayLength());
-        var icon = landmarks[0].GetProperty("icon");
-        Assert.Equal("library", icon.GetProperty("source").GetString());
-        Assert.Equal("sleigh", icon.GetProperty("id").GetString());
-        Assert.Equal(description, landmarks[0].GetProperty("description").GetString());
-        Assert.False(landmarks[1].TryGetProperty("icon", out _));
-        Assert.False(landmarks[1].TryGetProperty("description", out _));
+        Assert.Equal(
+            new[] { "disclaimer", "emptyText", "heading", "style" },
+            data.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal("map", data.GetProperty("style").GetString());
     }
 
     // A PATCH body setting route_preview data in the `map` style, with `extra`
@@ -1056,13 +720,6 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
     private static string RoutePreviewDataJson(string extra) =>
         "{\"data\":{\"heading\":\"The route\",\"style\":\"map\",\"disclaimer\":null,"
         + "\"emptyText\":\"Soon.\"" + extra + "}}";
-
-    private static void AssertControlsBothFalse(JsonElement data)
-    {
-        var controls = data.GetProperty("controls");
-        Assert.False(controls.GetProperty("fullscreen").GetBoolean());
-        Assert.False(controls.GetProperty("terrain").GetBoolean());
-    }
 
     private static JsonElement FindAdminSectionData(JsonElement page, long sectionId) =>
         page.GetProperty("sections").EnumerateArray()

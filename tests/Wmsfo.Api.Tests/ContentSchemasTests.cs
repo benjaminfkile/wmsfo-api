@@ -20,6 +20,29 @@ public class ContentSchemasTests
     public static IEnumerable<object[]> AllKinds() =>
         Registry.Kinds.Select(k => new object[] { k.Kind });
 
+    // The snapshot fixture's event.routeMapConfig is a valid RouteMapConfig, and
+    // an unknown key at any level is refused.
+    [Fact]
+    public void Snapshot_fixture_route_map_config_is_valid_and_unknown_keys_are_refused()
+    {
+        var snapshot = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
+        var config = snapshot["event"]!["routeMapConfig"]!;
+        var problems = Validator.ValidateRouteMapConfig(config);
+        Assert.True(problems.Count == 0, string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
+
+        foreach (var bad in new[]
+        {
+            "{\"color\":\"red\"}",
+            "{\"display\":{\"color\":\"red\"}}",
+            "{\"controls\":{\"satellite\":true}}",
+            "{\"landmarks\":[{\"name\":\"A\",\"lat\":1,\"lng\":1,\"url\":\"x\"}]}",
+            "{\"pois\":{\"kinds\":[],\"zoom\":14}}",
+        })
+        {
+            Assert.NotEmpty(Validator.ValidateRouteMapConfig(JsonNode.Parse(bad)));
+        }
+    }
+
     [Theory]
     [MemberData(nameof(AllKinds))]
     public void Kind_has_schema_file_and_compiles(string kind)
