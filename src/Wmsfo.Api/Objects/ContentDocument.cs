@@ -30,6 +30,20 @@ public sealed class SiteSettings
     // headerShowsSiteName defaults to true). LogoMedia is a MediaRef `{ mediaId, alt }`.
     [JsonPropertyOrder(12), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? LogoMedia { get; set; }
     [JsonPropertyOrder(13), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? HeaderShowsSiteName { get; set; }
+    // Optional key: absent when null (absent means the built-in route map defaults).
+    [JsonPropertyOrder(14), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapDisplay? RouteMap { get; set; }
+}
+
+// The route map display knobs (contracts 1.3a), sitewide in `settings.routeMap` and per
+// section in route_preview `display`. Every key is optional and absent when null; an
+// absent key means the next level: the section, then the sitewide value, then the
+// built-in default (15, true, "medium", "normal").
+public sealed class RouteMapDisplay
+{
+    [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeLabelIntervalMinutes { get; set; }
+    [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Arrows { get; set; }
+    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ArrowSize { get; set; }
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RouteWidth { get; set; }
 }
 
 public sealed class SiteTheme
