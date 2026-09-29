@@ -110,6 +110,16 @@
       "additionalProperties": false
     },
     "CardOpacity": { "type": ["integer", "null"], "exclusiveMinimum": -1, "maximum": 100 },
+    "RouteMapDisplay": {
+      "type": "object",
+      "properties": {
+        "timeLabelIntervalMinutes": { "enum": [0, 5, 10, 15, 30] },
+        "arrows": { "type": "boolean" },
+        "arrowSize": { "enum": ["small", "medium", "large", "xlarge"] },
+        "routeWidth": { "enum": ["thin", "normal", "thick", "xthick"] }
+      },
+      "additionalProperties": false
+    },
     "Presentation": {
       "type": "object",
       "properties": {
