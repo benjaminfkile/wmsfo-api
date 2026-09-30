@@ -370,6 +370,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("When true the site inverts this asset's colors in dark mode (contracts 1.3b).");
             e.Property(x => x.SmallMediaId).HasColumnName("small_media_id").HasColumnType("uuid")
                 .HasComment("The small screen version of this asset (contracts 1.3b): another ready media_asset the site draws in its place under its 760 px cut; null when none. A deleted small version unlinks.");
+            e.Property(x => x.Credit).HasColumnName("credit").HasColumnType("text")
+                .HasComment("The author or source the site names under the asset (contracts 1.3b), 1 to 200 characters; null when none.");
             e.Property(x => x.Alt).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.Title).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired();

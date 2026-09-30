@@ -5,13 +5,15 @@ namespace Wmsfo.Api.Objects;
 
 // The media map read shared by the snapshot builder and the preview (contracts
 // 1.3b, sql.md 7): one row per asset with its ready dark version and its ready
-// small version (with the small version's own ready dark version) joined in.
+// small version (with the small version's own ready dark version) joined in,
+// and its credit.
 public static class MediaMapRows
 {
     public const string Select = @"
 select m.id, m.s3_key, m.kind, m.width, m.height, m.alt, m.variants, m.dzi_key,
        m.invert_in_dark, d.s3_key, d.variants,
-       s.id, s.s3_key, s.variants, s.invert_in_dark, sd.s3_key, sd.variants
+       s.id, s.s3_key, s.variants, s.invert_in_dark, sd.s3_key, sd.variants,
+       m.credit
 from media_asset m
 left join media_asset d on d.id = m.dark_media_id and d.state = 'ready'
 left join media_asset s on s.id = m.small_media_id and s.state = 'ready'
@@ -31,6 +33,7 @@ left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'";
             Variants = ReadVariants(reader.GetString(6), cdn),
             Dzi = dziKey is null ? null : cdn + "/" + dziKey,
             InvertInDark = reader.GetBoolean(8),
+            Credit = reader.IsDBNull(17) ? null : reader.GetString(17),
         };
         if (!reader.IsDBNull(9))
         {

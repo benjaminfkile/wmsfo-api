@@ -498,6 +498,12 @@
               "string",
               "null"
             ]
+          },
+          "credit": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false

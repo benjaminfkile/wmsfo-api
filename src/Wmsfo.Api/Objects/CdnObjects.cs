@@ -291,6 +291,8 @@ public sealed class MediaEntry
     [JsonPropertyOrder(9)] public MediaSmallEntry? Small { get; set; }
     // The id of the small version embedded in small, or null with it.
     [JsonPropertyOrder(10)] public string? SmallMediaId { get; set; }
+    // The author or source the site names under the asset, or null when none.
+    [JsonPropertyOrder(11)] public string? Credit { get; set; }
 }
 
 // MediaEntry.dark (contracts 1.3b): the dark version's own url and variants,

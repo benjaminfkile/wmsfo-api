@@ -1564,7 +1564,7 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
        m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
        a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id,
-       e.route_map_config
+       e.route_map_config, m.credit
 from event e
 left join route r on r.id = e.route_id
 left join media_asset m on m.id = e.route_image_media_id
@@ -1660,6 +1660,7 @@ left join lateral (
                 DarkMediaId = reader.IsDBNull(37) ? null : reader.GetGuid(37).ToString(),
                 InvertInDark = reader.GetBoolean(38),
                 SmallMediaId = reader.IsDBNull(40) ? null : reader.GetGuid(40).ToString(),
+                Credit = reader.IsDBNull(42) ? null : reader.GetString(42),
             };
         }
         return dto;
