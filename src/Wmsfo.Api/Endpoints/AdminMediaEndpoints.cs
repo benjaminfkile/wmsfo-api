@@ -79,7 +79,7 @@ public static class AdminMediaEndpoints
                 var sql = new System.Text.StringBuilder(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark, m.small_media_id,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -523,8 +523,8 @@ where id = $7 and state = 'pending';", conn, tx))
     }
 
     // PATCH /admin/media/{id} - [snapshot] frame because alt, the dark version,
-    // invertInDark, and the small version ride in the snapshot's media map
-    // (contracts 1.3b).
+    // invertInDark, the small version, and the credit ride in the snapshot's
+    // media map (contracts 1.3b).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/media/{id}",
@@ -539,6 +539,10 @@ where id = $7 and state = 'pending';", conn, tx))
                     v.Field("alt", "must be 0 to 500 characters");
                 if (body.Title is not null && body.Title.Length > 200)
                     v.Field("title", "must be 0 to 200 characters");
+                // The credit is stored trimmed; blank after trimming is refused.
+                var credit = body.Credit?.Trim();
+                if (credit is not null && (credit.Length == 0 || credit.Length > 200))
+                    v.Field("credit", "must be 1 to 200 characters, or null");
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -580,6 +584,15 @@ where id = $7 and state = 'pending';", conn, tx))
                         {
                             NpgsqlDbType = NpgsqlDbType.Uuid,
                             Value = body.SmallMediaId is Guid sg ? sg : DBNull.Value,
+                        });
+                    }
+                    if (body.HasCredit)
+                    {
+                        sets.Add($"credit = ${next++}");
+                        parameters.Add(new NpgsqlParameter
+                        {
+                            NpgsqlDbType = NpgsqlDbType.Text,
+                            Value = (object?)credit ?? DBNull.Value,
                         });
                     }
                     if (body.InvertInDark is bool invert)
@@ -698,7 +711,7 @@ where id = $7 and state = 'pending';", conn, tx))
         await using var cmd = new NpgsqlCommand(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark, m.small_media_id,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -752,14 +765,15 @@ where m.id = $1;", conn, tx);
             DarkMediaId = reader.IsDBNull(19) ? null : reader.GetGuid(19).ToString(),
             InvertInDark = reader.GetBoolean(20),
             SmallMediaId = reader.IsDBNull(21) ? null : reader.GetGuid(21).ToString(),
+            Credit = reader.IsDBNull(22) ? null : reader.GetString(22),
         };
-        if (reader.FieldCount > 22 && !reader.IsDBNull(22))
+        if (reader.FieldCount > 23 && !reader.IsDBNull(23))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(22),
-                By = reader.GetString(23),
-                At = reader.GetFieldValue<DateTimeOffset>(24),
+                Action = reader.GetString(23),
+                By = reader.GetString(24),
+                At = reader.GetFieldValue<DateTimeOffset>(25),
             };
         }
         return dto;

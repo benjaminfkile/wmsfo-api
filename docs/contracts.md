@@ -515,12 +515,15 @@ type MediaEntry = {
     invertInDark: boolean;                                                // the small version's own switch
   } | null;
   smallMediaId: string | null;               // the small version's id when small is not null, else null
+  credit: string | null;                     // the author or source named under the asset, 1 to 200 characters; null when none
 };
 ```
 
 **Dark mode.** Any asset can carry a dark mode version (another ready asset, `MediaAsset.darkMediaId`) and an "invert in dark mode" switch (`invertInDark`), both off by default. Wherever the site draws an entry in dark mode it draws `dark` in its place when `dark` is not null (with `srcset` from `dark.variants` the same way), otherwise it inverts the image when `invertInDark` is true, otherwise it draws the entry as it is. The dark version's `url` and `variants` are embedded in the entry, so the dark version needs no entry of its own; it is referenced for orphan collection (7.6) while it is a ready asset's dark version. A dark version that is not `ready` is left out (`dark: null`).
 
 **Small screens.** Any asset can carry a small screen version (another ready asset, `MediaAsset.smallMediaId`), off by default. Wherever the site draws an entry under its 760 px cut it draws `small` in its place when `small` is not null (with `srcset` from `small.variants` the same way), otherwise it draws the entry as it is. The small version carries its own dark resolution: in dark mode under the cut the site draws `small.dark` when it is not null, otherwise it inverts the small version when `small.invertInDark` is true, otherwise it draws `small` as it is, so small composes with dark from the one entry with no second lookup. The small version's `url`, `variants`, and dark resolution are embedded in the entry, so the small version needs no entry of its own; it is referenced for orphan collection (7.6) while it is a ready asset's small version. A small version that is not `ready` is left out (`small: null`, `smallMediaId: null`).
+
+**Credit.** Any asset can carry a credit (`MediaAsset.credit`), the author or source of the item, such as the site a photo was taken from; null by default. Wherever the site draws an entry whose `credit` is not null it names the credit under the image as plain text. The credit belongs to the entry itself: a dark or small version drawn in its place shows the entry's credit, not its own.
 
 A variant exists only when the source is a raster image wider than that width; a 700 px upload has `variants: { "480": ... }`. The site renders a `MediaRef` as `<img>` with `srcset` from the variants plus the original at its own width and `sizes` from the section's width; it never constructs a media URL and never inlines SVG. Nothing in v2 overwrites or invalidates a media object.
 
@@ -1049,6 +1052,7 @@ type MediaAsset = {
   id: string; filename: string; contentType: string; kind: "raster" | "svg" | "gif"; state: "pending" | "ready" | "orphaned";
   sizeBytes: number | null; width: number | null; height: number | null; sha256: string | null; alt: string; title: string;
   url: string; variants: { [width: string]: string }; dziUrl: string | null; darkMediaId: string | null; invertInDark: boolean; smallMediaId: string | null;
+  credit: string | null;
   uploadedBy: string; createdAt: string; confirmedAt: string | null;
   unreferencedSince: string | null; orphanedAt: string | null;
   audit: AuditStamp | null;
@@ -1056,6 +1060,7 @@ type MediaAsset = {
   // dziUrl: absolute CDN URL of the Deep Zoom descriptor when the asset has a tile pyramid (1.3b), else null
   // darkMediaId: the asset drawn in this one's place in dark mode (1.3b), else null; invertInDark: false by default
   // smallMediaId: the asset drawn in this one's place on small screens (1.3b), else null
+  // credit: the author or source named under the asset (1.3b), 1 to 200 characters, else null
 type UploadTicket = { media: MediaAsset; uploadUrl: string; method: "PUT"; headers: { [name: string]: string }; expiresAt: string };
 type MediaUsage = { draftPages: { id: number; slug: string; title: string }[]; versionCount: number; sponsors: { id: number; name: string }[]; cookieTypes: { id: number; name: string }[]; siteSettings: boolean; darkVersionOf: { id: string; filename: string }[] };
 type ContentVersionInfo = { id: number; sha256: string; label: string | null; publishedBy: string; publishedAt: string; pageCount: number; sectionCount: number; audit: AuditStamp | null };
@@ -1364,7 +1369,7 @@ The pipeline is presign, upload, confirm. Media bytes never pass through the API
 | `POST /admin/media/{id}/confirm` | none | `200 MediaAsset` with `state: "ready"`. The API reads the object, checks the size against the ticket and the limit, sniffs the type (must match `contentType`), validates SVG (below), decodes raster with a 40-megapixel ceiling, records `width`, `height`, `sha256`, derives `w480`, `w960`, `w1600` WebP variants for raster narrower widths than the source (never for gif or svg), cuts the Deep Zoom tile pyramid for a raster whose longest side is 2048 px or more (1.3b), PUTs them all, removes the pending tag, and updates the row. | `404` (row), `404 upload_not_found` (object missing), `409 media_not_pending`, `413`, `400 validation_failed` (sniff mismatch, SVG rules, decode failure; the object is deleted and the row removed) |
 | `GET /admin/media/{id}` | | `200 MediaAsset` | `404` |
 | `GET /admin/media/{id}/usage` | | `200 MediaUsage` | `404` |
-| `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title`, `darkMediaId` (the id of another `ready` asset, or `null` to clear), `invertInDark` (boolean), `smallMediaId` (the id of another `ready` asset, or `null` to clear) | `200 MediaAsset` | `404` (the asset, `darkMediaId`, or `smallMediaId`), `409 media_not_ready` (`darkMediaId` or `smallMediaId` not ready), `400 validation_failed` (`darkMediaId` or `smallMediaId` is the asset itself) |
+| `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title`, `darkMediaId` (the id of another `ready` asset, or `null` to clear), `invertInDark` (boolean), `smallMediaId` (the id of another `ready` asset, or `null` to clear), `credit` (a string of 1 to 200 characters after trimming, stored trimmed, or `null` to clear) | `200 MediaAsset` | `404` (the asset, `darkMediaId`, or `smallMediaId`), `409 media_not_ready` (`darkMediaId` or `smallMediaId` not ready), `400 validation_failed` (`darkMediaId` or `smallMediaId` is the asset itself; `credit` blank after trimming or longer than 200 characters) |
 | `DELETE /admin/media/{id}` | | `204`; deletes every object under `media/{id}/` and the row, in any state; every reference is cleared first (section and item image fields, sponsor logos, event posters, the site logo and favicon fall back to the library icon, and the assets whose dark or small version it is, listed as "dark version of <filename>" or "small version of <filename>"), listed under `unlinks` | `404` |
 
 A ticket whose object never arrives expires by the bucket's lifecycle rule (tag `state=pending`, 1 day) and its row by the nightly cleanup (7.6). In use means referenced by the working set, by any retained version, by a sponsor, by a cookie type, by the site settings draft, or as another asset's dark version (`MediaUsage.darkVersionOf`, shown as "dark version of <filename>").

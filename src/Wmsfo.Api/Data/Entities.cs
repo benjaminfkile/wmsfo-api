@@ -307,6 +307,7 @@ public sealed class MediaAsset
     public Guid? DarkMediaId { get; set; }
     public bool InvertInDark { get; set; }
     public Guid? SmallMediaId { get; set; }
+    public string? Credit { get; set; }
     public string Alt { get; set; } = "";
     public string Title { get; set; } = "";
     public string UploadedBy { get; set; } = "";

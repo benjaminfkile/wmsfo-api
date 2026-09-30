@@ -473,6 +473,7 @@ public sealed class MediaAssetDto
     public string? DarkMediaId { get; set; }
     public bool InvertInDark { get; set; }
     public string? SmallMediaId { get; set; }
+    public string? Credit { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ConfirmedAt { get; set; }

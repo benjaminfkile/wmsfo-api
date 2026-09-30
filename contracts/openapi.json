@@ -5939,6 +5939,12 @@
               "string"
             ]
           },
+          "credit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -6063,6 +6069,12 @@
               "null",
               "string"
             ]
+          },
+          "credit": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -6100,6 +6112,12 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "credit": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

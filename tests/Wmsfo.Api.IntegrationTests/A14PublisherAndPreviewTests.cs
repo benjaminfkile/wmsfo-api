@@ -837,11 +837,12 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(cdn + "/media/" + darkLogo + "/w480.webp", only.Value.GetString());
 
         // Keys follow the documented order: dark and invertInDark after dzi,
-        // then small and smallMediaId.
+        // then small, smallMediaId, and credit.
         var keys = entry.EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark", "small", "smallMediaId" }, keys);
+        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark", "small", "smallMediaId", "credit" }, keys);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("small").ValueKind);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("smallMediaId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("credit").ValueKind);
     }
 
     // The entry for an asset with a small version embeds `small` (the small
@@ -951,6 +952,57 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         patch.Content = new StringContent(json, Encoding.UTF8, "application/json");
         var patched = await _host.Client.SendAsync(patch);
         Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
+    }
+
+    // The entry carries the asset's credit in the snapshot and the draft media
+    // maps; a PATCH that sets or clears the credit rebuilds the snapshot with
+    // the new value.
+    [Fact]
+    public async Task Media_entry_carries_credit_and_a_credit_change_rebuilds_the_snapshot()
+    {
+        await BootstrapFirstBootAsync();
+        var logo = await UploadAndConfirmRasterAsync("site-logo.png", 1024, 512);
+        await PatchMediaAsync(logo, "{\"credit\":\"Photo by Jane Doe, example.com\"}");
+
+        var put = await PutSiteSettingsAsync(data =>
+            data["logoMedia"] = new JsonObject { ["mediaId"] = logo, ["alt"] = "Site logo" });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var (publishedVersion, _) = await ReadSnapshotRowAsyncFor(_fixture.ConnectionString);
+        Assert.Equal("Photo by Jane Doe, example.com", await ReadSnapshotCreditAsync(logo));
+
+        using (var draftReq = _host.EditorRequest(HttpMethod.Get, "/admin/content/draft"))
+        {
+            var draft = await _host.Client.SendAsync(draftReq);
+            Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+            using var doc = JsonDocument.Parse(await draft.Content.ReadAsStringAsync());
+            Assert.Equal("Photo by Jane Doe, example.com",
+                doc.RootElement.GetProperty("media").GetProperty(logo).GetProperty("credit").GetString());
+        }
+
+        await PatchMediaAsync(logo, "{\"credit\":\"Photo by John Roe\"}");
+        var (changedVersion, _) = await ReadSnapshotRowAsyncFor(_fixture.ConnectionString);
+        Assert.Equal(publishedVersion + 1, changedVersion);
+        Assert.Equal("Photo by John Roe", await ReadSnapshotCreditAsync(logo));
+
+        await PatchMediaAsync(logo, "{\"credit\":null}");
+        var (clearedVersion, _) = await ReadSnapshotRowAsyncFor(_fixture.ConnectionString);
+        Assert.Equal(changedVersion + 1, clearedVersion);
+        Assert.Null(await ReadSnapshotCreditAsync(logo));
+    }
+
+    private async Task<string?> ReadSnapshotCreditAsync(string mediaId)
+    {
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var credit = snap.RootElement.GetProperty("media").GetProperty(mediaId).GetProperty("credit");
+        return credit.ValueKind == JsonValueKind.Null ? null : credit.GetString();
     }
 
     // -------------------- display on Icon and MediaRef --------------------
