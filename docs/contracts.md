@@ -384,12 +384,12 @@ The content document is what an editor publishes: site settings plus pages made 
 ```ts
 type ContentDocument = { schemaVersion: 1; settings: SiteSettings; pages: ContentPage[] };
 type PageRole = "none" | "no_event" | "planned" | "scheduled" | "live" | "ended" | "cancelled";
-type ContentPage = { id: number; slug: string; title: string; navLabel: string | null; navPosition: number; role: PageRole; sections: ContentSection[] };
+type ContentPage = { id: number; slug: string; title: string; navLabel: string | null; icon: Icon | null; navPosition: number; role: PageRole; sections: ContentSection[] };
 type ContentSection = { id: number; kind: string; presentation: Presentation; data: object; items: ContentItem[] };
 type ContentItem = { id: number; data: object };
 ```
 
-Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` asc; items likewise. Hidden pages, hidden sections, and hidden items are omitted at publish; the document carries only what renders. Exactly one page per non-`none` role is present (the six are created by the seed and cannot be deleted, 4.5 Pages). A role page renders at `/` when its role matches `live.eventStatusId` (`no_event` when null); a `none` page renders at `/<slug>`. A role page's `navLabel` is always null; the home entry of the nav is site code, labelled by `settings.homeNavLabel`, linking to `/`.
+Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` asc; items likewise. Hidden pages, hidden sections, and hidden items are omitted at publish; the document carries only what renders. Exactly one page per non-`none` role is present (the six are created by the seed and cannot be deleted, 4.5 Pages). A role page renders at `/` when its role matches `live.eventStatusId` (`no_event` when null); a `none` page renders at `/<slug>`. A role page's `navLabel` is always null; the home entry of the nav is site code, labelled by `settings.homeNavLabel`, linking to `/`. Every page entry carries `icon`, the page's own `Icon` (below) or null when it has none; any page, role pages included, can carry one, and the site shows it beside the page's entry in the corner panel. A media-sourced page icon rides in the snapshot's `media` like every other referenced asset.
 
 **Shared primitives**, defined once in `contracts/schema/primitives.schema.json` and referenced by every kind:
 
@@ -1041,7 +1041,7 @@ type Page<T> = { items: T[]; nextCursor: string | null };
 
 // Content (1.3a), media (1.3b), icons
 type Problem = { path: string; message: string };                       // JSON pointer within the object validated
-type PageAdmin = { id: number; slug: string; title: string; navLabel: string | null; navPosition: number; isHidden: boolean; role: PageRole; sectionCount: number; problemCount: number; createdBy: string; createdAt: string; updatedBy: string; updatedAt: string; audit: AuditStamp | null };
+type PageAdmin = { id: number; slug: string; title: string; navLabel: string | null; icon: Icon | null; navPosition: number; isHidden: boolean; role: PageRole; sectionCount: number; problemCount: number; createdBy: string; createdAt: string; updatedBy: string; updatedAt: string; audit: AuditStamp | null };
 type SectionItemAdmin = { id: number; sectionId: number; position: number; isHidden: boolean; data: object; problems: Problem[]; updatedBy: string; updatedAt: string; audit: AuditStamp | null };
 type SectionAdmin = { id: number; pageId: number; kind: string; position: number; isHidden: boolean; data: object; presentation: Presentation; items: SectionItemAdmin[]; problems: Problem[]; updatedBy: string; updatedAt: string; audit: AuditStamp | null };
 type PageDetail = PageAdmin & { sections: SectionAdmin[] };
@@ -1311,9 +1311,9 @@ Pages, sections, items, and the site settings draft are the working set. Writes 
 | Method and path | Body | Success | Errors |
 |---|---|---|---|
 | `GET /admin/pages` | | `200 { "items": PageAdmin[] }` ordered `role` pages first (in status order, `no_event` first), then `none` pages by `navPosition`, `id` | |
-| `POST /admin/pages` | `{ "slug": "about", "title": "About", "navLabel": "About", "navPosition": 10, "isHidden": false }` (`slug`, `title` required; `title` 1 to 200; `navLabel` null or 1 to 40; `navPosition` defaults to one past the greatest; role is always `none`) | `201 PageAdmin` | `400 slug_reserved`, `409 slug_taken` |
+| `POST /admin/pages` | `{ "slug": "about", "title": "About", "navLabel": "About", "icon": { "source": "library", "id": "star" }, "navPosition": 10, "isHidden": false }` (`slug`, `title` required; `title` 1 to 200; `navLabel` null or 1 to 40; `icon` an `Icon` (1.3a) or null, absent means null; `navPosition` defaults to one past the greatest; role is always `none`) | `201 PageAdmin` | `400 slug_reserved`, `409 slug_taken`, `400 validation_failed` (`icon` not an `Icon`, on `icon`; a library id not in the library, on `icon.id`), `404` (media icon asset), `409 media_not_ready` |
 | `GET /admin/pages/{id}` | | `200 PageDetail` (sections with items in order, each with its publish-level `problems`) | `404` |
-| `PATCH /admin/pages/{id}` | subset of `slug`, `title`, `navLabel`, `navPosition`, `isHidden` | `200 PageAdmin`. On a role page `navLabel` must stay null and `isHidden` false (`400`). | `404`, `400 slug_reserved`, `409 slug_taken` |
+| `PATCH /admin/pages/{id}` | subset of `slug`, `title`, `navLabel`, `icon` (an `Icon` sets it, `null` clears it, absent leaves it), `navPosition`, `isHidden` | `200 PageAdmin`. On a role page `navLabel` must stay null and `isHidden` false (`400`); role pages take icons like any page. | `404` (the page or a media icon asset), `400 slug_reserved`, `409 slug_taken`, `400 validation_failed` (`icon` not an `Icon`, on `icon`; a library id not in the library, on `icon.id`), `409 media_not_ready` |
 | `DELETE /admin/pages/{id}?roleTo=` | | `204`; cascades sections and items; a page holding a role hands it to the page named by `roleTo` first (the impact warns which role) | `404`, `400 role_needs_page` (the page holds a role and `roleTo` is missing or not another page) |
 | `PUT /admin/pages/order` | `{ "ids": [3, 5, 4] }` (every `none` page exactly once) | `200 { "items": PageAdmin[] }`; `navPosition` becomes the index times 10 | `400` |
 
@@ -1370,7 +1370,7 @@ The pipeline is presign, upload, confirm. Media bytes never pass through the API
 | `GET /admin/media/{id}` | | `200 MediaAsset` | `404` |
 | `GET /admin/media/{id}/usage` | | `200 MediaUsage` | `404` |
 | `PATCH /admin/media/{id}` **[snapshot]** | subset of `alt`, `title`, `darkMediaId` (the id of another `ready` asset, or `null` to clear), `invertInDark` (boolean), `smallMediaId` (the id of another `ready` asset, or `null` to clear), `credit` (a string of 1 to 200 characters after trimming, stored trimmed, or `null` to clear) | `200 MediaAsset` | `404` (the asset, `darkMediaId`, or `smallMediaId`), `409 media_not_ready` (`darkMediaId` or `smallMediaId` not ready), `400 validation_failed` (`darkMediaId` or `smallMediaId` is the asset itself; `credit` blank after trimming or longer than 200 characters) |
-| `DELETE /admin/media/{id}` | | `204`; deletes every object under `media/{id}/` and the row, in any state; every reference is cleared first (section and item image fields, sponsor logos, event posters, the site logo and favicon fall back to the library icon, and the assets whose dark or small version it is, listed as "dark version of <filename>" or "small version of <filename>"), listed under `unlinks` | `404` |
+| `DELETE /admin/media/{id}` | | `204`; deletes every object under `media/{id}/` and the row, in any state; every reference is cleared first (section and item image fields, page icons, sponsor logos, event posters, the site logo and favicon fall back to the library icon, and the assets whose dark or small version it is, listed as "dark version of <filename>" or "small version of <filename>"), listed under `unlinks` | `404` |
 
 A ticket whose object never arrives expires by the bucket's lifecycle rule (tag `state=pending`, 1 day) and its row by the nightly cleanup (7.6). In use means referenced by the working set, by any retained version, by a sponsor, by a cookie type, by the site settings draft, or as another asset's dark version (`MediaUsage.darkVersionOf`, shown as "dark version of <filename>").
 
@@ -1862,6 +1862,7 @@ create table page (
   slug         text not null unique,
   title        text not null,
   nav_label    text,
+  icon         jsonb,                     -- Icon value (1.3a) or null
   nav_position integer not null default 0,
   is_hidden    boolean not null default false,
   role         text not null default 'none'

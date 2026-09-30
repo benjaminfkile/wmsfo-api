@@ -80,13 +80,18 @@ public static class AdminContentEndpoints
 
         app.MapPost("/admin/pages",
             async (CreatePageRequest body, HttpContext ctx, AuditRecorder audit,
+                   SchemaValidator validator, IconLibrary? iconLibrary,
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
+                var iconV = new RequestValidation();
+                var (_, icon) = ReadPageIcon(body.Icon, validator, iconLibrary, iconV);
+                iconV.ThrowIfInvalid();
                 ValidatePageBody(body.Slug, body.Title, body.NavLabel, isCreate: true);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
+                await CheckPageIconMediaAsync(conn, tx, icon, ct);
 
                 // navPosition defaults to one past the greatest existing `none` page.
                 var navPosition = body.NavPosition;
@@ -101,8 +106,8 @@ public static class AdminContentEndpoints
                 try
                 {
                     await using var insert = new NpgsqlCommand(@"
-insert into page (slug, title, nav_label, nav_position, is_hidden, role, created_by, updated_by)
-values ($1, $2, $3, $4, $5, 'none', $6, $6)
+insert into page (slug, title, nav_label, nav_position, is_hidden, role, created_by, updated_by, icon)
+values ($1, $2, $3, $4, $5, 'none', $6, $6, $7::jsonb)
 returning id;", conn, tx);
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Slug });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Title.Trim() });
@@ -114,6 +119,11 @@ returning id;", conn, tx);
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = navPosition });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.IsHidden });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                    insert.Parameters.Add(new NpgsqlParameter
+                    {
+                        NpgsqlDbType = NpgsqlDbType.Jsonb,
+                        Value = (object?)PageIconToJson(icon) ?? DBNull.Value,
+                    });
                     id = Convert.ToInt64(await insert.ExecuteScalarAsync(ct) ?? 0L);
                 }
                 catch (PostgresException ex) when (ex.SqlState == "23505")
@@ -149,7 +159,7 @@ returning id;", conn, tx);
                 var detail = new PageDetailDto
                 {
                     Id = page.Id, Slug = page.Slug, Title = page.Title,
-                    NavLabel = page.NavLabel, NavPosition = page.NavPosition,
+                    NavLabel = page.NavLabel, Icon = page.Icon, NavPosition = page.NavPosition,
                     IsHidden = page.IsHidden, Role = page.Role,
                     SectionCount = page.SectionCount, ProblemCount = page.ProblemCount,
                     CreatedBy = page.CreatedBy, CreatedAt = page.CreatedAt,
@@ -166,6 +176,7 @@ returning id;", conn, tx);
 
         app.MapPatch("/admin/pages/{id:long}",
             async (long id, PatchPageRequest body, HttpContext ctx, AuditRecorder audit,
+                   SchemaValidator validator, IconLibrary? iconLibrary,
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -183,6 +194,7 @@ returning id;", conn, tx);
                 {
                     v.Field("navLabel", "must be null or 1 to 40 characters");
                 }
+                var (setIcon, icon) = ReadPageIcon(body.Icon, validator, iconLibrary, v);
                 v.ThrowIfInvalid();
                 if (body.Slug is not null && DocumentBuilder.ReservedSlugs.Contains(body.Slug))
                 {
@@ -203,7 +215,8 @@ returning id;", conn, tx);
                     role = (string)r;
                 }
                 var pageBefore = await ReadPageByIdAsync(conn, tx, id, ct);
-                // Role pages: navLabel must stay null, isHidden false.
+                if (setIcon) await CheckPageIconMediaAsync(conn, tx, icon, ct);
+                // Role pages: navLabel must stay null, isHidden false; they take icons like any page.
                 if (!string.Equals(role, "none", StringComparison.Ordinal))
                 {
                     if (body.NavLabel is not null && !string.IsNullOrEmpty(body.NavLabel))
@@ -228,6 +241,12 @@ returning id;", conn, tx);
                     sets.Add($"nav_label = ${next++}");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text,
                         Value = (object?)(string.IsNullOrEmpty(body.NavLabel) ? null : body.NavLabel.Trim()) ?? DBNull.Value });
+                }
+                if (setIcon)
+                {
+                    sets.Add($"icon = ${next++}::jsonb");
+                    parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb,
+                        Value = (object?)PageIconToJson(icon) ?? DBNull.Value });
                 }
                 if (body.NavPosition is int np) { sets.Add($"nav_position = ${next++}"); parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = np }); }
                 if (body.IsHidden is bool hidden) { sets.Add($"is_hidden = ${next++}"); parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = hidden }); }
@@ -833,7 +852,7 @@ where id = $4;", conn, tx))
                 var detail = new PageDetailDto
                 {
                     Id = page.Id, Slug = page.Slug, Title = page.Title,
-                    NavLabel = page.NavLabel, NavPosition = page.NavPosition,
+                    NavLabel = page.NavLabel, Icon = page.Icon, NavPosition = page.NavPosition,
                     IsHidden = page.IsHidden, Role = page.Role,
                     SectionCount = page.SectionCount, ProblemCount = page.ProblemCount,
                     CreatedBy = page.CreatedBy, CreatedAt = page.CreatedAt,
@@ -1607,6 +1626,56 @@ values ($1, $2, $3) returning id;", conn, tx))
         }
     }
 
+    // A written page icon: absent leaves it (`Set` false), null clears it, an
+    // object must match `$defs/Icon` and a library id must be in the icon
+    // library. Problems go to `v` under `icon`.
+    private static (bool Set, IconValue? Icon) ReadPageIcon(
+        JsonElement value, SchemaValidator validator, IconLibrary? library, RequestValidation v)
+    {
+        if (value.ValueKind == JsonValueKind.Undefined) return (false, null);
+        if (value.ValueKind == JsonValueKind.Null) return (true, null);
+        if (validator.ValidateIcon(JsonNode.Parse(value.GetRawText())).Count > 0)
+        {
+            v.Field("icon", "must be an Icon { source: library or media, id, display? } or null");
+            return (false, null);
+        }
+        var icon = IconValue.FromStored(value);
+        if (icon is null)
+        {
+            v.Field("icon", "must be an Icon { source: library or media, id, display? } or null");
+            return (false, null);
+        }
+        if (icon.Source == "library" && library is not null && !library.Contains(icon.Id))
+        {
+            v.Field("icon.id", "is not a known library icon id");
+            return (false, null);
+        }
+        return (true, icon);
+    }
+
+    // A media-sourced page icon must name a ready media asset (404, 409 media_not_ready).
+    private static async Task CheckPageIconMediaAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, IconValue? icon, CancellationToken ct)
+    {
+        if (icon is not { Source: "media" }) return;
+        await using var cmd = new NpgsqlCommand("select state from media_asset where id = $1;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(icon.Id) });
+        var state = await cmd.ExecuteScalarAsync(ct);
+        if (state is null || state is DBNull) throw NotFound("media not found");
+        if (!string.Equals((string)state, "ready", StringComparison.Ordinal))
+            throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "media asset is not ready");
+    }
+
+    private static string? PageIconToJson(IconValue? icon) =>
+        icon is null ? null : JsonSerializer.Serialize(icon, CanonicalJson.Options);
+
+    private static IconValue? ReadStoredIcon(NpgsqlDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal)) return null;
+        using var doc = JsonDocument.Parse(reader.GetString(ordinal));
+        return IconValue.FromStored(doc.RootElement);
+    }
+
     private static bool IsValidSlug(string slug)
     {
         if (string.IsNullOrEmpty(slug) || slug.Length > 60) return false;
@@ -1678,7 +1747,7 @@ values ($1, $2, $3) returning id;", conn, tx))
         await using var cmd = new NpgsqlCommand(@"
 select p.id, p.slug, p.title, p.nav_label, p.nav_position, p.is_hidden, p.role,
        p.created_by, p.created_at, p.updated_by, p.updated_at,
-       coalesce(sc.n, 0) as section_count
+       coalesce(sc.n, 0) as section_count, p.icon
 from page p
 left join (
   select page_id, count(*) as n from section group by page_id
@@ -1705,6 +1774,7 @@ order by case p.role
                 UpdatedAt = reader.GetFieldValue<DateTimeOffset>(10),
                 SectionCount = reader.GetInt32(11),
                 ProblemCount = 0,
+                Icon = ReadStoredIcon(reader, 12),
             });
         }
         return pages;
@@ -1716,7 +1786,7 @@ order by case p.role
         await using var cmd = new NpgsqlCommand(@"
 select p.id, p.slug, p.title, p.nav_label, p.nav_position, p.is_hidden, p.role,
        p.created_by, p.created_at, p.updated_by, p.updated_at,
-       (select count(*) from section where page_id = p.id) as section_count
+       (select count(*) from section where page_id = p.id) as section_count, p.icon
 from page p where p.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -1736,6 +1806,7 @@ from page p where p.id = $1;", conn, tx);
             UpdatedAt = reader.GetFieldValue<DateTimeOffset>(10),
             SectionCount = Convert.ToInt32(reader.GetInt64(11)),
             ProblemCount = 0,
+            Icon = ReadStoredIcon(reader, 12),
         };
     }
 

@@ -94,8 +94,8 @@ public sealed class Restorer
         {
             long pageId;
             await using (var insertPage = new NpgsqlCommand(@"
-insert into page (slug, title, nav_label, nav_position, is_hidden, role, created_by, updated_by)
-values ($1, $2, $3, $4, false, $5, $6, $6) returning id;", conn, tx))
+insert into page (slug, title, nav_label, nav_position, is_hidden, role, created_by, updated_by, icon)
+values ($1, $2, $3, $4, false, $5, $6, $6, $7::jsonb) returning id;", conn, tx))
             {
                 insertPage.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = page.Slug });
                 insertPage.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = page.Title });
@@ -107,6 +107,11 @@ values ($1, $2, $3, $4, false, $5, $6, $6) returning id;", conn, tx))
                 insertPage.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = page.NavPosition });
                 insertPage.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = page.Role });
                 insertPage.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = restoredBy });
+                insertPage.Parameters.Add(new NpgsqlParameter
+                {
+                    NpgsqlDbType = NpgsqlDbType.Jsonb,
+                    Value = page.Icon is null ? DBNull.Value : (object)JsonSerializer.Serialize(page.Icon, CanonicalJson.Options),
+                });
                 pageId = Convert.ToInt64(await insertPage.ExecuteScalarAsync(ct).ConfigureAwait(false));
             }
 

@@ -26,6 +26,9 @@ public sealed class CreatePageRequest
     public string Slug { get; set; } = "";
     public string Title { get; set; } = "";
     public string? NavLabel { get; set; }
+    // An Icon sets the page's icon, null clears it, absent leaves it (a bare
+    // JsonElement: null yields `ValueKind == Null` and absent yields `Undefined`).
+    public JsonElement Icon { get; set; }
     public int NavPosition { get; set; }
     public bool IsHidden { get; set; }
 }
@@ -35,6 +38,9 @@ public sealed class PatchPageRequest
     public string? Slug { get; set; }
     public string? Title { get; set; }
     public string? NavLabel { get; set; }
+    // An Icon sets the page's icon, null clears it, absent leaves it (a bare
+    // JsonElement: null yields `ValueKind == Null` and absent yields `Undefined`).
+    public JsonElement Icon { get; set; }
     public int? NavPosition { get; set; }
     public bool? IsHidden { get; set; }
 }

@@ -365,6 +365,7 @@ public sealed class PageAdminDto
     public string Slug { get; set; } = "";
     public string Title { get; set; } = "";
     public string? NavLabel { get; set; }
+    public IconValue? Icon { get; set; }
     public int NavPosition { get; set; }
     public bool IsHidden { get; set; }
     public string Role { get; set; } = "";
@@ -412,6 +413,7 @@ public sealed class PageDetailDto
     public string Slug { get; set; } = "";
     public string Title { get; set; } = "";
     public string? NavLabel { get; set; }
+    public IconValue? Icon { get; set; }
     public int NavPosition { get; set; }
     public bool IsHidden { get; set; }
     public string Role { get; set; } = "";
