@@ -8446,6 +8446,12 @@
               "null",
               "string"
             ]
+          },
+          "labelSize": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

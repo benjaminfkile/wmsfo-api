@@ -119,7 +119,8 @@
             "timeLabelIntervalMinutes": { "enum": [0, 5, 10, 15, 30] },
             "arrows": { "type": "boolean" },
             "arrowSize": { "enum": ["small", "medium", "large", "xlarge"] },
-            "routeWidth": { "enum": ["thin", "normal", "thick", "xthick"] }
+            "routeWidth": { "enum": ["thin", "normal", "thick", "xthick"] },
+            "labelSize": { "enum": ["small", "medium", "large"] }
           },
           "additionalProperties": false
         },

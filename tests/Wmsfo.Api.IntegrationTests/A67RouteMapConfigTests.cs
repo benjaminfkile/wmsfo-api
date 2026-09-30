@@ -11,6 +11,7 @@ namespace Wmsfo.Api.IntegrationTests;
 
 // event.routeMapConfig (contracts 1.3, 4.5 Events):
 //   - a whole config and each key alone round-trip through PATCH and GET
+//   - display.labelSize round-trips last in display and stays absent when unset
 //   - absent leaves it, null clears it, a new event has null
 //   - bad enums, a 51st landmark, a bad kind token, unknown keys, a non-object,
 //     and an unknown library icon are 400 on the field; the row is unchanged
@@ -21,7 +22,7 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
 {
     // Every key set, in contract order, as the API answers and publishes it.
     private const string FullConfig =
-        "{\"display\":{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\"},"
+        "{\"display\":{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\",\"labelSize\":\"large\"},"
         + "\"controls\":{\"fullscreen\":false,\"terrain\":false},"
         + "\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99,"
         + "\"icon\":{\"source\":\"library\",\"id\":\"sleigh\"},\"description\":\"The tree lighting.\"},"
@@ -99,6 +100,9 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"display\":{\"arrows\":true}}")]
     [InlineData("{\"display\":{\"arrowSize\":\"small\"}}")]
     [InlineData("{\"display\":{\"routeWidth\":\"thin\"}}")]
+    [InlineData("{\"display\":{\"labelSize\":\"small\"}}")]
+    [InlineData("{\"display\":{\"labelSize\":\"medium\"}}")]
+    [InlineData("{\"display\":{\"labelSize\":\"large\"}}")]
     [InlineData("{\"controls\":{}}")]
     [InlineData("{\"controls\":{\"fullscreen\":false}}")]
     [InlineData("{\"controls\":{\"terrain\":true}}")]
@@ -118,6 +122,31 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
         }
         using var got = await GetEventAsync(id);
         Assert.Equal(config, got.RootElement.GetProperty("routeMapConfig").GetRawText());
+    }
+
+    // labelSize sits last in display, and a display without it stores and
+    // answers no labelSize key at all.
+    [Fact]
+    public async Task Label_size_round_trips_in_display_and_absent_stays_absent()
+    {
+        var id = await CreateEventAsync(2311);
+        var patch = await PatchAsync(id,
+            "{\"routeMapConfig\":{\"display\":{\"labelSize\":\"small\",\"arrows\":false}}}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        using (var got = await GetEventAsync(id))
+        {
+            Assert.Equal("{\"display\":{\"arrows\":false,\"labelSize\":\"small\"}}",
+                got.RootElement.GetProperty("routeMapConfig").GetRawText());
+        }
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await PatchAsync(id, "{\"routeMapConfig\":{\"display\":{\"arrows\":false}}}")).StatusCode);
+        using (var without = await GetEventAsync(id))
+        {
+            var display = without.RootElement.GetProperty("routeMapConfig").GetProperty("display");
+            Assert.False(display.TryGetProperty("labelSize", out _));
+        }
+        Assert.DoesNotContain("labelSize", await ReadStoredConfigAsync(id), StringComparison.Ordinal);
     }
 
     // Keys written out of contract order come back in contract order.
@@ -167,6 +196,8 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"display\":{\"arrows\":\"yes\"}}", "routeMapConfig.display.arrows")]
     [InlineData("{\"display\":{\"arrowSize\":\"huge\"}}", "routeMapConfig.display.arrowSize")]
     [InlineData("{\"display\":{\"routeWidth\":\"wide\"}}", "routeMapConfig.display.routeWidth")]
+    [InlineData("{\"display\":{\"labelSize\":\"xlarge\"}}", "routeMapConfig.display.labelSize")]
+    [InlineData("{\"display\":{\"labelSize\":2}}", "routeMapConfig.display.labelSize")]
     [InlineData("{\"controls\":{\"terrain\":1}}", "routeMapConfig.controls.terrain")]
     [InlineData("toomany", "routeMapConfig.landmarks")]
     [InlineData("{\"landmarks\":[{\"name\":\"\",\"lat\":46.87,\"lng\":-114.0}]}", "routeMapConfig.landmarks[0].name")]
