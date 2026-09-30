@@ -35,6 +35,7 @@ public sealed class SchemaValidator
     private readonly JsonSchema _presentationPublish;
     private readonly JsonSchema _presentationDraft;
     private readonly JsonSchema _routeMapConfig;
+    private readonly JsonSchema _icon;
 
     public SchemaValidator(KindRegistry registry)
     {
@@ -76,6 +77,7 @@ public sealed class SchemaValidator
         _presentationPublish = ExtractDef(registry.PrimitivesNode, "Presentation", isDraft: false);
         _presentationDraft = ExtractDef(registry.PrimitivesNode, "Presentation", isDraft: true);
         _routeMapConfig = ExtractDef(registry.PrimitivesNode, "RouteMapConfig", isDraft: false);
+        _icon = ExtractDef(registry.PrimitivesNode, "Icon", isDraft: false);
     }
 
     public IReadOnlyList<ProblemDto> ValidateSectionData(string kind, JsonNode? data, ValidationLevel level)
@@ -113,6 +115,11 @@ public sealed class SchemaValidator
     // state, so the full schema always applies.
     public IReadOnlyList<ProblemDto> ValidateRouteMapConfig(JsonNode? data) =>
         Evaluate(_routeMapConfig, data);
+
+    // A single Icon (`$defs/Icon`), such as a page's icon. It has no draft
+    // state, so the full schema always applies.
+    public IReadOnlyList<ProblemDto> ValidateIcon(JsonNode? data) =>
+        Evaluate(_icon, data);
 
     public IReadOnlyList<ProblemDto> ValidateDocument(JsonNode? data, ValidationLevel level)
     {

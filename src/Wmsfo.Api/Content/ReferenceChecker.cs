@@ -35,7 +35,7 @@ public sealed class ReferenceChecker
 
     // The full working-set snapshot the checker walks. DocumentBuilder produces
     // this (with hidden rows omitted).
-    public sealed record PageInput(long Id, string Slug, string Role, IReadOnlyList<SectionInput> Sections);
+    public sealed record PageInput(long Id, string Slug, string Role, IReadOnlyList<SectionInput> Sections, JsonNode? Icon = null);
     public sealed record SectionInput(long Id, string Kind, JsonNode? Data, JsonNode? Presentation, IReadOnlyList<ItemInput> Items);
     public sealed record ItemInput(long Id, JsonNode? Data);
     public sealed record WorkingSet(IReadOnlyList<PageInput> Pages, JsonNode? Settings);
@@ -163,6 +163,14 @@ public sealed class ReferenceChecker
             {
                 _pageAnchors = new HashSet<string>(StringComparer.Ordinal);
                 _pageId = page.Id;
+                _sectionId = null;
+                _itemId = null;
+                // The page's own icon.
+                if (page.Icon is not null)
+                {
+                    _basePath = "/icon";
+                    WalkNode(page.Icon);
+                }
                 foreach (var section in page.Sections)
                 {
                     _sectionId = section.Id;

@@ -678,6 +678,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Title).HasColumnType("text").IsRequired();
             e.Property(x => x.NavLabel).HasColumnType("text")
                 .HasComment("Nav entry text; null keeps the page out of the nav. Always null on role pages.");
+            e.Property(x => x.Icon).HasColumnType("jsonb").HasColumnName("icon")
+                .HasComment("The page's Icon { source, id, display? } (contracts 1.3a), validated on write against $defs/Icon; null when none. Role pages take icons too.");
             e.Property(x => x.NavPosition).HasColumnType("integer").IsRequired().HasDefaultValue(0);
             e.Property(x => x.IsHidden).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
             e.Property(x => x.Role).HasColumnType("text").IsRequired().HasDefaultValue("none");

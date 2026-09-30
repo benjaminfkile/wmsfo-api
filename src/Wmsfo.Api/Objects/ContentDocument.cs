@@ -58,9 +58,11 @@ public sealed class ContentPage
     [JsonPropertyOrder(1)] public string Slug { get; set; } = "";
     [JsonPropertyOrder(2)] public string Title { get; set; } = "";
     [JsonPropertyOrder(3)] public string? NavLabel { get; set; }
-    [JsonPropertyOrder(4)] public int NavPosition { get; set; }
-    [JsonPropertyOrder(5)] public string Role { get; set; } = "none";
-    [JsonPropertyOrder(6)] public IList<ContentSection> Sections { get; set; } = new List<ContentSection>();
+    // The page's icon (contracts 1.3a), always present, null when none.
+    [JsonPropertyOrder(4)] public IconValue? Icon { get; set; }
+    [JsonPropertyOrder(5)] public int NavPosition { get; set; }
+    [JsonPropertyOrder(6)] public string Role { get; set; } = "none";
+    [JsonPropertyOrder(7)] public IList<ContentSection> Sections { get; set; } = new List<ContentSection>();
 }
 
 public sealed class ContentSection

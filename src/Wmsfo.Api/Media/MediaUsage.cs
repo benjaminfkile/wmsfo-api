@@ -16,7 +16,7 @@ public static class MediaUsage
         var usage = new MediaUsageDto();
 
         // 1. Draft pages that mention the id anywhere in a section's data /
-        //    presentation, or in an item's data.
+        //    presentation, or in an item's data, or whose icon is the asset.
         await using (var cmd = new NpgsqlCommand(@"
 select p.id, p.slug, p.title
 from page p
@@ -30,6 +30,7 @@ or exists (
   join section_item i on i.section_id = s.id
   where s.page_id = p.id and i.data::text like '%' || $1 || '%'
 )
+or (p.icon->>'source' = 'media' and p.icon->>'id' = $1)
 order by p.nav_position, p.id;", conn))
         {
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = idText });

@@ -48,7 +48,7 @@ public sealed class DocumentBuilder
     {
         var pages = new List<PageRow>();
         await using (var cmd = new NpgsqlCommand(
-            @"select id, slug, title, nav_label, nav_position, is_hidden, role
+            @"select id, slug, title, nav_label, nav_position, is_hidden, role, icon
               from page
               order by role, nav_position, id;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -64,6 +64,7 @@ public sealed class DocumentBuilder
                     NavPosition = reader.GetInt32(4),
                     IsHidden = reader.GetBoolean(5),
                     Role = reader.GetString(6),
+                    Icon = reader.IsDBNull(7) ? null : JsonNode.Parse(reader.GetString(7)),
                 });
             }
         }
@@ -203,12 +204,13 @@ public sealed class DocumentBuilder
                 Slug = page.Slug,
                 Title = page.Title,
                 NavLabel = page.NavLabel,
+                Icon = page.Icon is null ? null : IconValue.FromStored(JsonSerializer.SerializeToElement(page.Icon)),
                 NavPosition = page.NavPosition,
                 Role = page.Role,
                 Sections = docSections,
             });
             wsPages.Add(new ReferenceChecker.PageInput(
-                page.Id, page.Slug, page.Role, wsSections));
+                page.Id, page.Slug, page.Role, wsSections, page.Icon));
         }
 
         var settings = ParseSiteSettings(settingsData);
@@ -230,6 +232,7 @@ public sealed class DocumentBuilder
         // Walk pages + sections + items.
         foreach (var page in ws.Pages)
         {
+            if (page.Icon is not null) CollectFromNode(page.Icon, ids);
             foreach (var section in page.Sections)
             {
                 if (section.Data is not null) CollectFromNode(section.Data, ids);
@@ -345,6 +348,7 @@ public sealed class DocumentBuilder
         public string Slug = "";
         public string Title = "";
         public string? NavLabel;
+        public JsonNode? Icon;
         public int NavPosition;
         public bool IsHidden;
         public string Role = "";

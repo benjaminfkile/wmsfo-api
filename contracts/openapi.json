@@ -4547,6 +4547,9 @@
               "string"
             ]
           },
+          "icon": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
           "navPosition": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -6592,6 +6595,16 @@
               "string"
             ]
           },
+          "icon": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IconValue"
+              }
+            ]
+          },
           "navPosition": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -6669,6 +6682,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "icon": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/IconValue"
+              }
             ]
           },
           "navPosition": {
@@ -7001,6 +7024,9 @@
               "null",
               "string"
             ]
+          },
+          "icon": {
+            "$ref": "#/components/schemas/JsonElement"
           },
           "navPosition": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

@@ -8,8 +8,8 @@ namespace Wmsfo.Api.Endpoints.Impact;
 // api.md 5b: a media delete clears every reference. FK cascades handle
 // sponsor.logo_media_id, event.route_image_media_id,
 // media_asset.dark_media_id, and media_asset.small_media_id (set null). Content
-// JSON (sections, items, site settings, content_version.media_ids) and cookie
-// type icons live outside those FKs, so ApplyAsync clears them explicitly.
+// JSON (sections, items, site settings, content_version.media_ids), page icons,
+// and cookie type icons live outside those FKs, so ApplyAsync clears them explicitly.
 public static class MediaImpactQueries
 {
     public static async Task<DeleteImpactDto> PreviewAsync(
@@ -47,7 +47,8 @@ public static class MediaImpactQueries
             textParams, ct).ConfigureAwait(false);
         if (cookieTypes is not null) impact.Unlinks.Add(cookieTypes);
 
-        // Content draft pages: any section or item whose JSON mentions the id.
+        // Content draft pages: any section or item whose JSON mentions the id,
+        // or a page whose icon is the asset.
         var pages = await CountAndNamesPagesAsync(conn, tx, id, ct).ConfigureAwait(false);
         if (pages is not null) impact.Unlinks.Add(pages);
 
@@ -74,7 +75,7 @@ public static class MediaImpactQueries
     }
 
     // ApplyAsync clears content JSON references (sections, items, site settings,
-    // cookie_type icon), and clears content_version.media_ids entries.
+    // page icons, cookie_type icon), and clears content_version.media_ids entries.
     // sponsor.logo_media_id, event.route_image_media_id,
     // media_asset.dark_media_id, and media_asset.small_media_id are handled by
     // the FK cascades (set null).
@@ -99,6 +100,15 @@ where id = 1 and data::text like '%' || $1 || '%';", conn, tx))
             await upd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         await ClearSiteSettingsJsonAsync(conn, tx, idText, ct).ConfigureAwait(false);
+
+        // Page icons whose media id matches.
+        await using (var upd = new NpgsqlCommand(@"
+update page set icon = null
+where icon->>'source' = 'media' and icon->>'id' = $1;", conn, tx))
+        {
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = idText });
+            await upd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
 
         // Cookie type icons whose media id matches.
         await using (var upd = new NpgsqlCommand(@"
@@ -135,7 +145,8 @@ or exists (
   select 1 from section s
   join section_item i on i.section_id = s.id
   where s.page_id = p.id and i.data::text like '%' || $1 || '%'
-);", conn, tx))
+)
+or (p.icon->>'source' = 'media' and p.icon->>'id' = $1);", conn, tx))
         {
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = idText });
             var r = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
@@ -155,6 +166,7 @@ or exists (
   join section_item i on i.section_id = s.id
   where s.page_id = p.id and i.data::text like '%' || $1 || '%'
 )
+or (p.icon->>'source' = 'media' and p.icon->>'id' = $1)
 order by p.id
 limit 10;", conn, tx))
         {
