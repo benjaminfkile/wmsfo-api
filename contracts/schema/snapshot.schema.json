@@ -173,6 +173,12 @@
                     "string",
                     "null"
                   ]
+                },
+                "labelSize": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "additionalProperties": false

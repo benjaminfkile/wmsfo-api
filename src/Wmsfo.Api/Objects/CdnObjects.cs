@@ -129,13 +129,14 @@ public sealed class RouteMapConfig
 }
 
 // The route map display knobs; an absent key means the built-in default
-// (15, true, "medium", "normal").
+// (15, true, "medium", "normal", "medium").
 public sealed class RouteMapDisplay
 {
     [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? TimeLabelIntervalMinutes { get; set; }
     [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Arrows { get; set; }
     [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ArrowSize { get; set; }
     [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? RouteWidth { get; set; }
+    [JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LabelSize { get; set; }
 }
 
 // The route map control switches; an absent key means true.
