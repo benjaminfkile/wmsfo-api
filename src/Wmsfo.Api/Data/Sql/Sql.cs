@@ -99,8 +99,12 @@ for update;";
     public const string EventUpdateStatus = @"
 update event
 set status_id = @to_status,
-    went_live_at = case when @to_status = 3 then now() else went_live_at end,
-    ended_at     = case when @to_status = 4 then now() else ended_at end,
+    went_live_at = case when @to_status = 3 then now()
+                        when @from_status = 3 and @to_status <> 4 then null
+                        else went_live_at end,
+    ended_at     = case when @to_status = 4 then now()
+                        when @to_status = 3 or @from_status = 3 then null
+                        else ended_at end,
     updated_at   = now()
 where id = @event_id;";
 

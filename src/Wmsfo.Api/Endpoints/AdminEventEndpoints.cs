@@ -574,8 +574,9 @@ where e.id = $1;", conn))
     }
 
     // POST /admin/events/{id}/status [snapshot]. Rules per contracts 4.5.
-    // Stamps went_live_at on every entry into 3 and ended_at on every entry
-    // into 4; sets final_cookie_tally on entry into 4 and clears it on exit.
+    // Stamps went_live_at and clears ended_at on every entry into 3, stamps
+    // ended_at on every entry into 4, and clears both on a change from 3 to
+    // any status other than 4; sets final_cookie_tally on entry into 4 and clears it on exit.
     // Inserts the event_status_history row and the outbox row.
     private static void MapStatus(IEndpointRouteBuilder app)
     {
@@ -704,13 +705,23 @@ where e.id = $1;", conn))
                         finalTallyFragment = "null::jsonb";
                     }
 
+                    // Entry into 3 stamps went_live_at and clears ended_at; entry into 4
+                    // stamps ended_at; a change from 3 to anything but 4 clears both;
+                    // every other transition leaves both as they are.
+                    var wentLiveFragment = to == 3 ? "now()"
+                        : from == 3 && to != 4 ? "null"
+                        : "went_live_at";
+                    var endedFragment = to == 4 ? "now()"
+                        : to == 3 || from == 3 ? "null"
+                        : "ended_at";
+
                     var toParamIndex = next++;
                     // update event ... set status_id = $to, went_live_at, ended_at, final_cookie_tally
                     var sql = @"
 update event
 set status_id = $" + toParamIndex + @",
-    went_live_at = case when $" + toParamIndex + @" = 3 then now() else went_live_at end,
-    ended_at = case when $" + toParamIndex + @" = 4 then now() else ended_at end,
+    went_live_at = " + wentLiveFragment + @",
+    ended_at = " + endedFragment + @",
     final_cookie_tally = " + finalTallyFragment + @",
     updated_at = now()
 where id = $" + idParamIndex + @";";
