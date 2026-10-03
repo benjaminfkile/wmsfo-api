@@ -39,6 +39,7 @@ public static class AdminEventEndpoints
         MapCreateMessage(app);
         MapPatchMessage(app);
         MapDeleteMessage(app);
+        MapSeedCookies(app);
         MapLocations(app);
         MapClearLocations(app);
         MapLocationsImpact(app);
@@ -1226,6 +1227,133 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
             })
             .WithTags("AdminEvents")
             .Produces(StatusCodes.Status204NoContent)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // POST /admin/events/{id}/cookies. Seeds cookies on the live event: one
+    // transaction locks the event row, checks status 3 and the listed types,
+    // inserts one row per cookie with person_id null and seeded_by the actor,
+    // reads the event's whole tally, and records the audit row. After commit
+    // this node's tally counter is incremented once per cookie, as POST
+    // /cookies does, so the live object carries them within a tick. No outbox
+    // row and no snapshot rebuild: the tally lives in the live object.
+    private static void MapSeedCookies(IEndpointRouteBuilder app)
+    {
+        app.MapPost("/admin/events/{id:long}/cookies",
+            async (long id, SeedCookiesRequest body, HttpContext ctx, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, NodeStateService state, CancellationToken ct) =>
+            {
+                var v = new RequestValidation();
+                var items = body.Items ?? new List<CookiePick>();
+                if (items.Count == 0) v.Field("items", "required");
+                if (items.Count > 50) v.Field("items", "at most 50 entries");
+                var seen = new HashSet<long>();
+                var total = 0;
+                for (var i = 0; i < items.Count; i += 1)
+                {
+                    var it = items[i];
+                    if (it is null)
+                    {
+                        v.Field($"items[{i}]", "required");
+                        continue;
+                    }
+                    if (it.CookieTypeId <= 0) v.Field($"items[{i}].cookieTypeId", "required");
+                    else if (!seen.Add(it.CookieTypeId)) v.Field($"items[{i}].cookieTypeId", "listed twice");
+                    if (it.Count < 1 || it.Count > 100) v.Field($"items[{i}].count", "must be between 1 and 100");
+                    else total += it.Count;
+                }
+                v.ThrowIfInvalid();
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+                var actor = audit.Actor();
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                var tally = new SortedDictionary<long, int>();
+                await using (var tx = await conn.BeginTransactionAsync(ct))
+                {
+                    await using (var read = new NpgsqlCommand(
+                        "select status_id from event where id = $1 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        var r = await read.ExecuteScalarAsync(ct);
+                        if (r is null || r is DBNull) throw NotFound();
+                        if (Convert.ToInt16(r, CultureInfo.InvariantCulture) != 3)
+                            throw new ApiException(StatusCodes.Status409Conflict, "event_not_live", "event is not live");
+                    }
+
+                    var typeIds = items.Select(i => i.CookieTypeId).ToArray();
+                    var active = new HashSet<long>();
+                    await using (var type = new NpgsqlCommand(
+                        "select id from cookie_type where id = any($1) and active;", conn, tx))
+                    {
+                        type.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = typeIds });
+                        await using var reader = await type.ExecuteReaderAsync(ct);
+                        while (await reader.ReadAsync(ct)) active.Add(reader.GetInt64(0));
+                    }
+                    var missing = typeIds.Where(t => !active.Contains(t)).ToArray();
+                    if (missing.Length > 0)
+                        throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "cookie type not found",
+                            new { cookieTypeIds = missing });
+
+                    // One multi-row insert: the items expanded to one row per cookie.
+                    var rowTypes = new long[total];
+                    var k = 0;
+                    foreach (var it in items)
+                    {
+                        for (var c = 0; c < it.Count; c += 1) rowTypes[k++] = it.CookieTypeId;
+                    }
+                    await using (var insert = new NpgsqlCommand(@"
+insert into cookie (event_id, person_id, cookie_type_id, note, left_at, seeded_by)
+select $1, null, t, null, now(), $2 from unnest($3::bigint[]) as t;", conn, tx))
+                    {
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = actor });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = rowTypes });
+                        await insert.ExecuteNonQueryAsync(ct);
+                    }
+
+                    // The event's whole tally, the same query the tick runs.
+                    await using (var count = new NpgsqlCommand(@"
+select cookie_type_id, count(*)
+from cookie
+where event_id = $1 and hidden_at is null
+group by cookie_type_id;", conn, tx))
+                    {
+                        count.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await using var reader = await count.ExecuteReaderAsync(ct);
+                        while (await reader.ReadAsync(ct))
+                            tally[reader.GetInt64(0)] = (int)reader.GetInt64(1);
+                    }
+
+                    var after = new
+                    {
+                        items = items.Select(i => new { cookieTypeId = i.CookieTypeId, count = i.Count }).ToList(),
+                        seeded = total,
+                    };
+                    await audit.RecordAsync(conn, tx, "cookies_seeded", "event",
+                        id.ToString(CultureInfo.InvariantCulture), before: null, after, ct);
+                    await tx.CommitAsync(ct);
+                }
+
+                // After commit: increment this node's tally counter per cookie.
+                foreach (var it in items)
+                {
+                    for (var c = 0; c < it.Count; c += 1) state.IncrementTallyDelta(it.CookieTypeId);
+                }
+
+                return Results.Json(new SeedCookiesResponse
+                {
+                    EventId = id,
+                    Seeded = total,
+                    CookieTally = tally,
+                }, statusCode: StatusCodes.Status201Created);
+            })
+            .WithTags("AdminEvents")
+            .Accepts<SeedCookiesRequest>("application/json")
+            .Produces<SeedCookiesResponse>(StatusCodes.Status201Created)
+            .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Admin)
             .RequireCapability(ApiKeyCapabilities.Events)
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);

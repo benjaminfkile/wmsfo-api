@@ -86,6 +86,21 @@ public sealed class CreateEventMessageRequest
     public bool Notify { get; set; }
 }
 
+// POST /admin/events/{id}/cookies: 1 to 50 entries, each type once, count 1 to 100.
+public sealed class SeedCookiesRequest
+{
+    public List<CookiePick> Items { get; set; } = new();
+}
+
+// POST /admin/events/{id}/cookies answer: the event's whole tally after the
+// insert, keys ascending, zero-count types absent.
+public sealed class SeedCookiesResponse
+{
+    public long EventId { get; set; }
+    public int Seeded { get; set; }
+    public SortedDictionary<long, int> CookieTally { get; set; } = new();
+}
+
 // PATCH /admin/events/{id}/messages/{messageId}.
 public sealed class PatchEventMessageRequest
 {

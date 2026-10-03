@@ -535,11 +535,15 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<Cookie>(e =>
         {
             e.ToTable("cookie", t =>
-                t.HasComment("A cookie left by a registered person during a live event. No location."));
+            {
+                t.HasComment("A cookie on an event: left by a registered person (person_id set) or seeded by an admin on the live event (seeded_by set). Exactly one of the two is set. Both kinds count in the tally; only a person's own cookies count toward that person. No location.");
+                t.HasCheckConstraint("cookie_origin_check", "(person_id is null) <> (seeded_by is null)");
+            });
             e.HasKey(x => x.Id).HasName("cookie_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.EventId).HasColumnType("bigint").IsRequired();
-            e.Property(x => x.PersonId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.PersonId).HasColumnType("bigint")
+                .HasComment("The person who left the cookie; null on a seeded cookie.");
             e.Property(x => x.CookieTypeId).HasColumnType("bigint").IsRequired();
             e.Property(x => x.Note).HasColumnType("text")
                 .HasComment("Never shown anywhere; stored for the record.");
@@ -547,6 +551,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.HiddenAt).HasColumnType("timestamptz")
                 .HasComment("Always null. Moderation was removed; the column and the partial index stay so the tally query is unchanged.");
             e.Property(x => x.HiddenBy).HasColumnType("text");
+            e.Property(x => x.SeededBy).HasColumnType("text")
+                .HasComment("The admin who seeded the cookie, as the audit log writes the actor (person:<email> or key:<name>); null on a person's cookie.");
             e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
                 .HasConstraintName("cookie_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
             e.HasOne<Person>().WithMany().HasForeignKey(x => x.PersonId)

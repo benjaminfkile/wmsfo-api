@@ -428,21 +428,27 @@ where not exists (select 1 from cookie_type);
 create table cookie (
   id             bigint generated always as identity primary key,
   event_id       bigint not null references event (id) on delete cascade,
-  person_id      bigint not null references person (id) on delete cascade,
+  person_id      bigint references person (id) on delete cascade,
   cookie_type_id bigint not null references cookie_type (id) on delete cascade,
   note           text,
   left_at        timestamptz not null default now(),
   hidden_at      timestamptz,
-  hidden_by      text
+  hidden_by      text,
+  seeded_by      text,
+  constraint cookie_origin_check check ((person_id is null) <> (seeded_by is null))
 );
 create index cookie_event_person       on cookie (event_id, person_id);
 create index cookie_event_type_visible on cookie (event_id, cookie_type_id) where hidden_at is null;
 create index cookie_person             on cookie (person_id);
 
-comment on table cookie is 'A cookie left by a registered person during a live event. No location.';
+comment on table cookie is 'A cookie on an event: left by a registered person (person_id set) or seeded by an admin on the live event (seeded_by set). Exactly one of the two is set. Both kinds count in the tally; only a person''s own cookies count toward that person. No location.';
+comment on column cookie.person_id is 'The person who left the cookie; null on a seeded cookie.';
+comment on column cookie.seeded_by is 'The admin who seeded the cookie, as the audit log writes the actor (person:<email> or key:<name>); null on a person''s cookie.';
 comment on column cookie.note is 'Never shown anywhere; stored for the record.';
 comment on column cookie.hidden_at is 'Always null. Moderation was removed; the column and the partial index stay so the tally query is unchanged.';
 ```
+
+`cookie_origin_check` holds exactly one origin per row: a person's cookie has `person_id` and no `seeded_by`; a seeded cookie (`POST /admin/events/{id}/cookies`, recipe 8.9a) has `seeded_by` and no `person_id`. Seeded cookies count wherever a cookie counts (the tally, `final_cookie_tally`, `cookie_type.cookieCount`, the event delete impact and cascade) and never toward a person: the per-person limit, `GET /me/cookies`, and `cookieCount` on `GET /admin/people` filter on `person_id`, so a null never matches, and `DELETE /admin/people/{id}` cascades by `person_id`, so seeded rows stay.
 
 ### 3.16 `contact_message`
 
@@ -954,7 +960,7 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | `section_item.section_id` | `section.id` | cascade | section delete, page delete, and restore remove items |
 | `subscriber.person_id` | `person.id` | cascade | `DELETE /admin/people/{id}` removes subscriptions |
 | `cookie.event_id` | `event.id` | cascade | `DELETE /admin/events/{id}` removes cookies |
-| `cookie.person_id` | `person.id` | cascade | `DELETE /admin/people/{id}` removes cookies |
+| `cookie.person_id` | `person.id` | cascade | `DELETE /admin/people/{id}` removes the person's cookies; seeded cookies (null `person_id`) stay |
 | `cookie.cookie_type_id` | `cookie_type.id` | cascade | `DELETE /admin/cookie-types/{id}` removes the cookies of that type (refused while an event is live) |
 | `place.parent_id` | `place.id` | cascade | deleting a place removes its subtree |
 | `place.opens_page_id`, `qr_code.opens_page_id` | `page.id` | set null | a deleted page stops being the target; the code or place resolves through its next rule |
@@ -1305,6 +1311,26 @@ commit;
 ```
 
 The person row lock makes the count-then-insert safe against the same person's concurrent requests. The event row is read without a lock; a status change committing between the read and the commit can admit a pick on an event that ended a few milliseconds earlier, which is accepted. After commit the node increments its in-memory tally once per cookie.
+
+### 8.9a Seeded cookies (`POST /admin/events/{id}/cookies`)
+
+One request, one transaction, one insert, whatever the count:
+
+```sql
+begin;
+select status_id from event where id = $event for update;                     -- none: rollback, 404 not_found; not 3: rollback, 409 event_not_live
+select id from cookie_type where id = any($types) and active;                 -- any listed type missing: rollback, 404 not_found with details.cookieTypeIds
+-- $rows: the items expanded to one type id per cookie; $actor: person:<email> or key:<name>
+insert into cookie (event_id, person_id, cookie_type_id, note, left_at, seeded_by)
+select $event, null, t, null, now(), $actor from unnest($rows::bigint[]) as t;
+select cookie_type_id, count(*) from cookie
+where event_id = $event and hidden_at is null group by cookie_type_id;        -- the answer's cookieTally
+insert into audit_log (actor, action, entity, entity_id, before, after, request_id)
+values ($actor, 'cookies_seeded', 'event', $event::text, null, $after, $request);
+commit;
+```
+
+The event row lock orders the seed against a status change on the same event, so a seed never lands on an event that has already left status 3 and `final_cookie_tally` always includes it. No outbox row, no snapshot rebuild. After commit the node increments its in-memory tally once per cookie, as after 8.9.
 
 ### 8.10 Cookie type delete (`DELETE /admin/cookie-types/{id}`)
 
@@ -1973,7 +1999,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

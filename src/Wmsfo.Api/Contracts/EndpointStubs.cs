@@ -362,6 +362,11 @@ public static class EndpointStubs
             .WithTags("AdminEvents")
             .Produces(StatusCodes.Status204NoContent);
 
+        app.MapPost("/admin/events/{id:long}/cookies", NotImplemented)
+            .WithTags("AdminEvents")
+            .Accepts<SeedCookiesRequest>("application/json")
+            .Produces<SeedCookiesResponse>(StatusCodes.Status201Created);
+
         app.MapGet("/admin/events/{id:long}/locations", NotImplemented)
             .WithTags("AdminEvents")
             .Produces<PageResponse<LocationRowDto>>(StatusCodes.Status200OK);
