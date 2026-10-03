@@ -83,6 +83,12 @@ public static class SchemaExport
                 {
                     return new JsonObject { ["type"] = new JsonArray("number", "null") };
                 }
+                if (context.PropertyInfo?.AttributeProvider?.GetCustomAttributes(typeof(SchemaMaxItemsAttribute), inherit: false)
+                        .FirstOrDefault() is SchemaMaxItemsAttribute maxItems
+                    && schema is JsonObject list)
+                {
+                    list["maxItems"] = maxItems.MaxItems;
+                }
                 return schema;
             },
         };

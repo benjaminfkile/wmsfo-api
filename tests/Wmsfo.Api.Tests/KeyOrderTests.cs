@@ -38,7 +38,7 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
+            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "routeMapConfig", "messages", "latestMessage",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
@@ -69,6 +69,7 @@ public class KeyOrderTests
         Assert.Equal(expectedRouteMapConfig, KeysOf(routeMapConfig));
         Assert.Equal(expectedRouteMapDisplay, KeysOf(routeMapConfig.GetProperty("display")));
         Assert.Equal(expectedLandmark, KeysOf(routeMapConfig.GetProperty("landmarks")[0]));
+        Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("messages")[0]));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));

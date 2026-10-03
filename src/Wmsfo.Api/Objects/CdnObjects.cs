@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Wmsfo.Api.Contracts;
+using Wmsfo.Api.Node;
 
 namespace Wmsfo.Api.Objects;
 
@@ -76,7 +78,10 @@ public sealed class SnapshotEvent
     // The event's route map configuration (contracts 1.3); null when the event
     // has none.
     [JsonPropertyOrder(11)] public RouteMapConfig? RouteMapConfig { get; set; }
-    [JsonPropertyOrder(12)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    // The event's newest 50 messages, newest first (contracts 1.3).
+    [JsonPropertyOrder(12), JsonRequired, SchemaMaxItems(SnapshotBuilder.SnapshotMessageCap)] public IList<SnapshotLatestMessage> Messages { get; set; } = new List<SnapshotLatestMessage>();
+    // Equal to Messages[0]; null when the list is empty.
+    [JsonPropertyOrder(13)] public SnapshotLatestMessage? LatestMessage { get; set; }
 }
 
 public sealed class SnapshotFlightHistory

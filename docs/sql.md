@@ -187,7 +187,7 @@ create table event_message (
 );
 create index event_message_event_created on event_message (event_id, created_at desc);
 
-comment on table event_message is 'Messages shown on the site. The snapshot carries the one with the greatest created_at (ties: greatest id).';
+comment on table event_message is 'Messages shown on the site. The snapshot carries the newest 50 by created_at desc, id desc as event.messages, and the first of them as event.latestMessage.';
 comment on column event_message.event_time is 'The time the message is about, as entered by the admin. Display only.';
 ```
 
@@ -844,7 +844,7 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `event_status_history_pkey` | pk `(id)` | |
 | `event_status_history_event` | `(event_id, changed_at desc)` | `GET /admin/events/{id}/status-history` newest first; cascade from `event` |
 | `event_message_pkey` | pk `(id)` | message patch and delete |
-| `event_message_event_created` | `(event_id, created_at desc)` | `latestMessage` in the snapshot builder (`order by created_at desc, id desc limit 1`); the admin list; cascade from `event` |
+| `event_message_event_created` | `(event_id, created_at desc)` | `messages` and `latestMessage` in the snapshot builder (`order by created_at desc, id desc limit 50`); the admin list; cascade from `event` |
 | `beacon_pkey` | pk `(id)` | the message-path identity check; every stamp |
 | `beacon_key_hash_key` | unique `(key_hash)` | `X-Beacon-Key` resolution; the ingest branch of the authorize callback |
 | `beacon_one_active` | unique `(is_active) where is_active` | the reconcile tick's active-beacon read; the guard behind activate |
@@ -1003,12 +1003,13 @@ from event e
 left join route r on r.id = e.route_id
 where e.is_current;
 
--- latest message of the current event
+-- messages of the current event: the newest 50, newest first (event.messages;
+-- event.latestMessage is the first row, or null when there is none)
 select id, body, event_time, created_at
 from event_message
 where event_id = $event_id
 order by created_at desc, id desc
-limit 1;
+limit 50;
 
 -- sponsors of the current event's year
 select s.id, s.name, s.website_url, s.fb_url, s.ig_url, s.logo_media_id,
