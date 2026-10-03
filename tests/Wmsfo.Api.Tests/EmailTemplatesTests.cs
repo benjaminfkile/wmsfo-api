@@ -20,6 +20,7 @@ public sealed class EmailTemplatesTests
         Assert.Contains(EmailTemplates.EventLive, templates.Names);
         Assert.Contains(EmailTemplates.EventEnded, templates.Names);
         Assert.Contains(EmailTemplates.EventCancelled, templates.Names);
+        Assert.Contains(EmailTemplates.EventPostponed, templates.Names);
         Assert.Contains(EmailTemplates.EventMessage, templates.Names);
         Assert.Contains(EmailTemplates.ContactReceived, templates.Names);
     }
@@ -39,6 +40,9 @@ public sealed class EmailTemplatesTests
     [InlineData(EmailTemplates.EventEnded, "unsubscribeUrl")]
     [InlineData(EmailTemplates.EventCancelled, "customMessage")]
     [InlineData(EmailTemplates.EventCancelled, "unsubscribeUrl")]
+    [InlineData(EmailTemplates.EventPostponed, "customMessage")]
+    [InlineData(EmailTemplates.EventPostponed, "siteUrl")]
+    [InlineData(EmailTemplates.EventPostponed, "unsubscribeUrl")]
     [InlineData(EmailTemplates.EventMessage, "messageBody")]
     [InlineData(EmailTemplates.EventMessage, "unsubscribeUrl")]
     [InlineData(EmailTemplates.ContactReceived, "contactName")]
@@ -92,6 +96,7 @@ public sealed class EmailTemplatesTests
     [InlineData(3, EmailTemplates.EventLive)]
     [InlineData(4, EmailTemplates.EventEnded)]
     [InlineData(5, EmailTemplates.EventCancelled)]
+    [InlineData(6, EmailTemplates.EventPostponed)]
     public void TemplateForStatus_maps_each_status_to_its_template(int statusId, string expected)
     {
         Assert.Equal(expected, EmailTemplates.TemplateForStatus(statusId));
@@ -204,6 +209,7 @@ public sealed class EmailTemplatesTests
             EmailTemplates.EventLive,
             EmailTemplates.EventEnded,
             EmailTemplates.EventCancelled,
+            EmailTemplates.EventPostponed,
             EmailTemplates.EventMessage,
             EmailTemplates.ContactReceived,
         })

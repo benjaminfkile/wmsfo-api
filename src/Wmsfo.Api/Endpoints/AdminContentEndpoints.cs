@@ -1754,7 +1754,8 @@ left join (
 ) sc on sc.page_id = p.id
 order by case p.role
   when 'no_event' then 0 when 'planned' then 1 when 'scheduled' then 2
-  when 'live' then 3 when 'ended' then 4 when 'cancelled' then 5 else 6 end,
+  when 'live' then 3 when 'ended' then 4 when 'cancelled' then 5 when 'postponed' then 6
+  else 7 end,
   p.nav_position, p.id;", conn, tx);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))

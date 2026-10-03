@@ -50,8 +50,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   rate limits - PipelineTests.Rate_limited_answers_429_with_retry_after
 //   the media pipeline end to end against the local store - A15MediaPipelineTests
 //   publish with problems, unchanged, and success - A14PublisherAndPreviewTests
-//   restore recreates six role pages -
-//     A14PublisherAndPreviewTests.Restore_recreates_six_role_pages
+//   restore recreates seven role pages -
+//     A14PublisherAndPreviewTests.Restore_recreates_seven_role_pages
 //   preview token expiry -
 //     A14PublisherAndPreviewTests.Preview_token_expires_after_the_stored_deadline
 //   the orphan collector's four transitions -

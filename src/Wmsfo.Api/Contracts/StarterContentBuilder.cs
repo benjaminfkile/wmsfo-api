@@ -67,6 +67,7 @@ public static class StarterContentBuilder
             BuildRolePage(pageId++, "live",      "Santa is airborne",    "live",     ref sectionId, LiveStack),
             BuildRolePage(pageId++, "ended",     "Merry Christmas",      "ended",    ref sectionId, EndedStack),
             BuildRolePage(pageId++, "cancelled", "Flight cancelled",     "cancelled", ref sectionId, WithoutCountdown),
+            BuildRolePage(pageId++, "postponed", "Postponed",            "postponed", ref sectionId, PostponedStack),
 
             BuildOrdinaryPage(pageId++, "about",    "About the flyover", "About",    10, ref sectionId, AboutStack),
             BuildOrdinaryPage(pageId++, "sponsors", "Sponsors",          "Sponsors", 20, ref sectionId, SponsorsStack),
@@ -134,6 +135,16 @@ public static class StarterContentBuilder
     {
         s.Add(Hero(id.Next(), "tall", "{event:name}", "Liftoff is scheduled for {event:scheduledAt}."));
         s.Add(Countdown(id.Next()));
+        s.Add(LatestMessage(id.Next(), "card"));
+        s.Add(FundsRing(id.Next()));
+        s.Add(RoutePreview(id.Next(), "image", null));
+        s.Add(SponsorCarousel(id.Next()));
+        s.Add(AlertsSignup(id.Next()));
+    }
+
+    private static void PostponedStack(List<ContentSection> s, RefLong id)
+    {
+        s.Add(Hero(id.Next(), "tall", "Santa's flight is postponed", "A new time will be announced here and by email."));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
         s.Add(RoutePreview(id.Next(), "image", null));

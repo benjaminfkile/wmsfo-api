@@ -36,6 +36,7 @@ public sealed class EmailTemplates
     public const string EventLive = "event_live";
     public const string EventEnded = "event_ended";
     public const string EventCancelled = "event_cancelled";
+    public const string EventPostponed = "event_postponed";
     public const string EventMessage = "event_message";
     public const string ContactReceived = "contact_received";
 
@@ -80,6 +81,11 @@ public sealed class EmailTemplates
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight will not go ahead as planned.",
                 FooterReason: AlertFooterReason),
+            [EventPostponed] = new("Santa's flight is postponed",
+                RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
+                SubjectTokens: ImmutableArray<string>.Empty,
+                Preheader: "Santa's flight is postponed, and a new time will follow.",
+                FooterReason: AlertFooterReason),
             [EventMessage] = new("Santa update: {{messagePreview}}",
                 RequiredTokens: ImmutableArray.Create("eventName", "messageBody", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray.Create("messagePreview"),
@@ -101,6 +107,7 @@ public sealed class EmailTemplates
         3 => EventLive,
         4 => EventEnded,
         5 => EventCancelled,
+        6 => EventPostponed,
         _ => throw new ArgumentOutOfRangeException(nameof(statusId), statusId, "unknown status id"),
     };
 
@@ -117,6 +124,7 @@ public sealed class EmailTemplates
         3 => $"{eventName} is live. Watch Santa's flight now.",
         4 => $"{eventName} has ended. Thanks for flying along.",
         5 => $"{eventName} has been cancelled.",
+        6 => $"{eventName} is postponed. A new time will be announced when it is known.",
         _ => eventName,
     };
 

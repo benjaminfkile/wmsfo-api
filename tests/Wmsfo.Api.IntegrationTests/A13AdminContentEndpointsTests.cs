@@ -78,7 +78,7 @@ public sealed class A13AdminContentEndpointsTests : IClassFixture<PostgresFixtur
     // -------------------- pages --------------------
 
     [Fact]
-    public async Task Pages_list_returns_six_role_pages()
+    public async Task Pages_list_returns_seven_role_pages()
     {
         using var req = _host!.EditorRequest(HttpMethod.Get, "/admin/pages");
         var response = await _host.Client.SendAsync(req);
@@ -89,6 +89,8 @@ public sealed class A13AdminContentEndpointsTests : IClassFixture<PostgresFixtur
         Assert.Contains("no-event", slugs);
         Assert.Contains("live", slugs);
         Assert.Contains("cancelled", slugs);
+        Assert.Contains("postponed", slugs);
+        Assert.Equal(7, items.Count(e => e.GetProperty("role").GetString() != "none"));
     }
 
     [Fact]
@@ -139,7 +141,7 @@ public sealed class A13AdminContentEndpointsTests : IClassFixture<PostgresFixtur
     {
         // Use a role less pinned by fixtures. This test transfers the role and
         // then restores it so the shared class fixture keeps its invariants
-        // (Pages_list_returns_six_role_pages, etc.).
+        // (Pages_list_returns_seven_role_pages, etc.).
         var oldId = await ReadRolePageIdAsync("cancelled");
         var newId = await CreateNonePageAsync("role-target-cancelled");
         using var req = _host!.EditorRequest(HttpMethod.Delete, $"/admin/pages/{oldId}?roleTo={newId}");

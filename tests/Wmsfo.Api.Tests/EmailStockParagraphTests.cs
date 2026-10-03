@@ -42,19 +42,44 @@ public sealed class EmailStockParagraphTests
     }
 
     [Fact]
-    public void Template_selection_all_five_statuses()
+    public void Template_selection_all_six_statuses()
     {
         Assert.Equal("event_planned", EmailTemplates.TemplateForStatus(1));
         Assert.Equal("event_scheduled", EmailTemplates.TemplateForStatus(2));
         Assert.Equal("event_live", EmailTemplates.TemplateForStatus(3));
         Assert.Equal("event_ended", EmailTemplates.TemplateForStatus(4));
         Assert.Equal("event_cancelled", EmailTemplates.TemplateForStatus(5));
+        Assert.Equal("event_postponed", EmailTemplates.TemplateForStatus(6));
+    }
+
+    [Fact]
+    public void Stock_paragraph_for_postponed_says_a_new_time_will_follow()
+    {
+        Assert.Equal(
+            "Santa Flyover 2027 is postponed. A new time will be announced when it is known.",
+            EmailTemplates.StockParagraph(6, "Santa Flyover 2027", null));
+    }
+
+    [Fact]
+    public void Postponed_template_renders_the_stock_paragraph_and_subject()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir);
+        var stock = EmailTemplates.StockParagraph(6, "Santa Flyover 2027", null);
+        var rendered = templates.Render(EmailTemplates.TemplateForStatus(6), new Dictionary<string, string>
+        {
+            ["customMessage"] = stock,
+            ["siteUrl"] = "https://site.example.com",
+            ["unsubscribeUrl"] = "https://site.example.com/alerts/unsubscribe?token=wsu_x",
+        });
+        Assert.Equal("Santa's flight is postponed", rendered.Subject);
+        Assert.Contains(stock, rendered.Text);
+        Assert.Contains("Santa Flyover 2027 is postponed.", rendered.Html);
     }
 
     [Fact]
     public void Template_selection_rejects_unknown_status()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => EmailTemplates.TemplateForStatus(0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => EmailTemplates.TemplateForStatus(9));
+        Assert.Throws<ArgumentOutOfRangeException>(() => EmailTemplates.TemplateForStatus(7));
     }
 }

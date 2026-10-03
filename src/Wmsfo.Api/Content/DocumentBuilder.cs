@@ -29,7 +29,11 @@ public sealed class DocumentBuilder
         ["live"] = 3,
         ["ended"] = 4,
         ["cancelled"] = 5,
+        ["postponed"] = 6,
     };
+
+    // Every role a role page carries (contracts 1.3a PageRole without `none`).
+    public static IReadOnlyCollection<string> PageRoles => RoleSortOrder.Keys;
 
     public sealed record LoadResult(
         ReferenceChecker.WorkingSet WorkingSet,

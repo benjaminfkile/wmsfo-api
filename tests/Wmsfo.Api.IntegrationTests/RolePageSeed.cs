@@ -2,7 +2,7 @@ using Npgsql;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// The six role pages (contracts 4.5 Pages preamble) are seeded on first boot in
+// The seven role pages (contracts 4.5 Pages preamble) are seeded on first boot in
 // A14. A13's tests need them to exist so we seed only the page rows here; the
 // starter content stack is A14's concern.
 internal static class RolePageSeed
@@ -15,6 +15,7 @@ internal static class RolePageSeed
         ("live",      "live",      "Live"),
         ("ended",     "ended",     "Ended"),
         ("cancelled", "cancelled", "Cancelled"),
+        ("postponed", "postponed", "Postponed"),
     };
 
     public static async Task EnsureAsync(NpgsqlConnection conn)

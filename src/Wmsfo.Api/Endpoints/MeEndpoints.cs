@@ -420,6 +420,7 @@ limit 100;", conn))
         3 => "Santa just lifted off",
         4 => "Santa has landed",
         5 => "Santa's flight has been cancelled",
+        6 => "Santa's flight is postponed",
         _ => "Santa update",
     };
 

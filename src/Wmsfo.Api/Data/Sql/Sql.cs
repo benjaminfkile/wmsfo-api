@@ -449,7 +449,8 @@ order by case role
            when 'live'      then 3
            when 'ended'     then 4
            when 'cancelled' then 5
-           else 6 end,
+           when 'postponed' then 6
+           else 7 end,
          nav_position, id;";
 
     public const string ContentReadSections = @"
