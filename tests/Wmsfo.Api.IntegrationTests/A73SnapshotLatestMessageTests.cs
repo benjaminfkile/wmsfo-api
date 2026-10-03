@@ -2,24 +2,25 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Json.Schema;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Data;
-using Wmsfo.Api.Node;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// Snapshot messages acceptance (contracts 1.3 event.messages):
-//   - the current event's messages list newest first (created_at desc, id desc)
-//     with latestMessage equal to the first; no messages give [] and null.
-//   - the list caps at the newest SnapshotBuilder.SnapshotMessageCap.
-//   - a message PATCH and a DELETE rebuild the list.
-//   - the snapshot schema validates the fixture and a built snapshot, and a
-//     rebuild of identical data writes the same object.
-public sealed class A72SnapshotMessagesTests : IClassFixture<PostgresFixture>, IAsyncLifetime
+// Snapshot latest message acceptance (contracts 1.3 event.latestMessage):
+//   - latestMessage is the newest message by created_at, then id, keeps its
+//     four keys in order, and is the last key of event; event has no
+//     messages key.
+//   - no messages give null.
+//   - a message POST, PATCH, and DELETE rebuild latestMessage.
+//   - the snapshot schema validates the fixture and a built snapshot, and
+//     rejects an event object carrying messages.
+public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private static readonly string[] MessageKeys = { "id", "body", "eventTime", "createdAt" };
     private static readonly DateTimeOffset BaseTime = DateTimeOffset.Parse("2032-12-22T00:00:00Z");
@@ -27,7 +28,7 @@ public sealed class A72SnapshotMessagesTests : IClassFixture<PostgresFixture>, I
     private readonly PostgresFixture _fixture;
     private A25Host? _host;
 
-    public A72SnapshotMessagesTests(PostgresFixture fixture)
+    public A73SnapshotLatestMessageTests(PostgresFixture fixture)
     {
         _fixture = fixture;
     }
@@ -65,131 +66,105 @@ public sealed class A72SnapshotMessagesTests : IClassFixture<PostgresFixture>, I
     }
 
     [Fact]
-    public async Task Three_messages_list_newest_first_and_latestMessage_is_the_first()
+    public async Task Three_messages_give_the_newest_by_created_at_then_id_and_no_messages_key()
     {
         var eventId = await CreateEventAsync(2032);
-        var oldest = await InsertMessageAsync(eventId, "Oldest", BaseTime, eventTime: null);
-        var newest = await InsertMessageAsync(eventId, "Newest", BaseTime.AddMinutes(20), eventTime: BaseTime.AddMinutes(19));
-        var middle = await InsertMessageAsync(eventId, "Middle", BaseTime.AddMinutes(10), eventTime: null);
+        await InsertMessageAsync(eventId, "Oldest", BaseTime, eventTime: null);
+        await InsertMessageAsync(eventId, "Tied lower id", BaseTime.AddMinutes(20), eventTime: null);
+        var newest = await InsertMessageAsync(eventId, "Tied higher id", BaseTime.AddMinutes(20), eventTime: BaseTime.AddMinutes(19));
 
         using var doc = await ReadSnapshotAsync();
         var ev = doc.RootElement.GetProperty("event");
-        var messages = ev.GetProperty("messages").EnumerateArray().ToArray();
-        Assert.Equal(new[] { newest, middle, oldest }, messages.Select(m => m.GetProperty("id").GetInt64()).ToArray());
-        Assert.Equal(new[] { "Newest", "Middle", "Oldest" }, messages.Select(m => m.GetProperty("body").GetString()).ToArray());
-        foreach (var m in messages)
-            Assert.Equal(MessageKeys, m.EnumerateObject().Select(p => p.Name).ToArray());
-        Assert.Equal(JsonValueKind.Null, messages[2].GetProperty("eventTime").ValueKind);
-        Assert.Equal(messages[0].GetRawText(), ev.GetProperty("latestMessage").GetRawText());
+        Assert.False(ev.TryGetProperty("messages", out _));
+        Assert.Equal("latestMessage", ev.EnumerateObject().Last().Name);
+        var latest = ev.GetProperty("latestMessage");
+        Assert.Equal(MessageKeys, latest.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(newest, latest.GetProperty("id").GetInt64());
+        Assert.Equal("Tied higher id", latest.GetProperty("body").GetString());
+        Assert.Equal(BaseTime.AddMinutes(19), latest.GetProperty("eventTime").GetDateTimeOffset());
+        Assert.Equal(BaseTime.AddMinutes(20), latest.GetProperty("createdAt").GetDateTimeOffset());
     }
 
     [Fact]
-    public async Task Equal_created_at_orders_by_id_desc()
-    {
-        var eventId = await CreateEventAsync(2033);
-        var first = await InsertMessageAsync(eventId, "First", BaseTime, eventTime: null);
-        var second = await InsertMessageAsync(eventId, "Second", BaseTime, eventTime: null);
-
-        using var doc = await ReadSnapshotAsync();
-        var ids = doc.RootElement.GetProperty("event").GetProperty("messages").EnumerateArray()
-            .Select(m => m.GetProperty("id").GetInt64()).ToArray();
-        Assert.Equal(new[] { second, first }, ids);
-    }
-
-    [Fact]
-    public async Task Fifty_one_messages_cap_at_the_newest_fifty()
-    {
-        var eventId = await CreateEventAsync(2034);
-        var ids = new List<long>();
-        for (var i = 0; i < 51; i++)
-            ids.Add(await InsertMessageAsync(eventId, $"Message {i}", BaseTime.AddMinutes(i), eventTime: null));
-
-        using var doc = await ReadSnapshotAsync();
-        var ev = doc.RootElement.GetProperty("event");
-        var listed = ev.GetProperty("messages").EnumerateArray().Select(m => m.GetProperty("id").GetInt64()).ToArray();
-        Assert.Equal(SnapshotBuilder.SnapshotMessageCap, listed.Length);
-        Assert.Equal(Enumerable.Reverse(ids).Take(50).ToArray(), listed);
-        Assert.DoesNotContain(ids[0], listed);
-        Assert.Equal(ids[50], ev.GetProperty("latestMessage").GetProperty("id").GetInt64());
-    }
-
-    [Fact]
-    public async Task No_messages_give_an_empty_list_and_null_latestMessage()
+    public async Task No_messages_give_null_latestMessage()
     {
         await CreateEventAsync(2035);
 
         using var doc = await ReadSnapshotAsync();
         var ev = doc.RootElement.GetProperty("event");
-        Assert.Equal(JsonValueKind.Array, ev.GetProperty("messages").ValueKind);
-        Assert.Equal(0, ev.GetProperty("messages").GetArrayLength());
+        Assert.False(ev.TryGetProperty("messages", out _));
         Assert.Equal(JsonValueKind.Null, ev.GetProperty("latestMessage").ValueKind);
     }
 
     [Fact]
-    public async Task No_current_event_leaves_event_null()
-    {
-        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
-        {
-            await conn.OpenAsync();
-            await using var cmd = new NpgsqlCommand("update event set is_current = false where is_current;", conn);
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        using var doc = await ReadSnapshotAsync();
-        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("event").ValueKind);
-    }
-
-    [Fact]
-    public async Task Message_patch_and_delete_rebuild_the_list()
+    public async Task Message_post_patch_and_delete_rebuild_latestMessage()
     {
         var eventId = await CreateEventAsync(2036);
-        var older = await InsertMessageAsync(eventId, "Older", BaseTime, eventTime: null);
-        var newer = await InsertMessageAsync(eventId, "Newer", BaseTime.AddMinutes(5), eventTime: null);
+        // Created before now(), so the posted message is newer.
+        var older = await InsertMessageAsync(eventId, "Older", DateTimeOffset.UtcNow.AddDays(-1), eventTime: null);
 
-        var patch = await SendAsync(HttpMethod.Patch, $"/admin/events/{eventId}/messages/{older}",
-            "{\"body\":\"Older, edited\"}", DevStaticTokens.AdminToken);
+        var post = await SendAsync(HttpMethod.Post, $"/admin/events/{eventId}/messages",
+            "{\"body\":\"Posted\",\"eventTime\":null,\"notify\":false}", DevStaticTokens.AdminToken);
+        Assert.Equal(HttpStatusCode.Created, post.StatusCode);
+        long posted;
+        using (var created = JsonDocument.Parse(await post.Content.ReadAsStringAsync()))
+            posted = created.RootElement.GetProperty("id").GetInt64();
+        using (var afterPost = await ReadCurrentSnapshotAsync())
+        {
+            var latest = afterPost.RootElement.GetProperty("event").GetProperty("latestMessage");
+            Assert.Equal(posted, latest.GetProperty("id").GetInt64());
+            Assert.Equal("Posted", latest.GetProperty("body").GetString());
+        }
+
+        var patch = await SendAsync(HttpMethod.Patch, $"/admin/events/{eventId}/messages/{posted}",
+            "{\"body\":\"Posted, edited\"}", DevStaticTokens.AdminToken);
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
         using (var afterPatch = await ReadCurrentSnapshotAsync())
         {
-            var messages = afterPatch.RootElement.GetProperty("event").GetProperty("messages").EnumerateArray().ToArray();
-            Assert.Equal(new[] { newer, older }, messages.Select(m => m.GetProperty("id").GetInt64()).ToArray());
-            Assert.Equal("Older, edited", messages[1].GetProperty("body").GetString());
+            var latest = afterPatch.RootElement.GetProperty("event").GetProperty("latestMessage");
+            Assert.Equal(posted, latest.GetProperty("id").GetInt64());
+            Assert.Equal("Posted, edited", latest.GetProperty("body").GetString());
         }
 
-        var delete = await SendAsync(HttpMethod.Delete, $"/admin/events/{eventId}/messages/{newer}", null, DevStaticTokens.AdminToken);
+        var delete = await SendAsync(HttpMethod.Delete, $"/admin/events/{eventId}/messages/{posted}", null, DevStaticTokens.AdminToken);
         Assert.True(delete.IsSuccessStatusCode, $"delete answered {(int)delete.StatusCode}");
         using (var afterDelete = await ReadCurrentSnapshotAsync())
         {
-            var ev = afterDelete.RootElement.GetProperty("event");
-            var messages = ev.GetProperty("messages").EnumerateArray().ToArray();
-            Assert.Equal(new[] { older }, messages.Select(m => m.GetProperty("id").GetInt64()).ToArray());
-            Assert.Equal(older, ev.GetProperty("latestMessage").GetProperty("id").GetInt64());
+            var latest = afterDelete.RootElement.GetProperty("event").GetProperty("latestMessage");
+            Assert.Equal(older, latest.GetProperty("id").GetInt64());
         }
     }
 
     [Fact]
-    public async Task Schema_validates_the_fixture_and_a_built_snapshot_and_rebuilds_are_identical()
+    public async Task Schema_validates_the_fixture_and_a_built_snapshot_and_rejects_messages_on_event()
     {
         var eventId = await CreateEventAsync(2037);
         await InsertMessageAsync(eventId, "One", BaseTime, eventTime: BaseTime);
-        await InsertMessageAsync(eventId, "Two", BaseTime.AddMinutes(1), eventTime: null);
 
-        var schema = JsonSchema.FromText(File.ReadAllText(Path.Combine(TestPaths.ContractsDir, "schema", "snapshot.schema.json")));
-
-        using (var fixture = JsonDocument.Parse(File.ReadAllText(Path.Combine(TestPaths.ContractsDir, "fixtures", "snapshot.json"))))
+        var schemaText = File.ReadAllText(Path.Combine(TestPaths.ContractsDir, "schema", "snapshot.schema.json"));
+        var schema = JsonSchema.FromText(schemaText);
+        using (var schemaDoc = JsonDocument.Parse(schemaText))
         {
-            AssertValid(schema, fixture.RootElement, "fixture");
-            var ev = fixture.RootElement.GetProperty("event");
-            Assert.Equal(2, ev.GetProperty("messages").GetArrayLength());
-            Assert.Equal(ev.GetProperty("messages")[0].GetRawText(), ev.GetProperty("latestMessage").GetRawText());
+            var eventSchema = schemaDoc.RootElement.GetProperty("properties").GetProperty("event");
+            Assert.False(eventSchema.GetProperty("properties").TryGetProperty("messages", out _));
+            Assert.False(eventSchema.GetProperty("additionalProperties").GetBoolean());
         }
 
-        using var built = await ReadSnapshotAsync();
-        AssertValid(schema, built.RootElement, "built snapshot");
+        var fixtureText = File.ReadAllText(Path.Combine(TestPaths.ContractsDir, "fixtures", "snapshot.json"));
+        using (var fixture = JsonDocument.Parse(fixtureText))
+        {
+            AssertValid(schema, fixture.RootElement, "fixture");
+            Assert.False(fixture.RootElement.GetProperty("event").TryGetProperty("messages", out _));
+        }
 
-        var firstKey = await ReadSnapshotKeyAsync();
-        using (await ReadSnapshotAsync()) { }
-        Assert.Equal(firstKey, await ReadSnapshotKeyAsync());
+        using (var built = await ReadSnapshotAsync())
+            AssertValid(schema, built.RootElement, "built snapshot");
+
+        var withMessages = JsonNode.Parse(fixtureText)!;
+        var latestCopy = withMessages["event"]!["latestMessage"]!.DeepClone();
+        withMessages["event"]!["messages"] = new JsonArray(latestCopy);
+        using var rejected = JsonDocument.Parse(withMessages.ToJsonString());
+        Assert.False(schema.Evaluate(rejected.RootElement).IsValid);
     }
 
     private static void AssertValid(JsonSchema schema, JsonElement instance, string what)
