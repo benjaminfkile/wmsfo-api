@@ -163,8 +163,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.ChangedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.Notify).HasColumnType("boolean").IsRequired().HasDefaultValue(false)
                 .HasComment("The admin asked for subscribers to be emailed.");
-            e.Property(x => x.Message).HasColumnType("text")
-                .HasComment("The custom alert text; null means the template's stock paragraph.");
+            e.Property(x => x.MessageId).HasColumnType("bigint")
+                .HasComment("The event_message posted with the change or announcement; its body replaces the alert's stock paragraph. Null when none was given or the message was deleted.");
             e.Property(x => x.OutboxId).HasColumnType("bigint")
                 .HasComment("The alert's outbox row while it exists (set null when the row is cleaned up).");
             e.Property(x => x.SentCount).HasColumnType("integer").IsRequired().HasDefaultValue(0)
@@ -177,6 +177,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasConstraintName("event_status_history_to_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Outbox>().WithMany().HasForeignKey(x => x.OutboxId)
                 .HasConstraintName("event_status_history_outbox_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<EventMessage>().WithMany().HasForeignKey(x => x.MessageId)
+                .HasConstraintName("event_status_history_message_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => new { x.EventId, x.ChangedAt })
                 .HasDatabaseName("event_status_history_event")
                 .IsDescending(false, true);
@@ -186,7 +188,7 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<EventMessage>(e =>
         {
             e.ToTable("event_message", t =>
-                t.HasComment("Messages shown on the site. The snapshot carries the one with the greatest created_at (ties: greatest id)."));
+                t.HasComment("Messages shown on the site, written by the message form, a status change, or an announcement. The snapshot carries the one with the greatest created_at (ties: greatest id)."));
             e.HasKey(x => x.Id).HasName("event_message_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.EventId).HasColumnType("bigint").IsRequired();

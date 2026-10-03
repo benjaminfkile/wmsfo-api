@@ -586,7 +586,8 @@ where e.id = $1;", conn))
             {
                 var v = new RequestValidation();
                 if (body.StatusId < 1 || body.StatusId > 5) v.Field("statusId", "must be 1..5");
-                if (body.Message is not null && (body.Message.Length < 1 || body.Message.Length > 1000))
+                var message = body.Message?.Trim();
+                if (body.Message is not null && (string.IsNullOrEmpty(message) || message.Length > 1000))
                     v.Field("message", "must be 1 to 1000 characters");
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -728,7 +729,12 @@ where id = $" + idParamIndex + @";";
                         }
                     }
 
-                    // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify, message, historyId }.
+                    // The text, when given, is an event_message row the history references.
+                    long? messageId = message is null
+                        ? null
+                        : await InsertStatusMessageAsync(conn, tx, id, message, email, token);
+
+                    // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify, messageId, historyId }.
                     // sql.md 8.4: insert outbox, then history, then update outbox with historyId.
                     var payload = JsonSerializer.Serialize(new
                     {
@@ -736,7 +742,7 @@ where id = $" + idParamIndex + @";";
                         fromStatusId = (int)from,
                         toStatusId = (int)to,
                         notify = body.Notify,
-                        message = body.Message,
+                        messageId,
                     });
                     long outboxId;
                     await using (var outbox = new NpgsqlCommand(@"
@@ -748,7 +754,7 @@ insert into outbox (topic, payload) values ('event.status_changed', $1::jsonb) r
 
                     long historyId;
                     await using (var hist = new NpgsqlCommand(@"
-insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message_id, outbox_id)
 values ($1, $2, $3, $4, $5, $6, $7) returning id;", conn, tx))
                     {
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
@@ -756,7 +762,7 @@ values ($1, $2, $3, $4, $5, $6, $7) returning id;", conn, tx))
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = to });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Notify });
-                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.Message ?? DBNull.Value });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)messageId ?? DBNull.Value });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
                         historyId = (long)(await hist.ExecuteScalarAsync(token) ?? 0L);
                     }
@@ -782,7 +788,7 @@ update event set status_notified_at = case when $1 then now() else null end wher
                     if (dto is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "status", "event",
                         id.ToString(CultureInfo.InvariantCulture),
-                        before, dto, token);
+                        before, WithMessageId(dto, messageId), token);
                     dto.Audit = stamp;
                     return dto;
                 }, ct);
@@ -797,6 +803,29 @@ update event set status_notified_at = case when $1 then now() else null end wher
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
+    // Inserts the event_message row a status change or an announcement
+    // carries (event_time null, created_by the actor) and returns its id.
+    private static async Task<long> InsertStatusMessageAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, long eventId, string body, string actor, CancellationToken ct)
+    {
+        await using var ins = new NpgsqlCommand(@"
+insert into event_message (event_id, body, event_time, created_by)
+values ($1, $2, null, $3) returning id;", conn, tx);
+        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
+        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body });
+        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = actor });
+        return (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
+    }
+
+    // The audit `after` of a status change or an announcement: the event as
+    // the response returns it plus `messageId` (null when no text was given).
+    private static JsonElement WithMessageId(EventDto dto, long? messageId)
+    {
+        var node = JsonSerializer.SerializeToNode(dto, CanonicalJson.Options)!.AsObject();
+        node["messageId"] = messageId;
+        return JsonSerializer.SerializeToElement(node, CanonicalJson.Options);
+    }
+
     // GET /admin/events/{id}/status-history → 200 { items } newest first.
     private static void MapStatusHistory(IEndpointRouteBuilder app)
     {
@@ -807,10 +836,12 @@ update event set status_notified_at = case when $1 then now() else null end wher
                 await conn.OpenAsync(ct);
                 var items = new List<StatusHistoryDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select id, event_id, from_status_id, to_status_id, changed_by, changed_at, notify, message, sent_count
-from event_status_history
-where event_id = $1
-order by changed_at desc, id desc;", conn);
+select h.id, h.event_id, h.from_status_id, h.to_status_id, h.changed_by, h.changed_at, h.notify,
+       m.body, h.message_id, h.sent_count
+from event_status_history h
+left join event_message m on m.id = h.message_id
+where h.event_id = $1
+order by h.changed_at desc, h.id desc;", conn);
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
@@ -825,7 +856,8 @@ order by changed_at desc, id desc;", conn);
                         ChangedAt = reader.GetFieldValue<DateTimeOffset>(5),
                         Notify = reader.GetBoolean(6),
                         Message = reader.IsDBNull(7) ? null : reader.GetString(7),
-                        SentCount = reader.GetInt32(8),
+                        MessageId = reader.IsDBNull(8) ? null : reader.GetInt64(8),
+                        SentCount = reader.GetInt32(9),
                     });
                 }
                 return Results.Ok(new ItemsResponse<StatusHistoryDto> { Items = items });
@@ -840,83 +872,88 @@ order by changed_at desc, id desc;", conn);
     // POST /admin/events/{id}/notify per contracts 4.5 and sql.md 8.4a.
     // Announces the event's current status to subscribers now (outbox
     // event.status_notified), sets status_notified_at, appends a
-    // StatusHistory row (from = to, notify = true). Not snapshot-affecting.
+    // StatusHistory row (from = to, notify = true). With a message it posts
+    // the event_message row and rebuilds the snapshot in the same
+    // transaction; without one it is not snapshot-affecting.
     private static void MapNotify(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/notify",
             async (long id, NotifyStatusRequest? body, HttpContext ctx, AuditRecorder audit,
-                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
             {
-                var message = body?.Message;
+                var message = body?.Message?.Trim();
                 var v = new RequestValidation();
-                if (message is not null && (message.Length < 1 || message.Length > 1000))
+                if (body?.Message is not null && (string.IsNullOrEmpty(message) || message.Length > 1000))
                     v.Field("message", "must be 1 to 1000 characters");
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-                EventDto dto;
-                await using (var tx = await conn.BeginTransactionAsync(ct))
+                async Task<EventDto> Write(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken token)
                 {
                     short status;
                     await using (var read = new NpgsqlCommand(
                         "select status_id from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        var r = await read.ExecuteScalarAsync(ct);
+                        var r = await read.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull) throw NotFound();
                         status = Convert.ToInt16(r);
                     }
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, ct);
+                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    long? messageId = message is null
+                        ? null
+                        : await InsertStatusMessageAsync(conn, tx, id, message, email, token);
                     var payload = JsonSerializer.Serialize(new
                     {
                         eventId = id,
                         statusId = (int)status,
-                        message,
+                        messageId,
                     });
                     long outboxId;
                     await using (var outbox = new NpgsqlCommand(@"
 insert into outbox (topic, payload) values ('event.status_notified', $1::jsonb) returning id;", conn, tx))
                     {
                         outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
-                        outboxId = (long)(await outbox.ExecuteScalarAsync(ct) ?? 0L);
+                        outboxId = (long)(await outbox.ExecuteScalarAsync(token) ?? 0L);
                     }
                     long historyId;
                     await using (var hist = new NpgsqlCommand(@"
-insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message, outbox_id)
+insert into event_status_history (event_id, from_status_id, to_status_id, changed_by, notify, message_id, outbox_id)
 values ($1, $2, $2, $3, true, $4, $5) returning id;", conn, tx))
                     {
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = status });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)message ?? DBNull.Value });
+                        hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)messageId ?? DBNull.Value });
                         hist.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
-                        historyId = (long)(await hist.ExecuteScalarAsync(ct) ?? 0L);
+                        historyId = (long)(await hist.ExecuteScalarAsync(token) ?? 0L);
                     }
                     await using (var outboxUpd = new NpgsqlCommand(@"
 update outbox set payload = payload || jsonb_build_object('historyId', $1::bigint) where id = $2;", conn, tx))
                     {
                         outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = historyId });
                         outboxUpd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
-                        await outboxUpd.ExecuteNonQueryAsync(ct);
+                        await outboxUpd.ExecuteNonQueryAsync(token);
                     }
                     await using (var stampNotify = new NpgsqlCommand(@"
 update event set status_notified_at = now(), updated_at = now() where id = $1;", conn, tx))
                     {
                         stampNotify.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                        await stampNotify.ExecuteNonQueryAsync(ct);
+                        await stampNotify.ExecuteNonQueryAsync(token);
                     }
-                    var read2 = await ReadEventByIdAsync(conn, tx, id, options, ct);
-                    if (read2 is null) throw NotFound();
-                    dto = read2;
+                    var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    if (dto is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "notify", "event",
                         id.ToString(CultureInfo.InvariantCulture),
-                        before, dto, ct);
+                        before, WithMessageId(dto, messageId), token);
                     dto.Audit = stamp;
-                    await tx.CommitAsync(ct);
+                    return dto;
                 }
-                return Results.Ok(dto);
+
+                EventDto result = message is null
+                    ? await snap.RunWithoutSnapshotAsync<EventDto>(Write, ct)
+                    : (await snap.RunAsync<EventDto>(Write, ct)).Value;
+                return Results.Ok(result);
             })
             .WithTags("AdminEvents")
             .Accepts<NotifyStatusRequest>("application/json")

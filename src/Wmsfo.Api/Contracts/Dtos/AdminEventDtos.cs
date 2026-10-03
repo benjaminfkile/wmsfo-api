@@ -51,8 +51,8 @@ public sealed class ChangeEventStatusRequest
 {
     public int StatusId { get; set; }
     public bool Notify { get; set; }
-    // Optional 1..1000 custom paragraph riding in the alert email. Ignored when
-    // notify is false; the outbox row and history row still carry it.
+    // Optional 1..1000 text, trimmed, posted as an event message with notify
+    // on or off; the alert email carries it in place of the stock paragraph.
     public string? Message { get; set; }
 }
 

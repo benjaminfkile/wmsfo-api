@@ -130,7 +130,7 @@ public sealed class AlertSender
     {
         int toStatus = payload.GetProperty("toStatusId").GetInt32();
         long eventId = payload.GetProperty("eventId").GetInt64();
-        var customMessage = TryReadStringProperty(payload, "message");
+        var customMessage = LookupStatusMessage(payload);
         return BuildEventStatusMessage(row, eventId, toStatus, customMessage, unsubscribeUrl, apiUnsubscribe);
     }
 
@@ -138,7 +138,7 @@ public sealed class AlertSender
     {
         int statusId = payload.GetProperty("statusId").GetInt32();
         long eventId = payload.GetProperty("eventId").GetInt64();
-        var customMessage = TryReadStringProperty(payload, "message");
+        var customMessage = LookupStatusMessage(payload);
         return BuildEventStatusMessage(row, eventId, statusId, customMessage, unsubscribeUrl, apiUnsubscribe);
     }
 
@@ -163,10 +163,13 @@ public sealed class AlertSender
             UnsubscribeUrl: apiUnsubscribe);
     }
 
-    private static string? TryReadStringProperty(JsonElement payload, string name)
+    // The body of the event message a status alert's payload names in
+    // `messageId`; null when the payload names none or the row is gone, so
+    // the stock paragraph renders.
+    private string? LookupStatusMessage(JsonElement payload)
     {
-        if (!payload.TryGetProperty(name, out var p)) return null;
-        return p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+        if (!payload.TryGetProperty("messageId", out var p) || p.ValueKind != JsonValueKind.Number) return null;
+        return LookupMessageBody(p.GetInt64());
     }
 
     private SesMessage BuildMessagePosted(DeliveryRow row, JsonElement payload, string unsubscribeUrl, string apiUnsubscribe)

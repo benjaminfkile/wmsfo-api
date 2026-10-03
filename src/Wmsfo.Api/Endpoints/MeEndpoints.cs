@@ -336,16 +336,18 @@ limit 100;", conn))
                     {
                         kind = "event_status";
                         statusId = payload.RootElement.TryGetProperty("toStatusId", out var t) ? t.GetInt32() : (int?)null;
+                        messageId = ReadMessageId(payload.RootElement);
                     }
                     else if (r.Topic == "event.status_notified")
                     {
                         kind = "event_status";
                         statusId = payload.RootElement.TryGetProperty("statusId", out var s2) ? s2.GetInt32() : (int?)null;
+                        messageId = ReadMessageId(payload.RootElement);
                     }
                     else if (r.Topic == "event.message_posted")
                     {
                         kind = "event_message";
-                        messageId = payload.RootElement.TryGetProperty("messageId", out var m) ? m.GetInt64() : (long?)null;
+                        messageId = ReadMessageId(payload.RootElement);
                     }
                     else
                     {
@@ -387,6 +389,10 @@ limit 100;", conn))
             .RequireAuthorization(AuthPolicies.Person)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
+
+    // The payload's `messageId`; null when absent or null.
+    private static long? ReadMessageId(JsonElement payload) =>
+        payload.TryGetProperty("messageId", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt64() : null;
 
     private sealed record AlertRow(long Id, long SubscriberId, string Address, string Topic, string Payload, DateTimeOffset SentAt);
 
