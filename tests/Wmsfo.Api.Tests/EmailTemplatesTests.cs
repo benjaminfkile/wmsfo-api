@@ -277,6 +277,33 @@ public sealed class EmailTemplatesTests
     }
 
     [Fact]
+    public void The_layout_names_the_site_and_carries_the_resolved_logo()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var values = TrickyValues(EmailTemplates.EventLive);
+        values["siteName"] = "North Pole & Co";
+        values["logoUrl"] = CdnBase + "/email/abc.png";
+        var rendered = templates.Render(EmailTemplates.EventLive, values);
+
+        Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"96\"", rendered.Html);
+        Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
+        Assert.Contains("alt=\"North Pole &amp; Co\"", rendered.Html);
+        Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</td>", rendered.Html);
+        Assert.Equal(1, CountOf(rendered.Html, "<img "));
+        Assert.StartsWith("North Pole & Co\n", rendered.Text);
+    }
+
+    [Fact]
+    public void The_layout_names_the_default_site_without_a_site_name()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var rendered = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive));
+
+        Assert.Contains("color:#0f1a30;\">Santa Tracker</td>", rendered.Html);
+        Assert.StartsWith("Santa Tracker\n", rendered.Text);
+    }
+
+    [Fact]
     public void Missing_layout_html_fails_load()
     {
         using var tmp = TempDir.Create();

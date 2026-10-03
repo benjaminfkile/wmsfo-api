@@ -11,8 +11,8 @@ namespace Wmsfo.Api.Email;
 // happens once at boot, and the composed result is validated for the
 // substitutions each template requires. Rendering substitutes {{token}}
 // values: HTML-escaped in the HTML part, raw in the text part. The layout
-// tokens {{subject}}, {{preheader}}, {{logoUrl}}, {{siteUrl}}, and
-// {{footerReason}} are supplied by Render.
+// tokens {{subject}}, {{preheader}}, {{logoUrl}}, {{siteName}}, {{siteUrl}},
+// and {{footerReason}} are supplied by Render.
 public sealed class EmailTemplates
 {
     private static readonly Regex TokenPattern = new(@"\{\{([a-zA-Z]+)\}\}", RegexOptions.Compiled);
@@ -20,6 +20,9 @@ public sealed class EmailTemplates
     public const string HtmlLayoutFile = "_layout.html";
     public const string TextLayoutFile = "_layout.txt";
     public const string ContentMarker = "{{content}}";
+
+    // The layout's {{siteName}} when the values of a render do not carry one.
+    public const string DefaultSiteName = "Santa Tracker";
 
     // Footer reasons: why the reader got the email.
     private const string AlertFooterReason =
@@ -199,8 +202,9 @@ public sealed class EmailTemplates
 
     // Substitute the tokens into subject, html, and text. `values` MUST
     // include every RequiredToken plus every SubjectToken. Render adds the
-    // layout tokens: subject, preheader, logoUrl, footerReason, and siteUrl
-    // (the configured site URL unless `values` carries one).
+    // layout tokens: subject, preheader, and footerReason from the spec;
+    // logoUrl (the bundled logo), siteName (DefaultSiteName), and siteUrl
+    // (the configured site URL), each unless `values` carries it.
     public RenderedTemplate Render(string name, IReadOnlyDictionary<string, string> values)
     {
         if (!_templates.TryGetValue(name, out var tpl))
@@ -211,9 +215,10 @@ public sealed class EmailTemplates
         {
             ["subject"] = subject,
             ["preheader"] = Substitute(tpl.Preheader, values, htmlEscape: false),
-            ["logoUrl"] = Logo.Url,
             ["footerReason"] = Substitute(tpl.FooterReason, values, htmlEscape: false),
         };
+        all.TryAdd("logoUrl", Logo.Url);
+        all.TryAdd("siteName", DefaultSiteName);
         all.TryAdd("siteUrl", _siteUrl);
 
         var html = Substitute(tpl.Html, all, htmlEscape: true);

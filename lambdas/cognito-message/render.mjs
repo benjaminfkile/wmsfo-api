@@ -8,6 +8,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const CONTENT_MARKER = "{{content}}";
+// The layout's {{siteName}} when neither `layout` nor `values` carries one.
+export const DEFAULT_SITE_NAME = "Santa Tracker";
 const TOKEN_PATTERN = /\{\{([a-zA-Z]+)\}\}/g;
 
 // HTML-escapes the way .NET's WebUtility.HtmlEncode does: the five markup
@@ -62,11 +64,13 @@ export function logoUrl(templatesDir, cdnBaseUrl) {
 
 // Renders one composed body. `spec` carries subject, preheader, and
 // footerReason, each substituted raw before it reaches the layout; `layout`
-// supplies logoUrl and siteUrl, and a siteUrl in `values` wins.
+// supplies logoUrl, siteUrl, and siteName (DEFAULT_SITE_NAME when absent),
+// and a siteUrl or siteName in `values` wins.
 export function render(composed, spec, values, layout, { htmlEscape }) {
   const subject = substitute(spec.subject, values, { htmlEscape: false });
   const all = {
     siteUrl: layout.siteUrl,
+    siteName: layout.siteName ?? DEFAULT_SITE_NAME,
     ...values,
     subject,
     preheader: substitute(spec.preheader, values, { htmlEscape: false }),
