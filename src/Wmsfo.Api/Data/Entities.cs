@@ -221,12 +221,13 @@ public sealed class Cookie
 {
     public long Id { get; set; }
     public long EventId { get; set; }
-    public long PersonId { get; set; }
+    public long? PersonId { get; set; }
     public long CookieTypeId { get; set; }
     public string? Note { get; set; }
     public DateTimeOffset LeftAt { get; set; }
     public DateTimeOffset? HiddenAt { get; set; }
     public string? HiddenBy { get; set; }
+    public string? SeededBy { get; set; }
 }
 
 public sealed class ContactMessage

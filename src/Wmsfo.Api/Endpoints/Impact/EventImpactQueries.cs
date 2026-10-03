@@ -55,7 +55,8 @@ public static class EventImpactQueries
             parameters, ct).ConfigureAwait(false);
         if (history is not null) impact.Deletes.Add(history);
 
-        // cookies: names are the person emails.
+        // cookies: the count includes seeded cookies; names are the emails of
+        // the people who left cookies, so a seeded cookie never names anyone.
         int cookieCount = 0;
         await using (var cmd = new NpgsqlCommand(
             "select count(*)::int from cookie where event_id = $1;", conn, tx))
@@ -68,8 +69,8 @@ public static class EventImpactQueries
         {
             var cookieNames = new List<string>();
             await using (var cmd = new NpgsqlCommand(@"
-select coalesce(p.email, '') from cookie c
-left join person p on p.id = c.person_id
+select p.email from cookie c
+join person p on p.id = c.person_id
 where c.event_id = $1
 order by c.id limit 10;", conn, tx))
             {
