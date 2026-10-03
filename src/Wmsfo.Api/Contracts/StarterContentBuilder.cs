@@ -41,6 +41,16 @@ public static class StarterContentBuilder
         ContactEmail = null,
         DonateUrl = null,
         AnalyticsEnabled = false,
+        HeaderLinks = new List<LinkValue>
+        {
+            new()
+            {
+                Label = "Facebook",
+                Href = "https://www.facebook.com/WesternMontanaSantaFlyover",
+                Icon = new IconValue { Source = "library", Id = "facebook" },
+                NewTab = true,
+            },
+        },
     };
 
     private static IList<ContentPage> BuildPages()
