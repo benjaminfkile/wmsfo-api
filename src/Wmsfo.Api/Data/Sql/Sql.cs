@@ -100,11 +100,10 @@ for update;";
 update event
 set status_id = @to_status,
     went_live_at = case when @to_status = 3 then now()
-                        when @from_status = 3 and @to_status <> 4 then null
-                        else went_live_at end,
+                        when @to_status = 4 then went_live_at
+                        else null end,
     ended_at     = case when @to_status = 4 then now()
-                        when @to_status = 3 or @from_status = 3 then null
-                        else ended_at end,
+                        else null end,
     updated_at   = now()
 where id = @event_id;";
 
