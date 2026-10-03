@@ -28,6 +28,8 @@ public sealed class SnapshotBuilder
     public const string JsonContentType = "application/json; charset=utf-8";
     public static readonly TimeSpan PutTimeout = TimeSpan.FromSeconds(3);
     public const string SnapshotWriteFailedCode = "snapshot_write_failed";
+    // The most messages snapshot.event.messages carries (contracts 1.3).
+    public const int SnapshotMessageCap = 50;
 
     private readonly IObjectStore _store;
     private readonly IconLibrary _icons;
@@ -186,7 +188,8 @@ where e.is_current;", conn, tx))
             }
         }
 
-        // 3. latest message of the current event.
+        // 3. messages of the current event: the newest SnapshotMessageCap,
+        // newest first; latestMessage is the first of them.
         if (currentEvent is not null)
         {
             await using var cmd = new NpgsqlCommand(@"
@@ -194,19 +197,21 @@ select id, body, event_time, created_at
 from event_message
 where event_id = $1
 order by created_at desc, id desc
-limit 1;", conn, tx);
+limit $2;", conn, tx);
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = currentEvent.Id });
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = SnapshotMessageCap });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                currentEvent.LatestMessage = new SnapshotLatestMessage
+                currentEvent.Messages.Add(new SnapshotLatestMessage
                 {
                     Id = reader.GetInt64(0),
                     Body = reader.GetString(1),
                     EventTime = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
                     CreatedAt = reader.GetFieldValue<DateTimeOffset>(3),
-                };
+                });
             }
+            currentEvent.LatestMessage = currentEvent.Messages.Count > 0 ? currentEvent.Messages[0] : null;
         }
 
         // 4. flight history and route map: when the current event links a

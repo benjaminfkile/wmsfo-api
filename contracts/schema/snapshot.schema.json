@@ -265,6 +265,33 @@
           },
           "additionalProperties": false
         },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "body": {
+                "type": "string"
+              },
+              "eventTime": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "additionalProperties": false
+          },
+          "maxItems": 50
+        },
         "latestMessage": {
           "type": [
             "object",
@@ -292,6 +319,9 @@
           "additionalProperties": false
         }
       },
+      "required": [
+        "messages"
+      ],
       "additionalProperties": false
     },
     "qrCodes": {
