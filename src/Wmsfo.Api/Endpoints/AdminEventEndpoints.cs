@@ -9,6 +9,7 @@ using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts.Dtos;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
@@ -598,8 +599,10 @@ where e.id = $1;", conn))
                     short from = 0;
                     bool isCurrent = false;
                     DateTimeOffset? scheduledAt = null;
+                    string eventName = "";
+                    string? scheduleTimeZone = null;
                     await using (var read = new NpgsqlCommand(
-                        "select status_id, is_current, scheduled_at from event where id = $1 for update;", conn, tx))
+                        "select status_id, is_current, scheduled_at, name, schedule_time_zone from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(token);
@@ -607,6 +610,8 @@ where e.id = $1;", conn))
                         from = reader.GetInt16(0);
                         isCurrent = reader.GetBoolean(1);
                         scheduledAt = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2);
+                        eventName = reader.GetString(3);
+                        scheduleTimeZone = reader.IsDBNull(4) ? null : reader.GetString(4);
                     }
                     var before = await ReadEventByIdAsync(conn, tx, id, options, token);
 
@@ -740,10 +745,11 @@ where id = $" + idParamIndex + @";";
                         }
                     }
 
-                    // The text, when given, is an event_message row the history references.
-                    long? messageId = message is null
-                        ? null
-                        : await InsertStatusMessageAsync(conn, tx, id, message, email, token);
+                    // The event_message row the history references: the typed text,
+                    // or the stock paragraph the email renders when none was given.
+                    long? messageId = await InsertStatusMessageAsync(conn, tx, id,
+                        message ?? EmailTemplates.StockParagraph(to, eventName, scheduledAt, scheduleTimeZone),
+                        email, token);
 
                     // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify, messageId, historyId }.
                     // sql.md 8.4: insert outbox, then history, then update outbox with historyId.
@@ -829,7 +835,7 @@ values ($1, $2, null, $3) returning id;", conn, tx);
     }
 
     // The audit `after` of a status change or an announcement: the event as
-    // the response returns it plus `messageId` (null when no text was given).
+    // the response returns it plus `messageId` (null for an announcement without text).
     private static JsonElement WithMessageId(EventDto dto, long? messageId)
     {
         var node = JsonSerializer.SerializeToNode(dto, CanonicalJson.Options)!.AsObject();
