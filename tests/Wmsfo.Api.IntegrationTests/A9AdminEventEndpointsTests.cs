@@ -18,7 +18,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - a status change writes history + outbox + a new snapshot + a live object
 //     with the new statusId
 //   - final_cookie_tally set on entry into and cleared on exit from status 4
-//   - went_live_at / ended_at stamps
+//   - went_live_at / ended_at stamps, and leaving status 3 for anything but
+//     4 clears both
 //   - locations paging and CSV export
 public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
@@ -694,6 +695,123 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         Assert.Null(afterExit);
     }
 
+    // Leaving status 3 for 1, 2, 5, or 6 clears went_live_at and ended_at;
+    // the response, the row, and the rebuilt snapshot's event carry nulls.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task Status_transition_from_3_to_other_than_4_clears_both_stamps(int to)
+    {
+        var id = await CreateEvent(year: 2060 + to);
+        await SeedStampedStatusAsync(id, 3);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            $"{{\"statusId\":{to},\"notify\":false}}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var dto = await ReadJsonAsync(response);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("endedAt").ValueKind);
+
+        Assert.Null(await ReadTimestampAsync("select went_live_at from event where id = $1;", id));
+        Assert.Null(await ReadTimestampAsync("select ended_at from event where id = $1;", id));
+
+        using var snapshot = await ReadSnapshotAsync();
+        var ev = snapshot.RootElement.GetProperty("event");
+        Assert.Equal(id, ev.GetProperty("id").GetInt64());
+        Assert.Equal(JsonValueKind.Null, ev.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, ev.GetProperty("endedAt").ValueKind);
+    }
+
+    // 3 to 4 keeps went_live_at and stamps ended_at.
+    [Fact]
+    public async Task Status_transition_3_to_4_keeps_went_live_at_and_stamps_ended_at()
+    {
+        var id = await CreateEvent(year: 2070);
+        await SeedStampedStatusAsync(id, 3);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":4,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        Assert.Equal(SeededWentLiveAt, await ReadTimestampAsync("select went_live_at from event where id = $1;", id));
+        var ended = await ReadTimestampAsync("select ended_at from event where id = $1;", id);
+        Assert.NotNull(ended);
+        Assert.True(ended > SeededEndedAt);
+
+        using var snapshot = await ReadSnapshotAsync();
+        var ev = snapshot.RootElement.GetProperty("event");
+        Assert.Equal(SeededWentLiveAt, ev.GetProperty("wentLiveAt").GetDateTimeOffset());
+        Assert.Equal(JsonValueKind.String, ev.GetProperty("endedAt").ValueKind);
+    }
+
+    // 4 to 3 stamps went_live_at and clears ended_at.
+    [Fact]
+    public async Task Status_transition_4_to_3_stamps_went_live_at_and_clears_ended_at()
+    {
+        var id = await CreateEvent(year: 2071);
+        await SeedStampedStatusAsync(id, 4);
+        await SeedHealthyActiveBeaconAsync("relaunch-b");
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":3,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var went = await ReadTimestampAsync("select went_live_at from event where id = $1;", id);
+        Assert.NotNull(went);
+        Assert.True(went > SeededWentLiveAt);
+        Assert.Null(await ReadTimestampAsync("select ended_at from event where id = $1;", id));
+
+        using var snapshot = await ReadSnapshotAsync();
+        var ev = snapshot.RootElement.GetProperty("event");
+        Assert.Equal(JsonValueKind.String, ev.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, ev.GetProperty("endedAt").ValueKind);
+    }
+
+    // 4 to 1 leaves both stamps as they are.
+    [Fact]
+    public async Task Status_transition_4_to_1_leaves_both_stamps()
+    {
+        var id = await CreateEvent(year: 2072);
+        await SeedStampedStatusAsync(id, 4);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":1,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        Assert.Equal(SeededWentLiveAt, await ReadTimestampAsync("select went_live_at from event where id = $1;", id));
+        Assert.Equal(SeededEndedAt, await ReadTimestampAsync("select ended_at from event where id = $1;", id));
+    }
+
+    // The audit after of a 3 to 1 change carries the cleared stamps.
+    [Fact]
+    public async Task Status_transition_3_to_1_audit_after_carries_null_stamps()
+    {
+        var id = await CreateEvent(year: 2073);
+        await SeedStampedStatusAsync(id, 3);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":1,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+select before::text, after::text from audit_log
+where entity = 'event' and entity_id = $1 and action = 'status'
+order by id desc limit 1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = id.ToString(System.Globalization.CultureInfo.InvariantCulture) });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        using var before = JsonDocument.Parse(reader.GetString(0));
+        using var after = JsonDocument.Parse(reader.GetString(1));
+        Assert.Equal(JsonValueKind.String, before.RootElement.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.String, before.RootElement.GetProperty("endedAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("wentLiveAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("endedAt").ValueKind);
+    }
+
     // ---------- GET /admin/events/{id}/status-history ----------
 
     [Fact]
@@ -897,6 +1015,35 @@ values ($1, $2, 1, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = setCurrent });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static readonly DateTimeOffset SeededWentLiveAt = DateTimeOffset.Parse("2020-12-24T23:00:00Z");
+    private static readonly DateTimeOffset SeededEndedAt = DateTimeOffset.Parse("2020-12-25T03:00:00Z");
+
+    // Makes the event current at the given status with both stamps set.
+    private async Task SeedStampedStatusAsync(long id, int status)
+    {
+        await SetCurrentDirectAsync(id);
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "update event set status_id = $1, went_live_at = $2, ended_at = $3, scheduled_at = $2 where id = $4;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Smallint, Value = (short)status });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = SeededWentLiveAt });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = SeededEndedAt });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private async Task<JsonDocument> ReadSnapshotAsync()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select s3_key from snapshot where id = 1;", conn);
+        var key = (string)(await cmd.ExecuteScalarAsync())!;
+        var content = await _host!.Store.GetObjectAsync(key);
+        Assert.NotNull(content);
+        return JsonDocument.Parse(content!.Bytes);
     }
 
     private async Task SetCurrentDirectAsync(long id)
