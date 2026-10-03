@@ -29,7 +29,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - publish with no changes since the last version -> 409 content_unchanged
 //   - publish success: newest version is pruned at 51, snapshot embeds the
 //     document, media map exactly the referenced assets
-//   - restore recreates the six role pages
+//   - restore recreates the seven role pages, and keeps the working set's
+//     role page for a role the restored version has no page for
 //   - preview token expires after 15 minutes
 //   - first boot on an empty database ends with version 1, snapshot version 1,
 //     and a live object
@@ -1288,7 +1289,7 @@ values ($1, $2::jsonb, 0, true, now());", conn);
     // -------------------- restore --------------------
 
     [Fact]
-    public async Task Restore_recreates_six_role_pages()
+    public async Task Restore_recreates_seven_role_pages()
     {
         // Publish once so a content_version row exists.
         await BootstrapFirstBootAsync();
@@ -1308,7 +1309,7 @@ values ($1, $2::jsonb, 0, true, now());", conn);
         var response = await _host.Client.SendAsync(req);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        // The six role pages are back with the correct roles.
+        // The seven role pages are back with the correct roles.
         var roles = await ReadRolesAsync();
         Assert.Contains("no_event", roles);
         Assert.Contains("planned", roles);
@@ -1316,10 +1317,54 @@ values ($1, $2::jsonb, 0, true, now());", conn);
         Assert.Contains("live", roles);
         Assert.Contains("ended", roles);
         Assert.Contains("cancelled", roles);
+        Assert.Contains("postponed", roles);
         // And the ordinary pages come back too (about, sponsors, route, donate, contact, alerts).
         var slugs = await ReadSlugsAsync();
         Assert.Contains("about", slugs);
         Assert.Contains("sponsors", slugs);
+    }
+
+    [Fact]
+    public async Task Restore_of_a_version_without_the_postponed_page_keeps_seven_role_pages()
+    {
+        await BootstrapFirstBootAsync();
+        var versionId = await ReadNewestVersionIdAsync();
+
+        // The stored version as a six role page site published it.
+        long postponedId;
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using (var q = new NpgsqlCommand("select id from page where role = 'postponed';", conn))
+                postponedId = (long)(await q.ExecuteScalarAsync())!;
+            await using var upd = new NpgsqlCommand(@"
+update content_version
+set document = jsonb_set(document, '{pages}',
+  (select jsonb_agg(p order by ord) from jsonb_array_elements(document->'pages') with ordinality as e(p, ord)
+   where p->>'role' <> 'postponed'))
+where id = $1;", conn);
+            upd.Parameters.AddWithValue(versionId);
+            await upd.ExecuteNonQueryAsync();
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, $"/admin/content/versions/{versionId}/restore");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using (var q = new NpgsqlCommand("select count(*) from page where role <> 'none';", conn))
+                Assert.Equal(7L, Convert.ToInt64(await q.ExecuteScalarAsync()));
+            // The working set's postponed page stays as it was, sections and all.
+            await using (var q = new NpgsqlCommand("select id from page where role = 'postponed';", conn))
+                Assert.Equal(postponedId, (long)(await q.ExecuteScalarAsync())!);
+            await using (var q = new NpgsqlCommand("select count(*) from section where page_id = $1;", conn))
+            {
+                q.Parameters.AddWithValue(postponedId);
+                Assert.Equal(6L, Convert.ToInt64(await q.ExecuteScalarAsync()));
+            }
+        }
     }
 
     [Fact]

@@ -585,7 +585,7 @@ where e.id = $1;", conn))
                    WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
-                if (body.StatusId < 1 || body.StatusId > 5) v.Field("statusId", "must be 1..5");
+                if (body.StatusId < 1 || body.StatusId > 6) v.Field("statusId", "must be 1..6");
                 var message = body.Message?.Trim();
                 if (body.Message is not null && (string.IsNullOrEmpty(message) || message.Length > 1000))
                     v.Field("message", "must be 1 to 1000 characters");

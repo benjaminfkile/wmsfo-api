@@ -48,7 +48,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `contact_message` | Contact form submissions | `POST /contact`; migration tool | tens per year |
 | `app_setting` | The admin knobs of contracts 6, one row per key | `PUT /admin/settings/{key}`; seed; migration tool | 9 |
 | `media_asset` | The media library: one row per upload, state, dimensions, variants | Upload ticket, confirm, patch, delete; orphan chore; migration tool | hundreds |
-| `page` | Site pages: six role pages plus ordinary pages | Editor writes; seed; restore | tens |
+| `page` | Site pages: seven role pages plus ordinary pages | Editor writes; seed; restore | tens |
 | `section` | Typed sections on a page, `data` and `presentation` JSON | Editor writes; seed; restore | hundreds |
 | `section_item` | Repeatable items of a section | Editor writes; seed; restore | hundreds |
 | `site_setting_draft` | Single row: the site settings working set | `PUT /admin/site-settings`; seed; restore | 1 |
@@ -80,7 +80,7 @@ create table event_status (
   name text not null unique
 );
 insert into event_status (id, name) values
-  (1, 'planned'), (2, 'scheduled'), (3, 'live'), (4, 'ended'), (5, 'cancelled');
+  (1, 'planned'), (2, 'scheduled'), (3, 'live'), (4, 'ended'), (5, 'cancelled'), (6, 'postponed');
 
 comment on table event_status is 'Fixed lookup. Never edited through the API. Ids are the statusId values on every wire.';
 ```
@@ -625,7 +625,7 @@ create table page (
   nav_position integer not null default 0,
   is_hidden    boolean not null default false,
   role         text not null default 'none'
-               check (role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled')),
+               check (role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled', 'postponed')),
   created_by   text not null,
   created_at   timestamptz not null default now(),
   updated_by   text not null,
@@ -633,7 +633,7 @@ create table page (
 );
 create unique index page_one_per_role on page (role) where role <> 'none';
 
-comment on table page is 'Working set. The six role pages are seeded, undeletable, and role-immutable; none pages render at /<slug>. Hidden pages are omitted at publish.';
+comment on table page is 'Working set. The seven role pages are seeded, undeletable, and role-immutable; none pages render at /<slug>. Hidden pages are omitted at publish.';
 comment on column page.slug is 'One lowercase path segment, ^[a-z0-9]+(-[a-z0-9]+)*$, 1 to 60; never auth, preview, api, admin, assets. Validated by the API.';
 comment on column page.nav_label is 'Nav entry text; null keeps the page out of the nav. Always null on role pages.';
 comment on column page.icon is 'The page''s Icon { source, id, display? } (contracts 1.3a), validated on write against $defs/Icon; null when none. Role pages take icons too.';
@@ -980,12 +980,12 @@ Every cascading foreign key has an index whose leading column is the referencing
 
 | Table | Rows | When | Idempotency |
 |---|---|---|---|
-| `event_status` | the five statuses | initial migration | migration runs once |
+| `event_status` | the six statuses: 1 to 5 in the initial migration, 6 `postponed` in `A77Postponed` | those migrations | each migration runs once |
 | `live_state` | `(id = 1)`, every other column null | initial migration | migration runs once |
 | `app_setting` | the keys of contracts 6 with the design defaults, `updated_by = 'seed'` | initial migration for the first five, then the migration that introduced each key | `on conflict (key) do nothing` |
 | `cookie_type` | Chocolate chip 10, Gingerbread 20, Snickerdoodle 30, Sugar 40, Happy 50; a library icon each, `active` true | initial migration | inserted only when the table is empty |
 | `site_setting_draft`, `icon_library_state` | `(id = 1)`, every other column null or default | initial migration | migration runs once |
-| `page`, `section`, `section_item`, `site_setting_draft.data` | the starter content: the six role pages (`no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`) with a sensible section stack each, the ordinary pages `about`, `sponsors`, `route`, `donate`, `contact`, `alerts`, and the site settings (with one header link, `headerLinks: [{ label: "Facebook", href: "https://www.facebook.com/WesternMontanaSantaFlyover", icon: { source: "library", id: "facebook" }, newTab: true }]`), from `contracts/starter-content.json` (library icons only, no media) | first boot (section 8.16) | inserted only when `page` is empty |
+| `page`, `section`, `section_item`, `site_setting_draft.data` | the starter content: the seven role pages (`no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`, `postponed`) with a sensible section stack each, the ordinary pages `about`, `sponsors`, `route`, `donate`, `contact`, `alerts`, and the site settings (with one header link, `headerLinks: [{ label: "Facebook", href: "https://www.facebook.com/WesternMontanaSantaFlyover", icon: { source: "library", id: "facebook" }, newTab: true }]`), from `contracts/starter-content.json` (library icons only, no media) | first boot (section 8.16) | inserted only when `page` is empty |
 | `content_version` | version 1: the starter content published | first boot (section 8.16) | inserted only when the table is empty |
 | `snapshot` | version 1 | first boot (section 8.16) | inserted only when absent |
 
@@ -1140,6 +1140,7 @@ begin;
 select * from snapshot where id = 1 for update;                               -- serializes snapshot builders fleet-wide
 select id, status_id, is_current, scheduled_at from event where id = $event for update;   -- none: 404
 -- rules, evaluated in the API on the locked row:
+--   $to outside 1 to 6 (checked before the transaction) -> 400 validation_failed
 --   same status                                     -> 409 event_status_unchanged
 --   to 3 and not is_current                         -> 409 event_not_current
 --   to 3 and exists (select 1 from event where status_id = 3 and id <> $event) -> 409 another_event_live
@@ -1542,7 +1543,7 @@ begin;
 select * from snapshot where id = 1 for update;
 -- read the working set in document order
 select id, slug, title, nav_label, nav_position, role from page where not is_hidden
-order by case role when 'no_event' then 0 when 'planned' then 1 when 'scheduled' then 2 when 'live' then 3 when 'ended' then 4 when 'cancelled' then 5 else 6 end, nav_position, id;
+order by case role when 'no_event' then 0 when 'planned' then 1 when 'scheduled' then 2 when 'live' then 3 when 'ended' then 4 when 'cancelled' then 5 when 'postponed' then 6 else 7 end, nav_position, id;
 select id, page_id, kind, presentation, data from section where not is_hidden and page_id = any($page_ids) order by page_id, position, id;
 select id, section_id, data from section_item where not is_hidden and section_id = any($section_ids) order by section_id, position, id;
 select data from site_setting_draft where id = 1;
@@ -1566,7 +1567,7 @@ Hidden pages, sections, and items are read but excluded (`not is_hidden`); a hid
 ```sql
 begin;
 select document from content_version where id = $id;                     -- none: 404
-delete from page;                                                          -- sections and items cascade
+delete from page where role <> all($kept_roles);                            -- sections and items cascade; $kept_roles: the roles of 3.22 the document has no page for
 insert into page (slug, title, nav_label, nav_position, role, created_by, updated_by) values (...) returning id;   -- per page in the document, role kept
 insert into section (page_id, kind, position, data, presentation, updated_by) values (...) returning id;           -- per section, position = index
 insert into section_item (section_id, position, data, updated_by) values (...);                                   -- per item
@@ -1574,7 +1575,7 @@ update site_setting_draft set data = $settings, updated_by = $admin_email, updat
 commit;
 ```
 
-The document was published, so it contains exactly one page per role; the restore therefore recreates all six. Rows get new ids. Nothing touches `content_version` or `snapshot`.
+The document was published, so it contains one page per role it knows; a version published before a role existed has no page for it, and the working set's page for that role stays as it is. The restore therefore leaves all seven role pages. Rows get new ids. Nothing touches `content_version` or `snapshot`.
 
 ### 8.21 Working-set writes
 
@@ -2009,7 +2010,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body), `A77Postponed` (2026-10-03: `insert into event_status values (6, 'postponed')`; `page_role_check` gains `'postponed'` and the `page` table comment says seven; when `page` has rows and none has the role `postponed`, inserts the page `postponed` (title `Postponed`, `nav_label` null, not hidden, `created_by = updated_by = 'seed'`; slug `postponed-2` and so on when `postponed` is taken) with the starter postponed sections, unpublished; an empty `page` is left for the first boot seed; the Down path moves status 6 rows to 1 and deletes the postponed pages and the status).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.

@@ -676,8 +676,8 @@ public sealed class WmsfoDbContext : DbContext
         {
             e.ToTable("page", t =>
             {
-                t.HasComment("Working set. The six role pages are seeded, undeletable, and role-immutable; none pages render at /<slug>. Hidden pages are omitted at publish.");
-                t.HasCheckConstraint("page_role_check", "role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled')");
+                t.HasComment("Working set. The seven role pages are seeded, undeletable, and role-immutable; none pages render at /<slug>. Hidden pages are omitted at publish.");
+                t.HasCheckConstraint("page_role_check", "role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled', 'postponed')");
             });
             e.HasKey(x => x.Id).HasName("page_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();

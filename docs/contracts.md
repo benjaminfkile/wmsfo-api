@@ -91,6 +91,7 @@ The API has no public read endpoint. The public reads the CDN objects in section
 | 3 | `live` | `live` (the page that holds the `map` section) |
 | 4 | `ended` | `ended` |
 | 5 | `cancelled` | `cancelled` |
+| 6 | `postponed` | `postponed` |
 
 The site renders one admin-composed page per status, plus the `no_event` page when `eventStatusId` is null (1.3a). There is no other grouping of statuses.
 
@@ -383,13 +384,13 @@ The content document is what an editor publishes: site settings plus pages made 
 
 ```ts
 type ContentDocument = { schemaVersion: 1; settings: SiteSettings; pages: ContentPage[] };
-type PageRole = "none" | "no_event" | "planned" | "scheduled" | "live" | "ended" | "cancelled";
+type PageRole = "none" | "no_event" | "planned" | "scheduled" | "live" | "ended" | "cancelled" | "postponed";
 type ContentPage = { id: number; slug: string; title: string; navLabel: string | null; icon: Icon | null; navPosition: number; role: PageRole; sections: ContentSection[] };
 type ContentSection = { id: number; kind: string; presentation: Presentation; data: object; items: ContentItem[] };
 type ContentItem = { id: number; data: object };
 ```
 
-Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` asc; items likewise. Hidden pages, hidden sections, and hidden items are omitted at publish; the document carries only what renders. Exactly one page per non-`none` role is present (the six are created by the seed and cannot be deleted, 4.5 Pages). A role page renders at `/` when its role matches `live.eventStatusId` (`no_event` when null); a `none` page renders at `/<slug>`. A role page's `navLabel` is always null; the home entry of the nav is site code, labelled by `settings.homeNavLabel`, linking to `/`. Every page entry carries `icon`, the page's own `Icon` (below) or null when it has none; any page, role pages included, can carry one, and the site shows it beside the page's entry in the corner panel. A media-sourced page icon rides in the snapshot's `media` like every other referenced asset.
+Pages appear in `navPosition` asc, `id` asc; sections in `position` asc, `id` asc; items likewise. Hidden pages, hidden sections, and hidden items are omitted at publish; the document carries only what renders. Exactly one page per non-`none` role is present (the seven are created by the seed and cannot be deleted, 4.5 Pages). A role page renders at `/` when its role matches `live.eventStatusId` (`no_event` when null); a `none` page renders at `/<slug>`. A role page's `navLabel` is always null; the home entry of the nav is site code, labelled by `settings.homeNavLabel`, linking to `/`. Every page entry carries `icon`, the page's own `Icon` (below) or null when it has none; any page, role pages included, can carry one, and the site shows it beside the page's entry in the corner panel. A media-sourced page icon rides in the snapshot's `media` like every other referenced asset.
 
 **Shared primitives**, defined once in `contracts/schema/primitives.schema.json` and referenced by every kind:
 
@@ -1209,7 +1210,7 @@ Each group of endpoints names its policy (3.1): **Editor** admits both groups, *
 | `PATCH /admin/events/{id}` **[snapshot]** | Any of `name`, `year`, `scheduledAt`, `wentLiveAt`, `endedAt` (each: an RFC 3339 timestamp sets it, null clears it, absent leaves it unchanged; `400 validation_failed` on anything else), `fundsPercent`, `routeId`, `routeImageMediaId` (a ready raster media asset id; an empty string unlinks; null or absent leaves it unchanged, the same convention as `logoMediaId`), `scheduleTimeZone` (an IANA zone id sets it, null clears it, absent leaves it unchanged; `400 validation_failed` on an unknown id), `routeMapConfig` (a `RouteMapConfig` object sets it whole, null clears it, absent leaves it unchanged; the snapshot's `event.routeMapConfig` carries it while the event is current; rules under **Route map configuration** in 1.3). Any other field is `400` (0.2); a poster is its own document (Posters below), not an event field. | `200 Event` | `404` (event, route, or media), `409 year_taken`, `409 scheduled_at_required` (`scheduledAt: null` while `statusId` is 2), `409 media_not_ready`, `400 validation_failed` (an svg or gif asset as the route image; a `routeMapConfig` that is not an object or null, or breaks its schema, at the field's path; an unknown library icon on a landmark) |
 | `DELETE /admin/events/{id}` **[snapshot]** | | `204`; deletes its messages, cookies, status history, locations, and pending alert outbox rows | `404`, `409 event_live` (status 3), `409 event_current` (`isCurrent`; make another event current first) |
 | `POST /admin/events/{id}/current` **[snapshot]** | none | `200 Event` (`isCurrent` true; the previous current event's flag cleared in the same transaction). Idempotent: on the already-current event, `200 Event` with no snapshot rebuild and no live-object write, in every status. | `409 current_event_live` (another event is current and live) |
-| `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true, "message": null }` (`statusId` and `notify` required; `message` optional, trimmed, 1 to 1000 characters, posted as an event message and carried in the alert instead of the stock paragraph; honoured with `notify` false too) | `200 Event` | `400` (unknown status), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null), `409 no_healthy_beacon` (3 requested and no beacon is active, or the active beacon is revoked or stale; `details.beacon` carries the active beacon's `id`, `name`, `lastSeenAt`, `staleSince`, or null when none is active) |
+| `POST /admin/events/{id}/status` **[snapshot]** | `{ "statusId": 3, "notify": true, "message": null }` (`statusId` and `notify` required; `message` optional, trimmed, 1 to 1000 characters, posted as an event message and carried in the alert instead of the stock paragraph; honoured with `notify` false too) | `200 Event` | `400` (`statusId` outside 1 to 6), `409 event_status_unchanged` (same status), `409 event_not_current` (3 requested and `isCurrent` false), `409 another_event_live` (3 requested while another event has status 3), `409 scheduled_at_required` (2 requested and `scheduledAt` null), `409 no_healthy_beacon` (3 requested and no beacon is active, or the active beacon is revoked or stale; `details.beacon` carries the active beacon's `id`, `name`, `lastSeenAt`, `staleSince`, or null when none is active) |
 | `GET /admin/events/{id}/status-history` | | `200 { "items": StatusHistory[] }` newest first, each with whether subscribers were notified and how many emails went out | |
 | `POST /admin/events/{id}/notify` (**[snapshot]** when `message` is given) | `{ "message": null }` (`message` optional, trimmed, 1 to 1000, posted as an event message and carried in the alert instead of the stock paragraph) | `200 Event`: announces the event's current status to subscribers now (outbox `event.status_notified`, the same fan-out and template as a status change with `notify: true`), sets `statusNotifiedAt`, and appends a StatusHistory row with `fromStatusId` equal to `toStatusId` and `notify: true`; with a `message` it inserts the `event_message` row (`eventTime` null, created by the actor) before the history row, the history row references it, and the snapshot is rebuilt so it is the event's `latestMessage`. The audit row's `after` is the Event plus `messageId` (null without a message) | `404` |
 | `POST /admin/events/{id}/clone` | `{ "year": 2027, "name": "Santa Flyover 2027", "copy": { "sponsors": true, "route": true, "poster": true, "routeMapConfig": true } }` (`year` and `name` required as for create; every `copy` flag optional, default false) | `201 Event`: a new event in status 1, not current, `fundsPercent` 0, no scheduled time; `sponsors` copies every `sponsor_year` row of the source event's year to the new year (all fields but `registeredAt`, skipping sponsors that already have the new year) together with the year's pinned order; `route` links the source's `routeId`; `poster` links the source's `routeImageMediaId`; `routeMapConfig` copies the source's `routeMapConfig` (null when it has none). Not snapshot-affecting (the new event is not current) | `404`, `409 year_taken`, `400 validation_failed` |
@@ -1323,7 +1324,7 @@ Pages, sections, items, and the site settings draft are the working set. Writes 
 | `DELETE /admin/pages/{id}?roleTo=` | | `204`; cascades sections and items; a page holding a role hands it to the page named by `roleTo` first (the impact warns which role) | `404`, `400 role_needs_page` (the page holds a role and `roleTo` is missing or not another page) |
 | `PUT /admin/pages/order` | `{ "ids": [3, 5, 4] }` (every `none` page exactly once) | `200 { "items": PageAdmin[] }`; `navPosition` becomes the index times 10 | `400` |
 
-The six role pages are created by the seed (sql.md 6) with slugs `no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`; their role never changes and they cannot be deleted. Reaching `/<slug>` of a role page on the site redirects to `/`.
+The seven role pages are created by the seed (sql.md 6) with slugs `no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`, `postponed`; their role never changes and they cannot be deleted. Reaching `/<slug>` of a role page on the site redirects to `/`.
 
 #### Sections and items (Editor)
 
@@ -1553,7 +1554,7 @@ create table event_status (
   name text not null unique
 );
 insert into event_status (id, name) values
-  (1, 'planned'), (2, 'scheduled'), (3, 'live'), (4, 'ended'), (5, 'cancelled');
+  (1, 'planned'), (2, 'scheduled'), (3, 'live'), (4, 'ended'), (5, 'cancelled'), (6, 'postponed');
 
 create table route (
   id          bigint generated always as identity primary key,
@@ -1873,7 +1874,7 @@ create table page (
   nav_position integer not null default 0,
   is_hidden    boolean not null default false,
   role         text not null default 'none'
-               check (role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled')),
+               check (role in ('none', 'no_event', 'planned', 'scheduled', 'live', 'ended', 'cancelled', 'postponed')),
   created_by   text not null,
   created_at   timestamptz not null default now(),
   updated_by   text not null,
@@ -2018,7 +2019,7 @@ create index qr_scan_attachment on qr_scan (attachment_id, at desc);
 create index qr_scan_event on qr_scan (event_id, at desc);
 ```
 
-Plain `lat`/`lng` columns; no PostGIS. `seq` is per event from `event.next_seq`, assigned under the event row lock, so seq order is commit order. Soft delete exists only on `cookie` (`hidden_at`); every other delete is hard. The content working set is `page`, `section`, `section_item`, and `site_setting_draft`; `content_version` holds published documents; `media_asset` is the media library; `preview_token` and `icon_library_state` are plumbing. First boot seeds the six role pages and the starter content and publishes version 1 before building snapshot version 1 (sql.md 6 and 8.16).
+Plain `lat`/`lng` columns; no PostGIS. `seq` is per event from `event.next_seq`, assigned under the event row lock, so seq order is commit order. Soft delete exists only on `cookie` (`hidden_at`); every other delete is hard. The content working set is `page`, `section`, `section_item`, and `site_setting_draft`; `content_version` holds published documents; `media_asset` is the media library; `preview_token` and `icon_library_state` are plumbing. First boot seeds the seven role pages and the starter content and publishes version 1 before building snapshot version 1 (sql.md 6 and 8.16).
 
 ---
 
@@ -2150,7 +2151,7 @@ At `WMSFO_ALERT_SEND_PER_SEC` = 10, twenty thousand verified subscribers take ab
 
 | Topic | Payload | Written by | Processing |
 |---|---|---|---|
-| `event.status_changed` | `{ "eventId": 7, "fromStatusId": 2, "toStatusId": 3, "notify": true, "messageId": null, "historyId": 40 }` | every status change (4.5) | When `notify` is true: for every `subscriber` with `channel = 'email' and verified_at is not null and unsubscribed_at is null`, `insert into alert_delivery (outbox_id, subscriber_id) ... on conflict do nothing`. Template by `toStatusId`: `event_planned` (1), `event_scheduled` (2), `event_live` (3), `event_ended` (4), `event_cancelled` (5); a non-null `messageId` names the event message whose body replaces the template's stock paragraph (`{{customMessage}}`); when that row no longer exists the stock paragraph renders. When `notify` is false nothing is sent and the row is published at once. |
+| `event.status_changed` | `{ "eventId": 7, "fromStatusId": 2, "toStatusId": 3, "notify": true, "messageId": null, "historyId": 40 }` | every status change (4.5) | When `notify` is true: for every `subscriber` with `channel = 'email' and verified_at is not null and unsubscribed_at is null`, `insert into alert_delivery (outbox_id, subscriber_id) ... on conflict do nothing`. Template by `toStatusId`: `event_planned` (1), `event_scheduled` (2), `event_live` (3), `event_ended` (4), `event_cancelled` (5), `event_postponed` (6); a non-null `messageId` names the event message whose body replaces the template's stock paragraph (`{{customMessage}}`); when that row no longer exists the stock paragraph renders. When `notify` is false nothing is sent and the row is published at once. |
 | `event.status_notified` | `{ "eventId": 7, "statusId": 3, "messageId": null, "historyId": 41 }` | `POST /admin/events/{id}/notify` | Exactly the processing of `event.status_changed` with `notify: true` for `statusId`. |
 | `event.message_posted` | `{ "eventId": 7, "messageId": 12 }` | `POST /admin/events/{id}/messages` with `notify: true` | Same fan-out, template `event_message`. When the message or event row no longer exists, mark the outbox row published with `last_error = 'source_deleted'` and send nothing. |
 | `subscription.verify` | `{ "subscriberId": 9, "verifyToken": "wsv_..." }` | subscribe and resend-verification | Send template `subscription_verify` to the subscriber's address with `{{verifyUrl}}` = `WMSFO_SITE_BASE_URL/alerts/verify?token=<verifyToken>`. The plaintext token exists only in this outbox row; it is useless after the 24 h expiry and the row is deleted by the nightly chore. No `alert_delivery` row. |
@@ -2182,6 +2183,7 @@ Fragment substitutions are `{{eventName}}`, `{{scheduledAt}}` (rendered in the e
 | `event_live` | `Santa just lifted off` | link to `https://<site-domain>/`, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_ended` | `Santa is back at the North Pole` | event name, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_cancelled` | `Santa's flight is cancelled` | event name, the stock paragraph or `{{customMessage}}`, unsubscribe link |
+| `event_postponed` | `Santa's flight is postponed` | event name, the stock paragraph or `{{customMessage}}` (stock: `<event name> is postponed. A new time will be announced when it is known.`), unsubscribe link |
 | `event_message` | `Santa update: <first 60 characters of body>` | full body, unsubscribe link |
 | `contact_received` | `Contact form: <name>` | name, email, message |
 
@@ -2470,7 +2472,7 @@ The API repository holds `contracts/`:
 | `contracts/fixtures/live-object.json`, `snapshot.json`, `route.json`, `location.json`, `heartbeat.json`, `content-document.json` | Canonical examples, validated against the schemas in the API's tests and consumed by the site's and Red-Nose's tests. `live-object.json` and `snapshot.json` are the canonical (1.6) serialization of the 1.2 and 1.3 examples with concrete values: full 64-character hex keys and `https://cdn.example` as the CDN base. |
 | `contracts/admin-thresholds.json` | `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }`, the constants in 1.11 (`staleAfterS` is not one of them; it comes from `GET /admin/beacons`). |
 | `contracts/icons/<id>.svg` | The icon library, byte-identical to `icons/` in the API repository (a CI check compares them), so the site can vendor it with the contracts and generate inline icon components (1.5). |
-| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`; currently 50 (`settings.headerLinks`, 1.3a). |
+| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`; currently 51 (the `postponed` page role, 1.3a, and status 6, 0.5). |
 
 Distribution: the site, admin panel, and Red-Nose repositories each vendor a copy of `contracts/` and a `CONTRACTS_SHA` file naming the API commit it came from; a CI step in each consumer repository fetches that commit's `contracts/` and fails when the copy differs. Updating a consumer is a copy plus a `CONTRACTS_SHA` bump in one commit.
 
@@ -2548,12 +2550,13 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - One page per event status, plus a no-event page, all admin-composed; the site holds kinds, never screens.
 - The content document is the newest `content_version.document` verbatim; identical content publishes to the same snapshot key; `content_unchanged` refuses a no-op publish.
 - Working-set writes are draft-validated and never rebuild the snapshot; publish is the only path to the site and is strict.
-- The six role pages are seeded, undeletable, and role-immutable; ordinary pages are free; slugs are one segment with five reserved names.
+- The seven role pages are seeded, undeletable, and role-immutable; ordinary pages are free; slugs are one segment with five reserved names.
 - Presentation, `Icon`, `MediaRef`, `Link`, `Inline`, and `Block` are the only shared vocabulary; kinds never define their own shapes for them.
 - Media uploads are presigned PUTs to a private bucket with a pending tag; confirm verifies, derives 480, 960, and 1600 WebP variants, and strips the tag; lifecycle rules expire pending and orphaned objects; orphan collection is a leader chore with a 30-day grace and a 7-day undo.
 - Sponsor logos and cookie type artwork are references into the media library and the icon library; there are no per-resource upload endpoints.
 - The icon library ships in the API repository and is written to the bucket once per library change under the migration lock.
-- Restore loads a version into the working set and publishes nothing; rollback is restore then publish.
+- Restore loads a version into the working set and publishes nothing; rollback is restore then publish. A role page whose role the version has no page for stays in the working set, so every role keeps its page.
+- Status 6 is `postponed`, with its own role page (`postponed`) and alert template (`event_postponed`); any status may follow any other and entry into 6 has no gate. Existing deployments get the postponed page from the migration that adds the status, unpublished until an editor publishes.
 - Preview tokens are `wpv_`, 15 minutes, hashed at rest, served through one public endpoint that the site's `/preview` route consumes.
 - Two groups, `editor` and `admin`, two policies; both need TOTP.
 - Every status change can notify subscribers (one template per status, a custom message allowed), a status can be announced again later with `POST .../notify`, and the event carries `statusNotifiedAt` so the panel can say nobody was told. Emails go out only when an admin says so.

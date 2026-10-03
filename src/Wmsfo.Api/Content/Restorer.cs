@@ -13,9 +13,10 @@ namespace Wmsfo.Api.Content;
 
 // api.md 11a.3 / sql.md 8.20: POST /admin/content/versions/{id}/restore.
 // Copies a stored content_version document into the working set: deletes every
-// page (sections and items cascade), then re-inserts each page, section, and
-// item. The site settings row is updated in place. Neither content_version nor
-// snapshot are touched - restore replaces the draft, it does not publish.
+// page (sections and items cascade) but a role page whose role the document
+// has no page for, then re-inserts each page, section, and item. The site
+// settings row is updated in place. Neither content_version nor snapshot are
+// touched - restore replaces the draft, it does not publish.
 public sealed class Restorer
 {
     private readonly WmsfoConnectionStrings _connections;
@@ -81,10 +82,20 @@ public sealed class Restorer
         var codeLinks = await ReadPageLinksAsync(conn, tx,
             "select q.id, pg.slug from qr_code q join page pg on pg.id = q.opens_page_id;", ct).ConfigureAwait(false);
 
-        // Delete the working set. Sections and items cascade off page; the page
-        // links on places and codes go null and are put back below.
-        await using (var delPages = new NpgsqlCommand("delete from page;", conn, tx))
+        // Delete the working set, except a role page whose role the document
+        // has no page for: it stays with its sections so every role keeps its
+        // page. Sections and items cascade off page; the page links on places
+        // and codes go null and are put back below.
+        var keptRoles = DocumentBuilder.PageRoles
+            .Where(role => !document.Pages.Any(p => string.Equals(p.Role, role, StringComparison.Ordinal)))
+            .ToArray();
+        await using (var delPages = new NpgsqlCommand("delete from page where role <> all($1);", conn, tx))
         {
+            delPages.Parameters.Add(new NpgsqlParameter
+            {
+                NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Text,
+                Value = keptRoles,
+            });
             await delPages.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
 
