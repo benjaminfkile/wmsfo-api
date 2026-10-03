@@ -15,7 +15,7 @@ namespace Wmsfo.Api.Tests;
 public class ContentSchemasTests
 {
     private static readonly KindRegistry Registry = KindRegistry.Load(ContractsPaths.ContractsDir);
-    private static readonly SchemaValidator Validator = new(Registry);
+    internal static readonly SchemaValidator Validator = new(Registry);
 
     public static IEnumerable<object[]> AllKinds() =>
         Registry.Kinds.Select(k => new object[] { k.Kind });

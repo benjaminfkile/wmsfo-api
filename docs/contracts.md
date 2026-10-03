@@ -486,8 +486,11 @@ type SiteSettings = {
   analyticsEnabled: boolean;
   logoMedia?: MediaRef | null;               // the site logo image; absent or null means the site keeps its built-in mark
   headerShowsSiteName?: boolean | null;      // absent or null means true: the header shows siteName next to the logo
+  headerLinks?: Link[];                      // 0 to 3; prominent links in the site header; absent means none
 };
 ```
+
+`headerLinks` holds the prominent links in the site header, up to three, each the `Link` primitive exactly as `footerLinks` uses it (`label`, `href`, `icon`, `newTab`). The site draws them as icon buttons with the label beside the icon on wide screens. The key is optional and validated like `footerLinks` (draft enforces the shape and the three entry ceiling, publish adds the full `Link` rules); the published document carries it only when set, and a reader treats an absent value as empty. The starter content links the flyover's Facebook page (`https://www.facebook.com/WesternMontanaSantaFlyover`) with the library `facebook` icon in a new tab.
 
 **Card opacity.** The card's fill can be translucent, per theme, sitewide (`settings.theme.cardOpacityLight` and `cardOpacityDark`) and per section (`presentation.cardOpacityLight` and `cardOpacityDark`). All four are optional integers from 0 (a clear fill) to 100 (an opaque fill); the published document carries them only when set. For the theme in use the site resolves the value in this order: the section's value, then the sitewide value, then 100. The value is the alpha of the card's fill only: the panel colour or the `token` background. A `media` background image is the fill and is unaffected. The border, the shadow, and the content (text, icons, images, controls) stay opaque; only the fill's alpha changes. A section with `card` false has no card, so its opacity values have no effect. The range holds at both validation levels: a write with a value outside 0 to 100 is `400 validation_failed` at the field's path.
 
@@ -2467,7 +2470,7 @@ The API repository holds `contracts/`:
 | `contracts/fixtures/live-object.json`, `snapshot.json`, `route.json`, `location.json`, `heartbeat.json`, `content-document.json` | Canonical examples, validated against the schemas in the API's tests and consumed by the site's and Red-Nose's tests. `live-object.json` and `snapshot.json` are the canonical (1.6) serialization of the 1.2 and 1.3 examples with concrete values: full 64-character hex keys and `https://cdn.example` as the CDN base. |
 | `contracts/admin-thresholds.json` | `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }`, the constants in 1.11 (`staleAfterS` is not one of them; it comes from `GET /admin/beacons`). |
 | `contracts/icons/<id>.svg` | The icon library, byte-identical to `icons/` in the API repository (a CI check compares them), so the site can vendor it with the contracts and generate inline icon components (1.5). |
-| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`. |
+| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`; currently 50 (`settings.headerLinks`, 1.3a). |
 
 Distribution: the site, admin panel, and Red-Nose repositories each vendor a copy of `contracts/` and a `CONTRACTS_SHA` file naming the API commit it came from; a CI step in each consumer repository fetches that commit's `contracts/` and fails when the copy differs. Updating a consumer is a copy plus a `CONTRACTS_SHA` bump in one commit.
 

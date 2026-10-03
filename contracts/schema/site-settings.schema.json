@@ -54,7 +54,13 @@
         { "type": "null" }
       ]
     },
-    "headerShowsSiteName": { "type": ["boolean", "null"] }
+    "headerShowsSiteName": { "type": ["boolean", "null"] },
+    "headerLinks": {
+      "type": "array",
+      "items": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Link" },
+      "minItems": 0,
+      "maxItems": 3
+    }
   },
   "required": [
     "siteName", "tagline", "homeNavLabel", "logo", "favicon", "theme",

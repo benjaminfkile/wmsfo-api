@@ -30,6 +30,9 @@ public sealed class SiteSettings
     // headerShowsSiteName defaults to true). LogoMedia is a MediaRef `{ mediaId, alt }`.
     [JsonPropertyOrder(12), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? LogoMedia { get; set; }
     [JsonPropertyOrder(13), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? HeaderShowsSiteName { get; set; }
+    // Prominent links in the site header (0 to 3); absent when null, and a reader
+    // treats absent as empty.
+    [JsonPropertyOrder(14), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<LinkValue>? HeaderLinks { get; set; }
 }
 
 public sealed class SiteTheme
