@@ -140,6 +140,7 @@ var templatesRoot = ResolveTemplatesRoot(AppContext.BaseDirectory);
 if (templatesRoot is not null)
 {
     builder.Services.AddSingleton(_ => EmailTemplates.Load(templatesRoot, options.CdnBaseUrl, options.SiteBaseUrl));
+    builder.Services.AddSingleton<EmailLogoResolver>();
 }
 if (!options.SesDryRun)
 {

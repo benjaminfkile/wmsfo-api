@@ -13,25 +13,30 @@ namespace Wmsfo.Api.Chores;
 // api.md 13 / contracts 7.6 / sql.md 9.3: the alert-send chore. Reads up to
 // 5 * WMSFO_ALERT_SEND_PER_SEC unsent deliveries oldest first, sends each
 // through SesSender under a RateLimiter of WMSFO_ALERT_SEND_PER_SEC per
-// second, updates each row with sent_at or attempts + 1 and last_error.
+// second, updates each row with sent_at or attempts + 1 and last_error. Each
+// batch resolves the layout's logo and site name once through
+// EmailLogoResolver (the bundled logo and DefaultSiteName without one).
 public sealed class AlertSender
 {
     private readonly WmsfoConnectionStrings _connections;
     private readonly WmsfoOptions _options;
     private readonly ISesSender _sender;
     private readonly ILogger<AlertSender> _logger;
+    private readonly EmailLogoResolver? _logo;
     private readonly TokenBucketRateLimiter _rateLimiter;
 
     public AlertSender(
         WmsfoConnectionStrings connections,
         WmsfoOptions options,
         ISesSender sender,
-        ILogger<AlertSender> logger)
+        ILogger<AlertSender> logger,
+        EmailLogoResolver? logo = null)
     {
         _connections = connections;
         _options = options;
         _sender = sender;
         _logger = logger;
+        _logo = logo;
         // Refill one token per (1000/N) ms so the average holds even when the
         // batch delivers all rows in one burst.
         var perSec = Math.Max(1, options.AlertSendPerSec);
@@ -72,13 +77,15 @@ public sealed class AlertSender
         }
 
         int sent = 0;
+        if (rows.Count == 0) return sent;
+        var brand = _logo is null ? null : await _logo.ResolveAsync(ct).ConfigureAwait(false);
         foreach (var row in rows)
         {
             using var lease = await _rateLimiter.AcquireAsync(1, ct).ConfigureAwait(false);
             if (!lease.IsAcquired) continue;
             try
             {
-                var message = BuildMessage(row);
+                var message = WithBrand(BuildMessage(row), brand);
                 var messageId = await _sender.SendAsync(message, ct).ConfigureAwait(false);
                 await MarkSuccessAsync(row.Id, messageId, conn, ct).ConfigureAwait(false);
                 // sql.md 9.3: bump event_status_history.sent_count for alert
@@ -109,6 +116,19 @@ public sealed class AlertSender
             "update event_status_history set sent_count = sent_count + 1 where outbox_id = $1;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    // The message with the layout's logoUrl and siteName set from `brand`;
+    // unchanged when there is none, so the render supplies the defaults.
+    private static SesMessage WithBrand(SesMessage message, EmailBrand? brand)
+    {
+        if (brand is null) return message;
+        var values = new Dictionary<string, string>(message.Values, StringComparer.Ordinal)
+        {
+            ["logoUrl"] = brand.LogoUrl,
+            ["siteName"] = brand.SiteName,
+        };
+        return message with { Values = values };
     }
 
     private SesMessage BuildMessage(DeliveryRow row)

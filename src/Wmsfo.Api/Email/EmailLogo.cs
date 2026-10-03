@@ -1,19 +1,32 @@
 using System.Security.Cryptography;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
+using Wmsfo.Api.Media;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Email;
 
-// contracts 7.8 / platform.md 1.2: the one image every email shows,
+// contracts 7.8 / platform.md 1.2: the bundled email logo,
 // templates/email/logo.png, served from the CDN at email/{sha256}.png where
 // {sha256} is the lowercase hex SHA-256 of the file. The boot migrator calls
 // EnsureWrittenAsync, which PUTs the object only when the key is absent, so
 // each logo change is written once and an existing key is never overwritten.
+// It is the fallback of EmailLogoResolver, which serves the published
+// `logoMedia` as a tile DeriveTile cuts.
 public sealed class EmailLogo
 {
     public const string FileName = "logo.png";
     public const string CdnPathPrefix = "email/";
     public const string PngContentType = "image/png";
     public const string ImmutableCacheControl = "public, max-age=31536000, immutable";
+
+    // The derived tile: TileSize square, the source fitted inside TilePadding
+    // on every side, on a white fill with TileCornerRadius rounded corners.
+    public const int TileSize = 192;
+    public const int TilePadding = 16;
+    public const int TileCornerRadius = 24;
 
     private EmailLogo(byte[] bytes, string sha256, string key, string url)
     {
@@ -41,7 +54,7 @@ public sealed class EmailLogo
         var bytes = File.ReadAllBytes(path);
         var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
         var key = CdnPathPrefix + sha + ".png";
-        return new EmailLogo(bytes, sha, key, cdnBaseUrl.TrimEnd('/') + "/" + key);
+        return new EmailLogo(bytes, sha, key, UrlFor(cdnBaseUrl, key));
     }
 
     // PUTs the logo with the immutable cache header when its key is not in the
@@ -60,5 +73,67 @@ public sealed class EmailLogo
             tag: null,
             cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    // The object key and CDN URL of PNG bytes: email/{sha256 of bytes}.png.
+    public static string KeyFor(byte[] pngBytes) =>
+        CdnPathPrefix + Convert.ToHexStringLower(SHA256.HashData(pngBytes)) + ".png";
+
+    public static string UrlFor(string cdnBaseUrl, string key) => cdnBaseUrl.TrimEnd('/') + "/" + key;
+
+    // The email tile of a raster logo (png, jpeg, webp, or gif; the first
+    // frame of an animation): the image fitted inside a TileSize square less
+    // TilePadding on each side, centred over an opaque white tile with
+    // rounded corners, encoded as PNG. Transparent parts of the source show
+    // the white tile, so the logo reads the same on light and dark clients.
+    // Throws MediaDecodeException for svg, any other content type, or bytes
+    // that do not decode.
+    public static byte[] DeriveTile(byte[] source, string contentType)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (contentType is not (ImageSniffer.Png or ImageSniffer.Jpeg or ImageSniffer.Webp or ImageSniffer.Gif))
+            throw new MediaDecodeException("unsupported_content_type");
+
+        using var image = VariantDeriver.LoadRaster(source);
+        while (image.Frames.Count > 1) image.Frames.RemoveFrame(1);
+
+        var box = TileSize - 2 * TilePadding;
+        var scale = Math.Min((double)box / image.Width, (double)box / image.Height);
+        var width = Math.Clamp((int)Math.Round(image.Width * scale), 1, box);
+        var height = Math.Clamp((int)Math.Round(image.Height * scale), 1, box);
+        image.Mutate(ctx => ctx.Resize(width, height));
+
+        using var tile = new Image<Rgba32>(TileSize, TileSize);
+        tile.ProcessPixelRows(rows =>
+        {
+            for (var y = 0; y < rows.Height; y++)
+            {
+                var row = rows.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                    row[x] = new Rgba32(255, 255, 255, CornerAlpha(x, y));
+            }
+        });
+        var offset = new Point((TileSize - width) / 2, (TileSize - height) / 2);
+        tile.Mutate(ctx => ctx.DrawImage(image, offset, 1f));
+
+        using var ms = new MemoryStream();
+        tile.SaveAsPng(ms, new PngEncoder { ColorType = PngColorType.RgbWithAlpha });
+        return ms.ToArray();
+    }
+
+    // Coverage of pixel (x, y) by the rounded tile: 255 inside, 0 outside a
+    // corner's arc, and the covered fraction along the arc.
+    private static byte CornerAlpha(int x, int y)
+    {
+        const double r = TileCornerRadius;
+        var px = x + 0.5;
+        var py = y + 0.5;
+        var cx = px < r ? r : px > TileSize - r ? TileSize - r : px;
+        var cy = py < r ? r : py > TileSize - r ? TileSize - r : py;
+        var dx = px - cx;
+        var dy = py - cy;
+        if (dx == 0 || dy == 0) return 255;
+        var coverage = Math.Clamp(r - Math.Sqrt(dx * dx + dy * dy) + 0.5, 0, 1);
+        return (byte)Math.Round(coverage * 255);
     }
 }
