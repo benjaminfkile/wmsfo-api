@@ -710,15 +710,14 @@ where e.id = $1;", conn))
                         finalTallyFragment = "null::jsonb";
                     }
 
-                    // Entry into 3 stamps went_live_at and clears ended_at; entry into 4
-                    // stamps ended_at; a change from 3 to anything but 4 clears both;
-                    // every other transition leaves both as they are.
+                    // The stamps follow the status entered, whatever the status left:
+                    // entry into 3 stamps went_live_at and clears ended_at; entry into 4
+                    // stamps ended_at and keeps went_live_at; entry into 1, 2, 5, or 6
+                    // clears both.
                     var wentLiveFragment = to == 3 ? "now()"
-                        : from == 3 && to != 4 ? "null"
-                        : "went_live_at";
-                    var endedFragment = to == 4 ? "now()"
-                        : to == 3 || from == 3 ? "null"
-                        : "ended_at";
+                        : to == 4 ? "went_live_at"
+                        : "null";
+                    var endedFragment = to == 4 ? "now()" : "null";
 
                     var toParamIndex = next++;
                     // update event ... set status_id = $to, went_live_at, ended_at, final_cookie_tally

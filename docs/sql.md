@@ -1149,12 +1149,11 @@ select id, status_id, is_current, scheduled_at, name, schedule_time_zone from ev
 --         no row, or revoked_at not null, or stale_since not null, or last_seen_at null -> 409 no_healthy_beacon
 update event
 set status_id    = $to,
-    went_live_at = case when $to = 3 then now()
-                        when $from = 3 and $to <> 4 then null                    -- leaving live for anything but ended
-                        else went_live_at end,
+    went_live_at = case when $to = 3 then now()                                  -- by the status entered, whatever the status left
+                        when $to = 4 then went_live_at
+                        else null end,                                            -- entry into 1, 2, 5, or 6
     ended_at     = case when $to = 4 then now()
-                        when $to = 3 or $from = 3 then null                      -- entry into live, or leaving it for anything but ended
-                        else ended_at end,
+                        else null end,                                            -- entry into 1, 2, 3, 5, or 6
     updated_at   = now()
 where id = $event;
 -- always, with notify true or false: $body is the message when given (trimmed, 1 to 1000),
