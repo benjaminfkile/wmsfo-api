@@ -3474,6 +3474,12 @@
           "subject": {
             "type": "string"
           },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "sentAt": {
             "type": "string",
             "format": "date-time"

@@ -355,18 +355,14 @@ limit 100;", conn))
                     }
 
                     string eventName = await LookupEventNameAsync(conn, eventId, ct);
-                    string subject;
-                    if (kind == "event_status")
-                    {
-                        subject = SubjectForStatus(statusId ?? 0);
-                    }
-                    else
-                    {
-                        var body = messageId is not null
-                            ? await LookupMessageBodyAsync(conn, messageId.Value, ct)
-                            : "";
-                        subject = "Santa update: " + EmailTemplates.SubjectPreview(body ?? "");
-                    }
+                    // The body of the message the payload references; null when
+                    // there is none or the row was deleted.
+                    var message = messageId is not null
+                        ? await LookupMessageBodyAsync(conn, messageId.Value, ct)
+                        : null;
+                    var subject = kind == "event_status"
+                        ? SubjectForStatus(statusId ?? 0)
+                        : "Santa update: " + EmailTemplates.SubjectPreview(message ?? "");
 
                     items.Add(new AlertItemDto
                     {
@@ -379,6 +375,7 @@ limit 100;", conn))
                         StatusId = statusId,
                         MessageId = messageId,
                         Subject = subject,
+                        Message = message,
                         SentAt = r.SentAt,
                     });
                 }

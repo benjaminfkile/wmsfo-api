@@ -191,7 +191,7 @@ comment on table event_message is 'Messages shown on the site, written by the me
 comment on column event_message.event_time is 'The time the message is about, as entered by the admin. Display only.';
 ```
 
-Messages come from three writers: the message form (`POST /admin/events/{id}/messages`), a status change with a `message` (8.4), and an announcement with a `message` (8.4a). The last two write `event_time` null and `created_by` the admin, and the history row references the message through `event_status_history.message_id`; there is one message store, so the site shows the text and the status alert carries it from the same row.
+Messages come from three writers: the message form (`POST /admin/events/{id}/messages`), a status change (8.4; its typed `message`, or the stock paragraph for the new status when none is typed), and an announcement with a `message` (8.4a). The last two write `event_time` null and `created_by` the admin, and the history row references the message through `event_status_history.message_id`; there is one message store, so the site shows the text and the status alert carries it from the same row.
 
 ### 3.6 `beacon`
 
@@ -1138,7 +1138,7 @@ select id from event where status_id = 3;                                     --
 ```sql
 begin;
 select * from snapshot where id = 1 for update;                               -- serializes snapshot builders fleet-wide
-select id, status_id, is_current, scheduled_at from event where id = $event for update;   -- none: 404
+select id, status_id, is_current, scheduled_at, name, schedule_time_zone from event where id = $event for update;   -- none: 404
 -- rules, evaluated in the API on the locked row:
 --   $to outside 1 to 6 (checked before the transaction) -> 400 validation_failed
 --   same status                                     -> 409 event_status_unchanged
@@ -1157,9 +1157,10 @@ set status_id    = $to,
                         else ended_at end,
     updated_at   = now()
 where id = $event;
--- only when a message is given (trimmed, 1 to 1000), with notify true or false:
-insert into event_message (event_id, body, event_time, created_by) values ($event, $message, null, $admin_email)
-returning id into $message_id;                                                -- otherwise $message_id is null
+-- always, with notify true or false: $body is the message when given (trimmed, 1 to 1000),
+-- otherwise the template's stock paragraph for $to (contracts 7.8) from name, scheduled_at, schedule_time_zone
+insert into event_message (event_id, body, event_time, created_by) values ($event, $body, null, $admin_email)
+returning id into $message_id;
 insert into outbox (topic, payload)
 values ('event.status_changed',
         jsonb_build_object('eventId', $event, 'fromStatusId', $from, 'toStatusId', $to, 'notify', $notify, 'messageId', $message_id))

@@ -20,7 +20,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //     carries the text and not the stock paragraph; the audit `after`
 //     carries messageId
 //   - notify false with a message creates the row and sends nothing
-//   - no message creates no row and the email carries the stock paragraph
+//   - no message posts the stock paragraph as the row, and the email carries
+//     it once
 //   - an announce with a message does the same as a change
 //   - deleting the message before the send renders the stock paragraph and
 //     leaves the history row with null message and messageId
@@ -153,7 +154,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
     }
 
     [Fact]
-    public async Task Status_change_without_message_posts_no_row_and_the_email_carries_the_stock_paragraph()
+    public async Task Status_change_without_message_posts_the_stock_paragraph_the_email_carries_once()
     {
         var id = await CreateEventAsync(2103);
         var subscriberAddress = "stock@wmsfo.test";
@@ -163,21 +164,26 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
             "{\"statusId\":2,\"notify\":true}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        Assert.Empty(await ReadMessagesAsync(id));
+        var stock = EmailTemplates.StockParagraph(2, "Event 2103", Scheduled);
+        var message = Assert.Single(await ReadMessagesAsync(id));
+        Assert.Equal(stock, message.Body);
+        Assert.Null(message.EventTime);
+        Assert.Equal(DevStaticTokens.AdminEmail, message.CreatedBy);
         var history = await ReadNewestHistoryAsync(id);
-        Assert.Equal(JsonValueKind.Null, history.GetProperty("message").ValueKind);
-        Assert.Equal(JsonValueKind.Null, history.GetProperty("messageId").ValueKind);
+        Assert.Equal(stock, history.GetProperty("message").GetString());
+        Assert.Equal(message.Id, history.GetProperty("messageId").GetInt64());
         using (var payload = await ReadPayloadAsync(id, "event.status_changed"))
-            Assert.Equal(JsonValueKind.Null, payload.RootElement.GetProperty("messageId").ValueKind);
+            Assert.Equal(message.Id, payload.RootElement.GetProperty("messageId").GetInt64());
         using (var after = await ReadAuditAfterAsync(id, "status"))
-            Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("messageId").ValueKind);
+            Assert.Equal(message.Id, after.RootElement.GetProperty("messageId").GetInt64());
 
         await _host!.Outbox.RunOnceAsync(CancellationToken.None);
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
         var sent = Assert.Single(_host.Sender.Sent);
-        var stock = EmailTemplates.StockParagraph(2, "Event 2103", Scheduled);
         Assert.Equal(stock, sent.Values["customMessage"]);
-        Assert.Contains(stock, _templates!.Render(sent.TemplateName, sent.Values).Text);
+        var rendered = _templates!.Render(sent.TemplateName, sent.Values);
+        Assert.Equal(2, rendered.Text.Split(stock).Length);
+        Assert.Equal(2, rendered.Html.Split(stock).Length);
     }
 
     [Fact]
