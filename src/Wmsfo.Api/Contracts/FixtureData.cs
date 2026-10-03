@@ -47,15 +47,6 @@ public static class FixtureData
 
     public static ContentDocument BuildContentDocument() => StarterContentBuilder.Build();
 
-    // The newest fixture message: snapshot.event.messages[0] and latestMessage.
-    private static readonly SnapshotLatestMessage FixtureLatestMessage = new()
-    {
-        Id = 12,
-        Body = "Santa is airborne over the valley.",
-        EventTime = DateTimeOffset.Parse("2026-12-22T01:02:00.000Z"),
-        CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
-    };
-
     public static Snapshot BuildSnapshot()
     {
         var content = BuildContentDocument();
@@ -181,18 +172,13 @@ public static class FixtureData
                     },
                     Pois = new RouteMapPois { Kinds = new List<string> { "hospital", "park" } },
                 },
-                Messages = new List<SnapshotLatestMessage>
+                LatestMessage = new SnapshotLatestMessage
                 {
-                    FixtureLatestMessage,
-                    new()
-                    {
-                        Id = 11,
-                        Body = "The sleigh is loaded at the airport.",
-                        EventTime = null,
-                        CreatedAt = DateTimeOffset.Parse("2026-12-22T00:40:00.000Z"),
-                    },
+                    Id = 12,
+                    Body = "Santa is airborne over the valley.",
+                    EventTime = DateTimeOffset.Parse("2026-12-22T01:02:00.000Z"),
+                    CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
                 },
-                LatestMessage = FixtureLatestMessage,
             },
             Sponsors = new List<SnapshotSponsor>
             {

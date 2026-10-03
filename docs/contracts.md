@@ -242,20 +242,6 @@ Rules:
       ],
       "pois": { "kinds": ["hospital", "park"] }
     },
-    "messages": [
-      {
-        "id": 12,
-        "body": "Santa is airborne over the valley.",
-        "eventTime": "2026-12-22T01:02:00.000Z",
-        "createdAt": "2026-12-22T01:02:30.000Z"
-      },
-      {
-        "id": 11,
-        "body": "The sleigh is loaded at the airport.",
-        "eventTime": null,
-        "createdAt": "2026-12-22T00:40:00.000Z"
-      }
-    ],
     "latestMessage": {
       "id": 12,
       "body": "Santa is airborne over the valley.",
@@ -351,9 +337,7 @@ Keys appear in this order.
 | `event.flightHistory` | `object \| null` | The flight recording linked to the event (`event.route_id`, 1.4), embedded so the tracker's "flight history" toggle needs no second fetch: `routeId`, `name`, and `points[]` (`lat`, `lng`, `recordedAt`) in route order, thinned by keeping every `ceil(n / flight_history_max_points)`-th point from the first and always the last, so at most `flight_history_max_points` + 1 points (section 6). `null` when no recording is linked. The admin changes it with `PATCH /admin/events/{id} { routeId }`, a snapshot-affecting write, so every new or rebuilt snapshot carries the history the admin chose. |
 | `event.routeMap` | `RouteMap \| null` | The same linked recording (`event.route_id`, 1.4) processed for the site's route map, so the map and its time slider need no second fetch. `null` when no recording is linked. Shape `{ path: { lat, lng }[]; timeline: { minutes, lat, lng }[]; durationMinutes: int; timed: bool }`, keys in this order. `path`: the recording's points simplified with Douglas-Peucker at `route_map_simplify_tolerance_m` metres (a point's distance is measured to where the segment puts its distance along the recording, so a turn back along the same line is kept), smoothed by two passes of Chaikin corner cutting (the first and last point stay put), then thinned evenly to at most `route_map_max_points` vertices, always keeping the first and last; coordinates rounded to 6 decimals. Time model: a point with a non-null `recordedAt` is an anchor when its time is not earlier than the previous anchor's (an earlier one is treated as null). With 2 or more anchors the route is timed (`timed` true): the duration is the last anchor's time minus the first's, and the time at any position is piecewise linear in cumulative distance between the surrounding anchors (points before the first anchor sit at 0, points after the last at the end). With fewer than 2 anchors the route is untimed (`timed` false): the duration is `route_map_default_duration_minutes` and time is proportional to cumulative distance. `durationMinutes`: the duration in whole minutes, rounded up, at least 5. `timeline`: the position on `path` at minutes 0, 5, 10, and so on below `durationMinutes` (the minute becomes a distance along the recording through the time model, and every `path` vertex carries the distance along the recording it came from, so the position is read off `path` at that distance and a stop holds its place), plus a final entry at `durationMinutes` (the last point of `path`), so the final step is shorter than 5 when `durationMinutes` is not a multiple of 5; coordinates rounded to 6 decimals. The build is deterministic: the same recording and settings give the same bytes. `GET /admin/events/{id}/route-map` (4.5 Events) serves the same object for any event, and `GET /admin/routes/{id}/route-map` (4.5 Routes) for any recording. |
 | `event.routeMapConfig` | `RouteMapConfig \| null` | The current event's route map configuration (`event.route_map_config`): the display knobs, control switches, landmarks, and POI kinds the `map` style of `route_preview` (1.3a) uses for this event, configured once per event. `null` when the event has none, which means every built-in default. Set with `PATCH /admin/events/{id} { routeMapConfig }` (4.5 Events), a snapshot-affecting write, and copied by the clone's `copy.routeMapConfig`. Shape and rules under **Route map configuration** below. |
-| `event.messages` | `object[]` | Every `event_message` of this event ordered `created_at` desc, then `id` desc (not `eventTime`), capped at the newest 50; `[]` when the event has none. Always present on a non-null `event`. The tracker lists them behind its envelope with a count. |
-| `event.messages[].id`, `body`, `eventTime`, `createdAt` | `int64`, `string`, `rfc3339 \| null`, `rfc3339` | As stored; the same shape as `latestMessage`. |
-| `event.latestMessage` | `object \| null` | Equals `messages[0]`: the `event_message` with the greatest `created_at` for this event (not `eventTime`; ties on `created_at` broken by greatest `id`), or `null` when `messages` is empty. |
+| `event.latestMessage` | `object \| null` | The `event_message` with the greatest `created_at` for this event (not `eventTime`; ties on `created_at` broken by greatest `id`), or `null` when the event has none. The last key of `event`. |
 | `event.latestMessage.id`, `body`, `eventTime`, `createdAt` | `int64`, `string`, `rfc3339 \| null`, `rfc3339` | As stored. |
 | `sponsors[]` | `object[]` | Sponsors having a `sponsor_year` row with `event_year = event.year`, `active = true`, `anonymous = false`, `can_advertise = true`. Order: rows with `pinned_position` set first, `pinned_position` asc; then the rest by `amount_donated` desc (nulls last), `name` asc, `id` asc. This is the display order everywhere on the site (grid, carousel, live overlay); nothing reshuffles it. Empty when `event` is null. |
 | `sponsors[].websiteUrl`, `fbUrl`, `igUrl` | `string \| null` | As stored. |
@@ -666,7 +650,7 @@ Content kinds read only their own `data` and `items` plus `snapshot.media` and `
 | Page at `/` | the page whose `role` matches `live.eventStatusId` |
 | Page at `/<slug>` | the `none` page with that slug; unknown slug renders the not-found page |
 | Every inline text | `snapshot.event.name`, `year`, `scheduledAt` for the placeholders |
-| Live screen (`map` section) | `live.lat/lng/headingDeg/speedMps/altitudeM/accuracyM/receivedAt/recordedAt/publishedAt`, `snapshot.event.flightHistory`, `snapshot.event.wentLiveAt`, `live.cookieTally` with `snapshot.cookieTypes`, `snapshot.sponsors` with `lingerMs`, `snapshot.event.latestMessage`, `snapshot.event.messages`, `store.hub` and quiet state |
+| Live screen (`map` section) | `live.lat/lng/headingDeg/speedMps/altitudeM/accuracyM/receivedAt/recordedAt/publishedAt`, `snapshot.event.flightHistory`, `snapshot.event.wentLiveAt`, `live.cookieTally` with `snapshot.cookieTypes`, `snapshot.sponsors` with `lingerMs`, `snapshot.event.latestMessage`, `store.hub` and quiet state |
 | Alerts landing pages `/alerts/verify`, `/alerts/unsubscribe` | `token` from the query string, then `POST /subscriptions/verify` or `POST /subscriptions/unsubscribe` (section 4.3) |
 | `alerts_signup` (signed in) | `GET /me`, `GET /me/subscriptions` (section 4.4) |
 | `cookie_control` (signed in, status 3) | `snapshot.cookieTypes`, `GET /me/cookies`, `POST /cookies` |
@@ -2534,7 +2518,7 @@ Tests the artifacts drive: Vitest on the site store, page selection, section reg
 - The current event is an explicit `event.is_current` flag set by `POST /admin/events/{id}/current`; nothing derives it from the year.
 - `POST /admin/events/{id}/current` on the already-current event is a no-op `200`.
 - `latestMessage` is the message with the greatest `created_at`, not `eventTime`; ties go to the greatest `id`.
-- The snapshot carries the event's messages as `event.messages` (2026-10-02): newest first by `created_at` then `id`, capped at the newest 50, `[]` when none; `latestMessage` stays and equals `messages[0]`, so its consumers are untouched.
+- The snapshot carries one message, `latestMessage`, and the site marks it read per browser; nothing on the API side holds a message list for the site.
 - Every cookie left counts toward `cookie_limit_per_person` and toward the tally; nothing removes one short of deleting its event.
 - The tally is frozen in `event.final_cookie_tally` on entry into status 4 and carried unchanged by every later live object for that event.
 - Anonymous sponsor years are omitted from the snapshot entirely; admin views still show them.
