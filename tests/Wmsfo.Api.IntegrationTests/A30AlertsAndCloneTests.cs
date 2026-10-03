@@ -132,14 +132,16 @@ public sealed class A30AlertsAndCloneTests : IClassFixture<PostgresFixture>, IAs
         long historyId;
         bool notify;
         string? message;
+        long messageId;
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await conn.OpenAsync();
             await using var cmd = new NpgsqlCommand(@"
-select id, outbox_id, notify, message
-from event_status_history
-where event_id = $1
-order by id desc limit 1;", conn);
+select h.id, h.outbox_id, h.notify, m.body, h.message_id
+from event_status_history h
+left join event_message m on m.id = h.message_id
+where h.event_id = $1
+order by h.id desc limit 1;", conn);
             cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
             await using var reader = await cmd.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync());
@@ -147,6 +149,7 @@ order by id desc limit 1;", conn);
             outboxId = reader.IsDBNull(1) ? 0L : reader.GetInt64(1);
             notify = reader.GetBoolean(2);
             message = reader.IsDBNull(3) ? null : reader.GetString(3);
+            messageId = reader.IsDBNull(4) ? 0L : reader.GetInt64(4);
         }
         Assert.True(notify);
         Assert.Equal("Come out at 6 tonight!", message);
@@ -157,7 +160,7 @@ order by id desc limit 1;", conn);
         using (var d = JsonDocument.Parse(payload!))
         {
             Assert.Equal(historyId, d.RootElement.GetProperty("historyId").GetInt64());
-            Assert.Equal("Come out at 6 tonight!", d.RootElement.GetProperty("message").GetString());
+            Assert.Equal(messageId, d.RootElement.GetProperty("messageId").GetInt64());
         }
 
         // Publish: fan out one alert_delivery row per subscriber.

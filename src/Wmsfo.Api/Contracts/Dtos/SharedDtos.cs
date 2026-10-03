@@ -55,6 +55,7 @@ public sealed class StatusHistoryDto
     public DateTimeOffset ChangedAt { get; set; }
     public bool Notify { get; set; }
     public string? Message { get; set; }
+    public long? MessageId { get; set; }
     public int SentCount { get; set; }
 }
 
