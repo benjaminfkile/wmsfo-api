@@ -35,7 +35,7 @@ public class ContentSchemasTests
             "{\"color\":\"red\"}",
             "{\"display\":{\"color\":\"red\"}}",
             "{\"controls\":{\"satellite\":true}}",
-            "{\"landmarks\":[{\"name\":\"A\",\"lat\":1,\"lng\":1,\"url\":\"x\"}]}",
+            "{\"landmarks\":[]}",
             "{\"pois\":{\"kinds\":[],\"zoom\":14}}",
         })
         {

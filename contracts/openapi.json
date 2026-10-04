@@ -8450,15 +8450,6 @@
               }
             ]
           },
-          "landmarks": {
-            "type": [
-              "null",
-              "array"
-            ],
-            "items": {
-              "$ref": "#/components/schemas/RouteMapLandmark"
-            }
-          },
           "pois": {
             "oneOf": [
               {
@@ -8519,46 +8510,6 @@
             ]
           },
           "labelSize": {
-            "type": [
-              "null",
-              "string"
-            ]
-          }
-        }
-      },
-      "RouteMapLandmark": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "lat": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "lng": {
-            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
-            "type": [
-              "number",
-              "string"
-            ],
-            "format": "double"
-          },
-          "icon": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/IconValue"
-              }
-            ]
-          },
-          "description": {
             "type": [
               "null",
               "string"

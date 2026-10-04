@@ -32,7 +32,8 @@
         "flightHistory": { "type": "boolean" },
         "timeLabels": { "type": "boolean" },
         "location": { "type": "boolean" },
-        "dataRow": { "type": "boolean" }
+        "dataRow": { "type": "boolean" },
+        "landmarks": { "type": "boolean" }
       },
       "required": ["themePicker", "terrain", "snow", "flightHistory", "timeLabels", "location", "dataRow"],
       "additionalProperties": false

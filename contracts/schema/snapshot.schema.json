@@ -204,49 +204,6 @@
               },
               "additionalProperties": false
             },
-            "landmarks": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string"
-                  },
-                  "lat": {
-                    "type": "number"
-                  },
-                  "lng": {
-                    "type": "number"
-                  },
-                  "icon": {
-                    "type": [
-                      "object",
-                      "null"
-                    ],
-                    "properties": {
-                      "source": {
-                        "type": "string"
-                      },
-                      "id": {
-                        "type": "string"
-                      },
-                      "display": true
-                    },
-                    "additionalProperties": false
-                  },
-                  "description": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
             "pois": {
               "type": [
                 "object",

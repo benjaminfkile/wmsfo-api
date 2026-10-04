@@ -45,9 +45,8 @@ public class KeyOrderTests
         var expectedRouteMap = new[] { "path", "timeline", "durationMinutes", "timed" };
         var expectedRouteMapPoint = new[] { "lat", "lng" };
         var expectedTimelineEntry = new[] { "minutes", "lat", "lng" };
-        var expectedRouteMapConfig = new[] { "display", "controls", "landmarks", "pois" };
+        var expectedRouteMapConfig = new[] { "display", "controls", "pois" };
         var expectedRouteMapDisplay = new[] { "timeLabelIntervalMinutes", "routeWidth" };
-        var expectedLandmark = new[] { "name", "lat", "lng", "icon", "description" };
         var expectedLatestMessage = new[] { "id", "body", "createdAt" };
         var expectedSponsor = new[]
         {
@@ -68,7 +67,6 @@ public class KeyOrderTests
         var routeMapConfig = root.GetProperty("event").GetProperty("routeMapConfig");
         Assert.Equal(expectedRouteMapConfig, KeysOf(routeMapConfig));
         Assert.Equal(expectedRouteMapDisplay, KeysOf(routeMapConfig.GetProperty("display")));
-        Assert.Equal(expectedLandmark, KeysOf(routeMapConfig.GetProperty("landmarks")[0]));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));

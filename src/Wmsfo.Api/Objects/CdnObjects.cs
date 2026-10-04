@@ -117,15 +117,14 @@ public sealed class RouteMapTimelineEntry
 }
 
 // An event's route map configuration (contracts 1.3, `$defs/RouteMapConfig` in
-// primitives.schema.json): the display knobs, the control switches, the
-// landmarks, and the POI kinds of the site's route map. Every key is optional
-// and absent when null; an absent key keeps the built-in behaviour.
+// primitives.schema.json): the display knobs, the control switches, and the
+// POI kinds of the site's route map. Every key is optional and absent when
+// null; an absent key keeps the built-in behaviour.
 public sealed class RouteMapConfig
 {
     [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapDisplay? Display { get; set; }
     [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapControls? Controls { get; set; }
-    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<RouteMapLandmark>? Landmarks { get; set; }
-    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapPois? Pois { get; set; }
+    [JsonPropertyOrder(2), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public RouteMapPois? Pois { get; set; }
 }
 
 // The route map display knobs; an absent key means the built-in default
@@ -144,16 +143,6 @@ public sealed class RouteMapControls
 {
     [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Fullscreen { get; set; }
     [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Terrain { get; set; }
-}
-
-// One admin-curated landmark; icon and description are absent when null.
-public sealed class RouteMapLandmark
-{
-    [JsonPropertyOrder(0)] public string Name { get; set; } = "";
-    [JsonPropertyOrder(1)] public double Lat { get; set; }
-    [JsonPropertyOrder(2)] public double Lng { get; set; }
-    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IconValue? Icon { get; set; }
-    [JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; set; }
 }
 
 // The basemap tile POI kinds the route map keeps when zoomed in.
