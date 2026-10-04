@@ -60,6 +60,12 @@
       "items": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Link" },
       "minItems": 0,
       "maxItems": 3
+    },
+    "landmarks": {
+      "type": "array",
+      "items": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Landmark" },
+      "minItems": 0,
+      "maxItems": 50
     }
   },
   "required": [

@@ -206,8 +206,7 @@ where e.id = $1;", conn))
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
     // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId,
     // scheduleTimeZone (an IANA id sets it, null clears it), routeMapConfig (a
-    // RouteMapConfig object sets it, null clears it; landmark icons are checked
-    // like every icon: a known library id, or a ready media asset).
+    // RouteMapConfig object sets it, null clears it).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
     // routeImageMediaId "" clears the link; a uuid must name a ready raster asset
     // (404 media, 409 media_not_ready, 400 validation_failed for svg or gif).
@@ -216,7 +215,7 @@ where e.id = $1;", conn))
         app.MapPatch("/admin/events/{id:long}",
             async (long id, PatchEventRequest body, HttpContext ctx,
                    AdminSnapshotTransaction snap, AuditRecorder audit,
-                   SchemaValidator validator, IconLibrary icons,
+                   SchemaValidator validator,
                    WmsfoOptions options, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
@@ -271,7 +270,7 @@ where e.id = $1;", conn))
                         setRouteMapConfig = true;
                         break;
                     case JsonValueKind.Object:
-                        routeMapConfig = RouteMapConfigRules.Read(mapConfig, "routeMapConfig", validator, icons, v);
+                        routeMapConfig = RouteMapConfigRules.Read(mapConfig, "routeMapConfig", validator, v);
                         setRouteMapConfig = routeMapConfig is not null;
                         break;
                     default:
@@ -352,22 +351,6 @@ where e.id = $1;", conn))
                             var vv = new RequestValidation();
                             vv.Field("routeImageMediaId", "must reference a raster media asset (svg and gif not allowed)");
                             vv.ThrowIfInvalid();
-                        }
-                    }
-
-                    // Landmark media icons: each must name a ready media asset.
-                    if (routeMapConfig is not null)
-                    {
-                        foreach (var mediaId in RouteMapConfigRules.MediaIds(routeMapConfig).Distinct())
-                        {
-                            await using var read = new NpgsqlCommand(
-                                "select state from media_asset where id = $1;", conn, tx);
-                            read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
-                            var state = await read.ExecuteScalarAsync(token);
-                            if (state is null || state is DBNull)
-                                throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
-                            if (!string.Equals((string)state, "ready", StringComparison.Ordinal))
-                                throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "media asset is not ready");
                         }
                     }
 

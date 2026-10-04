@@ -132,22 +132,6 @@
           },
           "additionalProperties": false
         },
-        "landmarks": {
-          "type": "array",
-          "maxItems": 50,
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[\\s\\S]+$" },
-              "lat": { "type": "number", "minimum": -90, "maximum": 90 },
-              "lng": { "type": "number", "minimum": -180, "maximum": 180 },
-              "icon": { "$ref": "#/$defs/Icon" },
-              "description": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[\\s\\S]+$" }
-            },
-            "required": ["name", "lat", "lng"],
-            "additionalProperties": false
-          }
-        },
         "pois": {
           "type": "object",
           "properties": {
@@ -161,6 +145,18 @@
           "additionalProperties": false
         }
       },
+      "additionalProperties": false
+    },
+    "Landmark": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[\\s\\S]+$" },
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lng": { "type": "number", "minimum": -180, "maximum": 180 },
+        "icon": { "$ref": "#/$defs/Icon" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[\\s\\S]+$" }
+      },
+      "required": ["name", "lat", "lng"],
       "additionalProperties": false
     },
     "Presentation": {

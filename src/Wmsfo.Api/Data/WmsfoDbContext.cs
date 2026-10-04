@@ -131,7 +131,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.LatestFix).HasColumnType("jsonb").HasColumnName("latest_fix")
                 .HasComment("The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).");
             e.Property(x => x.RouteMapConfig).HasColumnType("jsonb").HasColumnName("route_map_config")
-                .HasComment("The event's route map configuration { display?, controls?, landmarks?, pois? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.");
+                .HasComment("The event's route map configuration { display?, controls?, pois? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");

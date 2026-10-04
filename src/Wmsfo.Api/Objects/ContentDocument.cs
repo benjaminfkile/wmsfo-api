@@ -33,6 +33,9 @@ public sealed class SiteSettings
     // Prominent links in the site header (0 to 3); absent when null, and a reader
     // treats absent as empty.
     [JsonPropertyOrder(14), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<LinkValue>? HeaderLinks { get; set; }
+    // The sitewide landmarks the route preview and the live tracker draw (0 to
+    // 50); absent when null, and a reader treats absent as none.
+    [JsonPropertyOrder(15), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<Landmark>? Landmarks { get; set; }
 }
 
 public sealed class SiteTheme
@@ -53,6 +56,17 @@ public sealed class LinkValue
     [JsonPropertyOrder(1)] public string Href { get; set; } = "";
     [JsonPropertyOrder(2)] public IconValue? Icon { get; set; }
     [JsonPropertyOrder(3)] public bool NewTab { get; set; }
+}
+
+// One admin-curated landmark (`$defs/Landmark`); icon and description are
+// absent when null.
+public sealed class Landmark
+{
+    [JsonPropertyOrder(0)] public string Name { get; set; } = "";
+    [JsonPropertyOrder(1)] public double Lat { get; set; }
+    [JsonPropertyOrder(2)] public double Lng { get; set; }
+    [JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IconValue? Icon { get; set; }
+    [JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Description { get; set; }
 }
 
 public sealed class ContentPage

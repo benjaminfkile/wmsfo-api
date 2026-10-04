@@ -13,10 +13,10 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - a whole config and each key alone round-trip through PATCH and GET
 //   - display.labelSize round-trips last in display and stays absent when unset
 //   - absent leaves it, null clears it, a new event has null
-//   - bad enums, a 51st landmark, a bad kind token, unknown keys, a non-object,
-//     and an unknown library icon are 400 on the field; the row is unchanged
+//   - bad enums, a bad kind token, unknown keys (`landmarks` among them, a
+//     site setting), and a non-object are 400 on the field; the row is unchanged
 //   - the PATCH rebuilds the snapshot, whose current event block carries the
-//     config (null without one) and whose media map carries a landmark's media icon
+//     config (null without one)
 //   - clone copies the config behind copy.routeMapConfig only
 public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
@@ -24,9 +24,6 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     private const string FullConfig =
         "{\"display\":{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\",\"labelSize\":\"large\"},"
         + "\"controls\":{\"fullscreen\":false,\"terrain\":false},"
-        + "\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99,"
-        + "\"icon\":{\"source\":\"library\",\"id\":\"sleigh\"},\"description\":\"The tree lighting.\"},"
-        + "{\"name\":\"Airport\",\"lat\":46.92,\"lng\":-114.09}],"
         + "\"pois\":{\"kinds\":[\"school\",\"place_of_worship\"]}}";
 
     private readonly PostgresFixture _fixture;
@@ -106,8 +103,6 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"controls\":{}}")]
     [InlineData("{\"controls\":{\"fullscreen\":false}}")]
     [InlineData("{\"controls\":{\"terrain\":true}}")]
-    [InlineData("{\"landmarks\":[]}")]
-    [InlineData("{\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]}")]
     [InlineData("{\"pois\":{\"kinds\":[]}}")]
     [InlineData("{\"pois\":{\"kinds\":[\"hospital\"]}}")]
     public async Task Each_key_round_trips_alone(string config)
@@ -199,31 +194,20 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"display\":{\"labelSize\":\"xlarge\"}}", "routeMapConfig.display.labelSize")]
     [InlineData("{\"display\":{\"labelSize\":2}}", "routeMapConfig.display.labelSize")]
     [InlineData("{\"controls\":{\"terrain\":1}}", "routeMapConfig.controls.terrain")]
-    [InlineData("toomany", "routeMapConfig.landmarks")]
-    [InlineData("{\"landmarks\":[{\"name\":\"\",\"lat\":46.87,\"lng\":-114.0}]}", "routeMapConfig.landmarks[0].name")]
-    [InlineData("{\"landmarks\":[{\"name\":\"North\",\"lat\":90.5,\"lng\":-114.0}]}", "routeMapConfig.landmarks[0].lat")]
-    [InlineData("{\"landmarks\":[{\"name\":\"A\",\"lat\":46.87}]}", "routeMapConfig.landmarks[0]")]
-    [InlineData("{\"landmarks\":[{\"name\":\"A\",\"lat\":46.87,\"lng\":-114.0,\"description\":\"\"}]}", "routeMapConfig.landmarks[0].description")]
-    [InlineData("{\"landmarks\":[{\"name\":\"A\",\"lat\":46.87,\"lng\":-114.0,\"icon\":{\"source\":\"clipart\",\"id\":\"x\"}}]}", "routeMapConfig.landmarks[0].icon")]
     [InlineData("{\"pois\":{\"kinds\":[\"school\",\"Bad-Kind\"]}}", "routeMapConfig.pois.kinds[1]")]
     [InlineData("{\"pois\":{}}", "routeMapConfig.pois")]
     [InlineData("{\"color\":\"red\"}", "routeMapConfig.color")]
     [InlineData("{\"display\":{\"color\":\"red\"}}", "routeMapConfig.display.color")]
     [InlineData("{\"controls\":{\"satellite\":true}}", "routeMapConfig.controls.satellite")]
-    [InlineData("{\"landmarks\":[{\"name\":\"A\",\"lat\":46.87,\"lng\":-114.0,\"url\":\"x\"}]}", "routeMapConfig.landmarks[0].url")]
     [InlineData("{\"pois\":{\"kinds\":[],\"zoom\":14}}", "routeMapConfig.pois.zoom")]
+    [InlineData("{\"landmarks\":[]}", "routeMapConfig.landmarks")]
+    [InlineData("{\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]}", "routeMapConfig.landmarks")]
     [InlineData("[]", "routeMapConfig")]
     [InlineData("\"config\"", "routeMapConfig")]
-    [InlineData("{\"landmarks\":[{\"name\":\"A\",\"lat\":46.87,\"lng\":-114.0,\"icon\":{\"source\":\"library\",\"id\":\"no-such-icon\"}}]}", "routeMapConfig.landmarks[0].icon.id")]
     public async Task Bad_config_is_400_on_the_field_and_changes_nothing(string config, string field)
     {
         var id = await CreateEventAsync(2305);
         Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, "{\"routeMapConfig\":{\"controls\":{}}}")).StatusCode);
-        if (config == "toomany")
-        {
-            var landmarks = Enumerable.Range(0, 51).Select(i => $"{{\"name\":\"L{i}\",\"lat\":46.87,\"lng\":-114.0}}");
-            config = "{\"landmarks\":[" + string.Join(",", landmarks) + "]}";
-        }
 
         var response = await PatchAsync(id, "{\"routeMapConfig\":" + config + "}");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -236,42 +220,8 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
         Assert.Equal("{\"controls\": {}}", await ReadStoredConfigAsync(id));
     }
 
-    // Fifty landmarks is the cap and is accepted.
-    [Fact]
-    public async Task Fifty_landmarks_are_accepted()
-    {
-        var id = await CreateEventAsync(2306);
-        var landmarks = Enumerable.Range(0, 50).Select(i => $"{{\"name\":\"L{i}\",\"lat\":46.87,\"lng\":-114.0}}");
-        var response = await PatchAsync(id, "{\"routeMapConfig\":{\"landmarks\":[" + string.Join(",", landmarks) + "]}}");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        using var doc = await ReadJsonAsync(response);
-        Assert.Equal(50, doc.RootElement.GetProperty("routeMapConfig").GetProperty("landmarks").GetArrayLength());
-    }
-
-    [Fact]
-    public async Task Landmark_media_icon_must_exist_and_be_ready()
-    {
-        var id = await CreateEventAsync(2307);
-
-        var missing = await PatchAsync(id, LandmarkWithMediaIcon(Guid.NewGuid()));
-        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
-
-        var pending = await CreateMediaAsync("pending");
-        var notReady = await PatchAsync(id, LandmarkWithMediaIcon(pending));
-        Assert.Equal(HttpStatusCode.Conflict, notReady.StatusCode);
-        using (var doc = await ReadJsonAsync(notReady))
-        {
-            Assert.Equal("media_not_ready", doc.RootElement.GetProperty("code").GetString());
-        }
-        Assert.Null(await ReadStoredConfigAsync(id));
-
-        var ready = await CreateMediaAsync("ready");
-        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, LandmarkWithMediaIcon(ready))).StatusCode);
-    }
-
     // The PATCH is snapshot-affecting: the rebuilt snapshot's current event
-    // block carries the config beside routeMap, null once it is cleared, and
-    // the media map carries a landmark's media icon.
+    // block carries the config beside routeMap and null once it is cleared.
     [Fact]
     public async Task Patch_rebuilds_the_snapshot_and_the_current_event_block_carries_the_config()
     {
@@ -296,20 +246,12 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
             AssertRouteMapConfigFollowsRouteMap(ev);
         }
 
-        var icon = await CreateMediaAsync("ready");
-        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, LandmarkWithMediaIcon(icon))).StatusCode);
-        using (var withIcon = await ReadSnapshotAsync())
-        {
-            Assert.True(withIcon.RootElement.GetProperty("media").TryGetProperty(icon.ToString(), out _));
-        }
-
         var versionBeforeClear = await ReadSnapshotVersionAsync();
         Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, "{\"routeMapConfig\":null}")).StatusCode);
         Assert.True(await ReadSnapshotVersionAsync() > versionBeforeClear);
         using (var cleared = await ReadSnapshotAsync())
         {
             Assert.Equal(JsonValueKind.Null, cleared.RootElement.GetProperty("event").GetProperty("routeMapConfig").ValueKind);
-            Assert.False(cleared.RootElement.GetProperty("media").TryGetProperty(icon.ToString(), out _));
         }
     }
 
@@ -367,10 +309,6 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
         Assert.Equal(keys.IndexOf("routeMap") + 1, keys.IndexOf("routeMapConfig"));
     }
 
-    private static string LandmarkWithMediaIcon(Guid mediaId) =>
-        "{\"routeMapConfig\":{\"landmarks\":[{\"name\":\"Hangar\",\"lat\":46.9,\"lng\":-114.1,"
-        + "\"icon\":{\"source\":\"media\",\"id\":\"" + mediaId + "\"}}]}}";
-
     private Task<HttpResponseMessage> PatchAsync(long id, string body) =>
         SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}", body);
 
@@ -399,23 +337,6 @@ values ($1, $2, 1, 'seed', now()) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = year });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = $"Event {year}" });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
-    }
-
-    private async Task<Guid> CreateMediaAsync(string state)
-    {
-        var id = Guid.NewGuid();
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(@"
-insert into media_asset (id, filename, content_type, kind, state, s3_key, size_bytes, width, height,
-                         sha256, variants, alt, title, uploaded_by, confirmed_at)
-values ($1, 'hangar.png', 'image/png', 'raster', $2,
-        'media/' || $1::text || '/hangar.png', 100, 100, 100,
-        repeat('a', 64), '{}'::jsonb, '', '', 'seed', now());", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = state });
-        await cmd.ExecuteNonQueryAsync();
-        return id;
     }
 
     private async Task<string?> ReadStoredConfigAsync(long id)

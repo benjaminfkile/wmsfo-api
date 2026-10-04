@@ -666,9 +666,9 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         AssertRoutePreviewFourKeys(FindPublishedData(version.RootElement, sectionId));
     }
 
-    // The route map keys live on the event (routeMapConfig), so a route_preview
-    // section carrying `controls`, `landmarks`, `display`, or `pois` is 400
-    // validation_failed on the key.
+    // The route map keys live on the event (routeMapConfig) and the landmarks
+    // in the site settings, so a route_preview section carrying `controls`,
+    // `landmarks`, `display`, or `pois` is 400 validation_failed on the key.
     [Theory]
     [InlineData(",\"controls\":{\"fullscreen\":false}", "/controls")]
     [InlineData(",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]", "/landmarks")]
@@ -706,6 +706,140 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
         var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
         Assert.True(fields.TryGetProperty("/routeMap", out _), $"no problem on /routeMap: {fields}");
+    }
+
+    // -------------------- landmarks --------------------
+
+    // Fifty landmarks in the site settings, the first with a media icon, save
+    // and publish; the published settings and the snapshot's `settings` carry
+    // them and the snapshot's `media` carries the icon's asset.
+    [Fact]
+    public async Task Fifty_landmarks_publish_and_the_snapshot_carries_them_and_the_media_icon()
+    {
+        await BootstrapFirstBootAsync();
+        var icon = await UploadAndConfirmRasterAsync("landmark.png", 64, 64);
+
+        var put = await PutSiteSettingsAsync(data =>
+        {
+            var landmarks = new JsonArray();
+            for (var i = 0; i < 50; i++)
+            {
+                var landmark = new JsonObject
+                {
+                    ["name"] = $"Landmark {i}",
+                    ["lat"] = 46.8 + i / 1000.0,
+                    ["lng"] = -114.0,
+                };
+                if (i == 0)
+                {
+                    landmark["icon"] = new JsonObject { ["source"] = "media", ["id"] = icon };
+                    landmark["description"] = "The hangar.";
+                }
+                landmarks.Add(landmark);
+            }
+            data["landmarks"] = landmarks;
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        using (var saved = JsonDocument.Parse(await put.Content.ReadAsStringAsync()))
+        {
+            Assert.Empty(saved.RootElement.GetProperty("problems").EnumerateArray());
+        }
+
+        await PublishAsync();
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            Assert.Equal(50, version.RootElement.GetProperty("settings").GetProperty("landmarks").GetArrayLength());
+        }
+        Assert.Contains(icon, await ReadNewestVersionMediaIdsAsync());
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using var snap = JsonDocument.Parse(snapshotBytes!);
+        var landmarksInSnapshot = snap.RootElement.GetProperty("content").GetProperty("settings").GetProperty("landmarks");
+        Assert.Equal(50, landmarksInSnapshot.GetArrayLength());
+        var first = landmarksInSnapshot[0];
+        Assert.Equal("Landmark 0", first.GetProperty("name").GetString());
+        Assert.Equal(icon, first.GetProperty("icon").GetProperty("id").GetString());
+        Assert.Equal("The hangar.", first.GetProperty("description").GetString());
+        Assert.True(snap.RootElement.GetProperty("media").TryGetProperty(icon, out _));
+    }
+
+    // Starter settings carry no landmarks, so neither does the published document.
+    [Fact]
+    public async Task Settings_without_landmarks_publish_without_the_key()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        Assert.False(version.RootElement.GetProperty("settings").TryGetProperty("landmarks", out _));
+    }
+
+    // A landmark whose library icon is not in the library fails publish at the
+    // icon's id; one whose media icon is pending fails at the same place.
+    [Theory]
+    [InlineData("library")]
+    [InlineData("media")]
+    public async Task Landmark_icon_reference_problems_fail_publish_at_the_icon_id(string source)
+    {
+        await BootstrapFirstBootAsync();
+        var id = source == "library" ? "no-such-icon" : await CreatePendingMediaAsync("pending.png");
+
+        var put = await PutSiteSettingsAsync(data => data["landmarks"] = new JsonArray(new JsonObject
+        {
+            ["name"] = "Hangar",
+            ["lat"] = 46.9,
+            ["lng"] = -114.1,
+            ["icon"] = new JsonObject { ["source"] = source, ["id"] = id },
+        }));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(ApiErrorCodes.ContentInvalid, doc.RootElement.GetProperty("code").GetString());
+        var paths = doc.RootElement.GetProperty("details").GetProperty("problems").EnumerateArray()
+            .Select(p => p.GetProperty("path").GetString()).ToArray();
+        Assert.Contains("/settings/landmarks/0/icon/id", paths);
+    }
+
+    // A `map` section with `controls.landmarks` false publishes and carries it;
+    // one without the key publishes without it.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task Map_section_controls_landmarks_publishes_set_or_absent(bool? landmarks)
+    {
+        await BootstrapFirstBootAsync();
+        var (_, sectionId) = await FindSectionAsync("live", "map");
+
+        JsonObject data;
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand("select data::text from section where id = $1;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = sectionId });
+            data = JsonNode.Parse((string)(await cmd.ExecuteScalarAsync())!)!.AsObject();
+        }
+        var controls = data["controls"]!.AsObject();
+        controls.Remove("landmarks");
+        if (landmarks is bool value) controls["landmarks"] = value;
+        data["defaultZoom"] = 12;
+
+        var patch = await PatchSectionAsync(sectionId, new JsonObject { ["data"] = data }.ToJsonString());
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        await PublishAsync();
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using var version = JsonDocument.Parse(versionJson);
+        var published = FindPublishedData(version.RootElement, sectionId).GetProperty("controls");
+        if (landmarks is bool expected)
+            Assert.Equal(expected, published.GetProperty("landmarks").GetBoolean());
+        else
+            Assert.False(published.TryGetProperty("landmarks", out _));
     }
 
     private static void AssertRoutePreviewFourKeys(JsonElement data)

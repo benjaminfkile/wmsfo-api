@@ -15,7 +15,7 @@ namespace Wmsfo.Api.Content;
 //
 //   - MediaRef mediaId names a media_asset row with state = 'ready'
 //   - media-sourced Icon names a ready media_asset
-//   - library-sourced Icon id exists in IconLibrary
+//   - library-sourced Icon id exists in IconLibrary (a settings landmark's icon included)
 //   - Link.href and inline `[label](href)` matches the href rule
 //   - a `/<slug>` href names an existing, non-hidden `none` page (or role page's slug)
 //   - Presentation.anchor is unique across the sections of a page
@@ -246,11 +246,31 @@ public sealed class ReferenceChecker
                 {
                     if (kv.Value is null) continue;
                     var childPath = _basePath + "/" + JsonPointerEscape(kv.Key);
+                    if (kv.Key == "landmarks")
+                    {
+                        WalkLandmarks(kv.Value, childPath);
+                        continue;
+                    }
                     var saved = _basePath;
                     _basePath = childPath;
                     WalkNode(kv.Value);
                     _basePath = saved;
                 }
+            }
+        }
+
+        // `settings.landmarks`: plain text names and descriptions, so only each
+        // landmark's icon is checked, reported at `.../landmarks/<i>/icon/id`.
+        private void WalkLandmarks(JsonNode landmarks, string path)
+        {
+            if (landmarks is not JsonArray arr) return;
+            for (var i = 0; i < arr.Count; i++)
+            {
+                if (arr[i] is not JsonObject landmark) continue;
+                if (!landmark.TryGetPropertyValue("icon", out var iconNode) || iconNode is not JsonObject icon) continue;
+                if (icon["source"] is not JsonValue sv || !sv.TryGetValue<string>(out var source)) continue;
+                if (icon["id"] is not JsonValue iv || !iv.TryGetValue<string>(out var id)) continue;
+                CheckIconRef($"{path}/{i}/icon/id", source, id);
             }
         }
 

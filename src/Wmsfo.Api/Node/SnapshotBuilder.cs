@@ -456,9 +456,8 @@ order by m.id;", conn, tx);
 
     // The media ids the snapshot carries beyond the content document: logos of
     // the sponsors the snapshot lists (the current event's year, active, not
-    // anonymous, can advertise), media icons of active cookie types, the
-    // current event's route poster, and the media icons of the current event's
-    // route map landmarks. The snapshot media map, the preview
+    // anonymous, can advertise), media icons of active cookie types, and the
+    // current event's route poster. The snapshot media map, the preview
     // document, and the draft response all add this set to the document's
     // referenced media.
     public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
@@ -487,16 +486,6 @@ where is_current and route_image_media_id is not null;", conn, tx))
                 using var doc = JsonDocument.Parse(reader.GetString(0));
                 var icon = IconValue.FromStored(doc.RootElement);
                 if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId)) ids.Add(mediaId);
-            }
-        }
-        await using (var cmd = new NpgsqlCommand(
-            "select route_map_config from event where is_current and route_map_config is not null;", conn, tx))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
-        {
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                var config = RouteMapConfigRules.FromStored(reader.GetString(0));
-                if (config is not null) ids.UnionWith(RouteMapConfigRules.MediaIds(config));
             }
         }
         return ids.ToArray();
