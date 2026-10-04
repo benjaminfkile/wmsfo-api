@@ -67,10 +67,12 @@ public sealed class EventMessage
     public long Id { get; set; }
     public long EventId { get; set; }
     public string Body { get; set; } = "";
-    public DateTimeOffset? EventTime { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    public bool Notify { get; set; }
+    public long? OutboxId { get; set; }
+    public int SentCount { get; set; }
 }
 
 public sealed class Beacon

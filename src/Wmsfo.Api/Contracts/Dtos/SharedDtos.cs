@@ -38,10 +38,14 @@ public sealed class EventMessageDto
     public long Id { get; set; }
     public long EventId { get; set; }
     public string Body { get; set; } = "";
-    public DateTimeOffset? EventTime { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    // Whether subscribers were emailed (an event.message_posted alert);
+    // false for the messages a status change or an announcement writes.
+    public bool Notify { get; set; }
+    // Alert emails sent for this message.
+    public int SentCount { get; set; }
     public AuditStampDto? Audit { get; set; }
 }
 

@@ -886,7 +886,7 @@ order by id desc limit 1;", conn);
         var id = await CreateEvent(year: 2061);
         var vBefore = await ReadSnapshotVersionAsync();
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/messages",
-            "{\"body\":\"Santa is airborne over the valley.\",\"eventTime\":null,\"notify\":true}");
+            "{\"body\":\"Santa is airborne over the valley.\",\"notify\":true}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var vAfter = await ReadSnapshotVersionAsync();
         Assert.True(vAfter > vBefore);
@@ -900,7 +900,7 @@ order by id desc limit 1;", conn);
         var id = await CreateEvent(year: 2062);
         await RunSqlAsync("delete from outbox where topic = 'event.message_posted';");
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/messages",
-            "{\"body\":\"quiet\",\"eventTime\":null,\"notify\":false}");
+            "{\"body\":\"quiet\",\"notify\":false}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var outboxCount = await CountAsync("select count(*) from outbox where topic = 'event.message_posted';");
         Assert.Equal(0, outboxCount);

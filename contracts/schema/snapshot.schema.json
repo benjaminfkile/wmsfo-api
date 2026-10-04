@@ -277,13 +277,6 @@
             "body": {
               "type": "string"
             },
-            "eventTime": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "format": "date-time"
-            },
             "createdAt": {
               "type": "string",
               "format": "date-time"

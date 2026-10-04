@@ -190,7 +190,7 @@ where e.is_current;", conn, tx))
         if (currentEvent is not null)
         {
             await using var cmd = new NpgsqlCommand(@"
-select id, body, event_time, created_at
+select id, body, created_at
 from event_message
 where event_id = $1
 order by created_at desc, id desc
@@ -203,8 +203,7 @@ limit 1;", conn, tx);
                 {
                     Id = reader.GetInt64(0),
                     Body = reader.GetString(1),
-                    EventTime = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
-                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(3),
+                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
                 };
             }
         }

@@ -180,18 +180,22 @@ create table event_message (
   id         bigint generated always as identity primary key,
   event_id   bigint not null references event (id) on delete cascade,
   body       text not null,
-  event_time timestamptz,
   created_by text not null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  notify     boolean not null default false,
+  outbox_id  bigint references outbox (id) on delete set null,
+  sent_count integer not null default 0
 );
 create index event_message_event_created on event_message (event_id, created_at desc);
 
 comment on table event_message is 'Messages shown on the site, written by the message form, a status change, or an announcement. The snapshot carries one, event.latestMessage: the one with the greatest created_at (ties: greatest id).';
-comment on column event_message.event_time is 'The time the message is about, as entered by the admin. Display only.';
+comment on column event_message.notify is 'The admin asked for subscribers to be emailed when the message was posted from the message form. False for the messages a status change or an announcement writes; their emails are counted on the history row.';
+comment on column event_message.outbox_id is 'The event.message_posted outbox row while it exists (set null when the row is cleaned up).';
+comment on column event_message.sent_count is 'Alert emails sent for this message, incremented by the alert-send chore per successful send; survives the outbox row.';
 ```
 
-Messages come from three writers: the message form (`POST /admin/events/{id}/messages`), a status change (8.4; its typed `message`, or the stock paragraph for the new status when none is typed), and an announcement with a `message` (8.4a). The last two write `event_time` null and `created_by` the admin, and the history row references the message through `event_status_history.message_id`; there is one message store, so the site shows the text and the status alert carries it from the same row.
+Messages come from three writers: the message form (`POST /admin/events/{id}/messages`), a status change (8.4; its typed `message`, or the stock paragraph for the new status when none is typed), and an announcement with a `message` (8.4a). A message's time is its `created_at`, the time it was sent. The message form writes `notify` as posted; with `notify` true it also writes the `event.message_posted` outbox row and sets `outbox_id` in the same transaction, and the alert-send chore counts each email sent in `sent_count`. The last two write `notify` false and `created_by` the admin (their alert and its count belong to the history row), and the history row references the message through `event_status_history.message_id`; there is one message store, so the site shows the text and the status alert carries it from the same row.
 
 ### 3.6 `beacon`
 
@@ -950,6 +954,7 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | `event_status_history.event_id` | `event.id` | cascade | history goes with the event |
 | `event_status_history.from_status_id`, `to_status_id` | `event_status.id` | no action | lookup |
 | `event_message.event_id` | `event.id` | cascade | messages go with the event |
+| `event_message.outbox_id` | `outbox.id` | set null | the message and its `sent_count` outlive the pruned outbox row |
 | `beacon_enrollment_token.beacon_id` | `beacon.id` | cascade | beacons are never deleted; the cascade keeps the schema self-consistent |
 | `beacon_log.beacon_id` | `beacon.id` | cascade | same |
 | `location.event_id` | `event.id` | cascade | `DELETE /admin/events/{id}` removes the recording with the event (only the live and the current event refuse, api.md 5b) |
@@ -1006,7 +1011,7 @@ left join route r on r.id = e.route_id
 where e.is_current;
 
 -- latest message of the current event (event.latestMessage; null when there is none)
-select id, body, event_time, created_at
+select id, body, created_at
 from event_message
 where event_id = $event_id
 order by created_at desc, id desc
@@ -1158,7 +1163,7 @@ set status_id    = $to,
 where id = $event;
 -- always, with notify true or false: $body is the message when given (trimmed, 1 to 1000),
 -- otherwise the template's stock paragraph for $to (contracts 7.8) from name, scheduled_at, schedule_time_zone
-insert into event_message (event_id, body, event_time, created_by) values ($event, $body, null, $admin_email)
+insert into event_message (event_id, body, created_by) values ($event, $body, $admin_email)   -- notify false: the history row owns the alert
 returning id into $message_id;
 insert into outbox (topic, payload)
 values ('event.status_changed',
@@ -1186,7 +1191,7 @@ begin;
 select * from snapshot where id = 1 for update;                               -- only when a message is given
 select id, status_id from event where id = $event for update;             -- none: 404
 -- only when a message is given (trimmed, 1 to 1000):
-insert into event_message (event_id, body, event_time, created_by) values ($event, $message, null, $admin_email)
+insert into event_message (event_id, body, created_by) values ($event, $message, $admin_email)
 returning id into $message_id;                                                -- otherwise $message_id is null
 insert into outbox (topic, payload)
 values ('event.status_notified', jsonb_build_object('eventId', $event, 'statusId', $status, 'messageId', $message_id))
@@ -1263,8 +1268,11 @@ on conflict (sponsor_id, event_year) do update
 insert into app_setting (key, value, updated_by, updated_at) values ($key, $value, $admin_email, now())
 on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now();
 -- example, POST /admin/events/{id}/messages:
-insert into event_message (event_id, body, event_time, created_by) values ($event, $body, $event_time, $admin_email) returning *;
-insert into outbox (topic, payload) values ('event.message_posted', jsonb_build_object('eventId', $event, 'messageId', $message_id));   -- only when notify is true
+insert into event_message (event_id, body, created_by, notify) values ($event, $body, $admin_email, $notify) returning *;
+-- only when notify is true:
+insert into outbox (topic, payload) values ('event.message_posted', jsonb_build_object('eventId', $event, 'messageId', $message_id))
+returning id into $outbox;
+update event_message set outbox_id = $outbox where id = $message_id;
 -- build, hash, PUT (3 s, one attempt; failure: rollback, 502)
 update snapshot set version = version + 1, url = $url, s3_key = $key, built_at = now() where id = 1;
 commit;
@@ -1734,7 +1742,7 @@ limit $batch
 for update of d skip locked;
 ```
 
-Per row: `update alert_delivery set sent_at = now(), ses_message_id = $mid, last_error = null where id = $id;` and `update event_status_history set sent_count = sent_count + 1 where outbox_id = $outbox;` on success, `update alert_delivery set attempts = attempts + 1, last_error = $error where id = $id;` on failure. The leader holds the batch's row locks only while selecting; sends happen outside the transaction, which is why overlapping leaders can double-send a row within one loop at most, and the unique constraint bounds the damage to one email per subscriber per alert.
+Per row: `update alert_delivery set sent_at = now(), ses_message_id = $mid, last_error = null where id = $id;` `update event_status_history set sent_count = sent_count + 1 where outbox_id = $outbox;`, and `update event_message set sent_count = sent_count + 1 where outbox_id = $outbox;` on success (at most one of the two matches: an outbox row belongs to one history row or one message row), `update alert_delivery set attempts = attempts + 1, last_error = $error where id = $id;` on failure. The leader holds the batch's row locks only while selecting; sends happen outside the transaction, which is why overlapping leaders can double-send a row within one loop at most, and the unique constraint bounds the damage to one email per subscriber per alert.
 
 ### 9.4 Stale beacon flag (every 15 s)
 
@@ -2014,7 +2022,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body), `A77Postponed` (2026-10-03: `insert into event_status values (6, 'postponed')`; `page_role_check` gains `'postponed'` and the `page` table comment says seven; when `page` has rows and none has the role `postponed`, inserts the page `postponed` (title `Postponed`, `nav_label` null, not hidden, `created_by = updated_by = 'seed'`; slug `postponed-2` and so on when `postponed` is taken) with the starter postponed sections, unpublished; an empty `page` is left for the first boot seed; the Down path moves status 6 rows to 1 and deletes the postponed pages and the status).
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body), `A77Postponed` (2026-10-03: `insert into event_status values (6, 'postponed')`; `page_role_check` gains `'postponed'` and the `page` table comment says seven; when `page` has rows and none has the role `postponed`, inserts the page `postponed` (title `Postponed`, `nav_label` null, not hidden, `created_by = updated_by = 'seed'`; slug `postponed-2` and so on when `postponed` is taken) with the starter postponed sections, unpublished; an empty `page` is left for the first boot seed; the Down path moves status 6 rows to 1 and deletes the postponed pages and the status), `A82MessageNotify` (2026-10-04: `alter table event_message drop column event_time`; adds `notify boolean not null default false`, `outbox_id bigint references outbox (id) on delete set null`, and `sent_count integer not null default 0`; a message an `event.message_posted` outbox row names in its payload's `messageId` takes `notify` true, that `outbox_id`, and the count of its `alert_delivery` rows with `sent_at` set; the Down path drops the three and recreates `event_time` nullable).
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
@@ -2130,15 +2138,15 @@ update event set route_id = (select id from route where s3_key = $key), updated_
 |---|---|---|
 | `id` integer | `event_message.id` | preserved (`overriding system value`) |
 | `message` text | `body` | as is |
-| `time` timestamptz (nullable) | `event_time` | as is |
+| `time` timestamptz (nullable) | none | not stored; only picks the event |
 | `created_at` timestamptz | `created_at`, `updated_at` | as is |
 | | `event_id` | the event whose `year` equals the Denver calendar year of `coalesce(time, created_at)`; no such event: logged and skipped |
 | | `created_by` | `'migration'` |
 
 ```sql
-insert into event_message (id, event_id, body, event_time, created_by, created_at, updated_at)
+insert into event_message (id, event_id, body, created_by, created_at, updated_at)
 overriding system value
-values ($id, $event, $message, $time, 'migration', $created_at, $created_at)
+values ($id, $event, $message, 'migration', $created_at, $created_at)
 on conflict (id) do nothing;
 select setval(pg_get_serial_sequence('event_message', 'id'), (select max(id) from event_message));
 ```

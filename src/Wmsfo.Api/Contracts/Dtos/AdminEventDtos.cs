@@ -78,11 +78,12 @@ public sealed class CloneEventCopy
     public bool RouteMapConfig { get; set; }
 }
 
-// POST /admin/events/{id}/messages.
+// POST /admin/events/{id}/messages: `body` and `notify`; any other field
+// is 400 validation_failed.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreateEventMessageRequest
 {
     public string Body { get; set; } = "";
-    public DateTimeOffset? EventTime { get; set; }
     public bool Notify { get; set; }
 }
 
@@ -101,11 +102,12 @@ public sealed class SeedCookiesResponse
     public SortedDictionary<long, int> CookieTally { get; set; } = new();
 }
 
-// PATCH /admin/events/{id}/messages/{messageId}.
+// PATCH /admin/events/{id}/messages/{messageId}: `body` only; any other
+// field is 400 validation_failed.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PatchEventMessageRequest
 {
     public string? Body { get; set; }
-    public DateTimeOffset? EventTime { get; set; }
 }
 
 // GET /admin/events/{id}/route-map and GET /admin/routes/{id}/route-map: the
