@@ -229,6 +229,30 @@ public class ContentSchemasTests
         Assert.True(draftProblems.Count > 0, "draft-level map schema accepted an unknown theme key");
     }
 
+    // route_preview data is heading, disclaimer, and emptyText: `style` is
+    // refused at its own path, and every starter route_preview section carries
+    // only the three keys.
+    [Fact]
+    public void Route_preview_refuses_style_and_the_starter_sections_carry_three_keys()
+    {
+        var data = (JsonObject)Registry.ByName["route_preview"].Defaults.DeepClone();
+        Assert.Empty(Validator.ValidateSectionData("route_preview", data, ValidationLevel.Publish));
+
+        data["style"] = "map";
+        foreach (var level in new[] { ValidationLevel.Draft, ValidationLevel.Publish })
+        {
+            var problems = Validator.ValidateSectionData("route_preview", data, level);
+            Assert.Contains(problems, p => p.Path == "/style");
+        }
+
+        var starter = StarterContentBuilder.Build();
+        var sections = starter.Pages.SelectMany(p => p.Sections).Where(s => s.Kind == "route_preview").ToList();
+        Assert.NotEmpty(sections);
+        Assert.All(sections, s => Assert.Equal(
+            new[] { "disclaimer", "emptyText", "heading" },
+            s.Data.AsObject().Select(kv => kv.Key).OrderBy(k => k, StringComparer.Ordinal).ToArray()));
+    }
+
     [Fact]
     public void Kinds_json_has_every_field_for_every_entry()
     {

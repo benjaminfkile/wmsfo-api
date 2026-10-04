@@ -246,19 +246,18 @@ order by id desc limit 1;", conn);
     }
 
     [Fact]
-    public async Task Clone_with_route_and_poster_copies_links()
+    public async Task Clone_with_route_copies_the_route_link()
     {
         var srcId = await CreateEventAsync(year: 2052);
         var routeId = await CreateRouteAsync();
-        var posterId = await CreateReadyRasterMediaAsync();
-        await LinkEventAsync(srcId, routeId: routeId, posterId: posterId);
+        await LinkEventAsync(srcId, routeId: routeId);
 
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
-            $"{{\"year\":2053,\"name\":\"n\",\"copy\":{{\"route\":true,\"poster\":true}}}}");
+            $"{{\"year\":2053,\"name\":\"n\",\"copy\":{{\"route\":true}}}}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
         Assert.Equal(routeId, dto.RootElement.GetProperty("routeId").GetInt64());
-        Assert.Equal(posterId.ToString(), dto.RootElement.GetProperty("routeImageMediaId").GetString());
+        Assert.False(dto.RootElement.TryGetProperty("routeImageMediaId", out _));
     }
 
     [Fact]
@@ -444,30 +443,13 @@ returning id;", conn);
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 
-    private async Task<Guid> CreateReadyRasterMediaAsync()
-    {
-        var id = Guid.NewGuid();
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(@"
-insert into media_asset (id, filename, content_type, kind, state, s3_key, size_bytes, width, height,
-                         sha256, variants, alt, title, uploaded_by, confirmed_at)
-values ($1, 'poster.jpg', 'image/jpeg', 'raster', 'ready',
-        'media/' || $1::text || '/poster.jpg', 100, 100, 100,
-        repeat('a', 64), '{}'::jsonb, '', '', 'seed', now());", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
-        await cmd.ExecuteNonQueryAsync();
-        return id;
-    }
-
-    private async Task LinkEventAsync(long id, long? routeId, Guid? posterId)
+    private async Task LinkEventAsync(long id, long? routeId)
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "update event set route_id = $1, route_image_media_id = $2 where id = $3;", conn);
+            "update event set route_id = $1 where id = $2;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)routeId ?? DBNull.Value });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = (object?)posterId ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await cmd.ExecuteNonQueryAsync();
     }

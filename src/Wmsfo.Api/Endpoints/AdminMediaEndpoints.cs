@@ -633,7 +633,7 @@ where id = $7 and state = 'pending';", conn, tx))
 
     // DELETE /admin/media/{id} - preview impact + apply (clear content JSON
     // refs, cookie_type icons, content_version.media_ids) + delete row (which
-    // triggers FK set null on sponsor.logo_media_id and event.route_image_media_id)
+    // triggers FK set null on sponsor.logo_media_id)
     // + audit + delete the objects. api.md 5b Delete impact and cascades.
     private static void MapDelete(IEndpointRouteBuilder app)
     {

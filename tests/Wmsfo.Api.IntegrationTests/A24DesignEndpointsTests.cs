@@ -9,9 +9,8 @@ using Wmsfo.Api.Data;
 namespace Wmsfo.Api.IntegrationTests;
 
 // A24 acceptance:
-//   - PATCH /admin/events/{id} handles routeImageMediaId with the four outcomes:
-//     404 (media not found), 409 media_not_ready, 400 (svg/gif), 200 (raster/ready)
-//     and null unlinks the field.
+//   - PATCH /admin/events/{id} with routeImageMediaId is 400 (an unknown field
+//     does not bind); the event carries no route image.
 //   - PUT /admin/sponsors/{id}/years/{eventYear} accepts pinnedPosition and
 //     lingerMsOverride, with 409 pinned_position_taken from the partial unique index.
 //   - GET /admin/sponsors/order/{eventYear} returns SponsorOrderRow[] in snapshot
@@ -74,78 +73,29 @@ public sealed class A24DesignEndpointsTests : IClassFixture<PostgresFixture>, IA
         await SnapshotSeed.EnsureAsync(conn);
     }
 
-    // ---------- PATCH /admin/events/{id} routeImageMediaId ----------
+    // ---------- PATCH /admin/events/{id} has no route image ----------
 
     [Fact]
-    public async Task Patch_route_image_unknown_media_is_404()
-    {
-        var eventId = await CreateEventAsync(2027);
-        var missing = Guid.NewGuid();
-        var response = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"" + missing + "\"}");
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Patch_route_image_pending_media_is_409_media_not_ready()
-    {
-        var eventId = await CreateEventAsync(2027);
-        var mediaId = await InsertMediaAsync(state: "pending", kind: "raster");
-        var response = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"" + mediaId + "\"}");
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("media_not_ready", await ReadCodeAsync(response));
-    }
-
-    [Fact]
-    public async Task Patch_route_image_svg_is_400_validation_failed()
-    {
-        var eventId = await CreateEventAsync(2027);
-        var mediaId = await InsertMediaAsync(state: "ready", kind: "svg");
-        var response = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"" + mediaId + "\"}");
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Patch_route_image_gif_is_400_validation_failed()
-    {
-        var eventId = await CreateEventAsync(2027);
-        var mediaId = await InsertMediaAsync(state: "ready", kind: "gif");
-        var response = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"" + mediaId + "\"}");
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Patch_route_image_ready_raster_sets_link_and_returns_asset()
+    public async Task Patch_route_image_media_id_is_400_and_writes_nothing()
     {
         var eventId = await CreateEventAsync(2027);
         var mediaId = await InsertMediaAsync(state: "ready", kind: "raster");
         var response = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
             "{\"routeImageMediaId\":\"" + mediaId + "\"}");
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var dto = await ReadJsonAsync(response);
-        Assert.Equal(mediaId.ToString(), dto.RootElement.GetProperty("routeImageMediaId").GetString());
-        var routeImage = dto.RootElement.GetProperty("routeImage");
-        Assert.Equal("ready", routeImage.GetProperty("state").GetString());
-        Assert.Equal("raster", routeImage.GetProperty("kind").GetString());
-    }
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
-    [Fact]
-    public async Task Patch_route_image_empty_string_unlinks()
-    {
-        var eventId = await CreateEventAsync(2027);
-        var mediaId = await InsertMediaAsync(state: "ready", kind: "raster");
-        await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"" + mediaId + "\"}");
+        // The field is unknown: a body that mixes it with a known field does
+        // not bind and nothing is written.
+        var mixed = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
+            "{\"name\":\"Mixed\",\"routeImageMediaId\":\"\"}");
+        Assert.Equal(HttpStatusCode.BadRequest, mixed.StatusCode);
 
-        var unlink = await SendEventsAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
-            "{\"routeImageMediaId\":\"\"}");
-        Assert.Equal(HttpStatusCode.OK, unlink.StatusCode);
-        var dto = await ReadJsonAsync(unlink);
-        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("routeImageMediaId").ValueKind);
-        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("routeImage").ValueKind);
+        var read = await SendEventsAdminAsync(HttpMethod.Get, $"/admin/events/{eventId}", null);
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        var dto = await ReadJsonAsync(read);
+        Assert.False(dto.RootElement.TryGetProperty("routeImageMediaId", out _));
+        Assert.False(dto.RootElement.TryGetProperty("routeImage", out _));
+        Assert.NotEqual("Mixed", dto.RootElement.GetProperty("name").GetString());
     }
 
     // ---------- PUT /admin/sponsors/{id}/years/{eventYear} pinned/linger ----------

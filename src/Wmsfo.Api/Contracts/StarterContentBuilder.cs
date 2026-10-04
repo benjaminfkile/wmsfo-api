@@ -126,7 +126,7 @@ public static class StarterContentBuilder
         s.Add(Hero(id.Next(), "tall", "{event:name}", "Watch this space for Santa's next flight."));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
-        s.Add(RoutePreview(id.Next(), "image", null));
+        s.Add(RoutePreview(id.Next(), null));
         s.Add(SponsorCarousel(id.Next()));
         s.Add(AlertsSignup(id.Next()));
     }
@@ -137,7 +137,7 @@ public static class StarterContentBuilder
         s.Add(Countdown(id.Next()));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
-        s.Add(RoutePreview(id.Next(), "image", null));
+        s.Add(RoutePreview(id.Next(), null));
         s.Add(SponsorCarousel(id.Next()));
         s.Add(AlertsSignup(id.Next()));
     }
@@ -147,7 +147,7 @@ public static class StarterContentBuilder
         s.Add(Hero(id.Next(), "tall", "Santa's flight is postponed", "A new time will be announced here and by email."));
         s.Add(LatestMessage(id.Next(), "card"));
         s.Add(FundsRing(id.Next()));
-        s.Add(RoutePreview(id.Next(), "image", null));
+        s.Add(RoutePreview(id.Next(), null));
         s.Add(SponsorCarousel(id.Next()));
         s.Add(AlertsSignup(id.Next()));
     }
@@ -194,7 +194,7 @@ public static class StarterContentBuilder
             Block("heading", new JsonObject { ["level"] = 1, ["text"] = "This year's route", ["icon"] = null }),
             Block("paragraph", new JsonObject { ["text"] = "Here is the planned path. Weather may adjust the details on the day." }),
         }));
-        s.Add(RoutePreview(id.Next(), "viewer",
+        s.Add(RoutePreview(id.Next(),
             "The route is a plan, not a promise. Wind, air traffic, and the pilot's judgement change it on the night. Use the live tracker for where Santa actually is."));
     }
 
@@ -273,7 +273,7 @@ public static class StarterContentBuilder
         },
     };
 
-    private static ContentSection RoutePreview(long id, string style, string? disclaimer) => new()
+    private static ContentSection RoutePreview(long id, string? disclaimer) => new()
     {
         Id = id,
         Kind = "route_preview",
@@ -281,7 +281,6 @@ public static class StarterContentBuilder
         Data = new JsonObject
         {
             ["heading"] = "This year's route",
-            ["style"] = style,
             ["disclaimer"] = disclaimer,
             ["emptyText"] = "The route will appear here once it is set.",
         },

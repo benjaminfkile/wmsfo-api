@@ -6,8 +6,8 @@ using Wmsfo.Api.Contracts.Dtos;
 namespace Wmsfo.Api.Endpoints.Impact;
 
 // api.md 5b: a media delete clears every reference. FK cascades handle
-// sponsor.logo_media_id, event.route_image_media_id,
-// media_asset.dark_media_id, and media_asset.small_media_id (set null). Content
+// sponsor.logo_media_id, media_asset.dark_media_id, and
+// media_asset.small_media_id (set null). Content
 // JSON (sections, items, site settings, content_version.media_ids), page icons,
 // and cookie type icons live outside those FKs, so ApplyAsync clears them explicitly.
 public static class MediaImpactQueries
@@ -24,12 +24,6 @@ public static class MediaImpactQueries
             conn, tx, "sponsor", "sponsor", "name", "logo_media_id = $1",
             uuidParams, ct).ConfigureAwait(false);
         if (sponsors is not null) impact.Unlinks.Add(sponsors);
-
-        // event.route_image_media_id
-        var events = await ImpactHelpers.CountAndNamesAsync(
-            conn, tx, "event", "event", "name", "route_image_media_id = $1",
-            uuidParams, ct).ConfigureAwait(false);
-        if (events is not null) impact.Unlinks.Add(events);
 
         // media_asset.dark_media_id and small_media_id: the assets this one is
         // the dark or small version of.
@@ -76,9 +70,8 @@ public static class MediaImpactQueries
 
     // ApplyAsync clears content JSON references (sections, items, site settings,
     // page icons, cookie_type icon), and clears content_version.media_ids entries.
-    // sponsor.logo_media_id, event.route_image_media_id,
-    // media_asset.dark_media_id, and media_asset.small_media_id are handled by
-    // the FK cascades (set null).
+    // sponsor.logo_media_id, media_asset.dark_media_id, and
+    // media_asset.small_media_id are handled by the FK cascades (set null).
     public static async Task ApplyAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, Guid id, CancellationToken ct)
     {
