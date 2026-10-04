@@ -9,10 +9,13 @@ namespace Wmsfo.Api.Email;
 // templates/email/<name>.html and .txt, placed as-is at {{content}} of the
 // shared layout, templates/email/_layout.html and _layout.txt. Composition
 // happens once at boot, and the composed result is validated for the
-// substitutions each template requires. Rendering substitutes {{token}}
-// values: HTML-escaped in the HTML part, raw in the text part. The layout
-// tokens {{subject}}, {{preheader}}, {{logoUrl}}, {{siteName}}, {{siteUrl}},
-// and {{footerReason}} are supplied by Render.
+// substitutions each template requires. The layout slots {{statusPill}}
+// (HTML only) and {{footerLink}} are filled at composition from the spec,
+// as trusted template text; a {{footerLink}} line is dropped when the
+// template has none. Rendering substitutes {{token}} values: HTML-escaped in
+// the HTML part, raw in the text part. The layout tokens {{subject}},
+// {{preheader}}, {{logoUrl}}, {{siteName}}, {{siteUrl}}, and
+// {{footerReason}} are supplied by Render.
 public sealed class EmailTemplates
 {
     private static readonly Regex TokenPattern = new(@"\{\{([a-zA-Z]+)\}\}", RegexOptions.Compiled);
@@ -20,6 +23,11 @@ public sealed class EmailTemplates
     public const string HtmlLayoutFile = "_layout.html";
     public const string TextLayoutFile = "_layout.txt";
     public const string ContentMarker = "{{content}}";
+    public const string StatusPillMarker = "{{statusPill}}";
+    public const string FooterLinkMarker = "{{footerLink}}";
+
+    private static readonly Regex FooterLinkLine =
+        new(@"^[ \t]*\{\{footerLink\}\}\n", RegexOptions.Compiled | RegexOptions.Multiline);
 
     // The layout's {{siteName}} when the values of a render do not carry one.
     public const string DefaultSiteName = "Santa Tracker";
@@ -27,6 +35,13 @@ public sealed class EmailTemplates
     // Footer reasons: why the reader got the email.
     private const string AlertFooterReason =
         "You are receiving this because you signed up for Santa Tracker alerts at this address.";
+
+    // The footer line of every alert, after the reason: the one-click
+    // unsubscribe link.
+    public static readonly FooterLink UnsubscribeFooterLink = new(
+        Html: "                <p style=\"margin:0 0 8px 0;\">To stop receiving these alerts, use the one-click link: "
+            + "<a href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
+        Text: "To stop receiving these alerts, use the one-click link: {{unsubscribeUrl}}");
 
     // The templates the outbox chore fires (contracts 7.8). Alert templates
     // are keyed by status id via TemplateForStatus.
@@ -47,7 +62,9 @@ public sealed class EmailTemplates
     // admin's custom text when supplied on the status change or announce,
     // otherwise the template's stock paragraph. The preheader is the hidden
     // line inbox previews show; it and the footer reason are substituted
-    // like the subject before they reach the layout.
+    // like the subject before they reach the layout. Pill is the status pill
+    // of the header band (none on contact_received); Link is the footer line
+    // after the reason (the unsubscribe link on alerts).
     public static readonly IReadOnlyDictionary<string, TemplateSpec> Specs =
         new Dictionary<string, TemplateSpec>(StringComparer.Ordinal)
         {
@@ -55,42 +72,57 @@ public sealed class EmailTemplates
                 RequiredTokens: ImmutableArray.Create("verifyUrl", "siteUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "One click confirms this address and turns on your Santa Tracker alerts.",
-                FooterReason: "You are receiving this because someone asked for Santa Tracker alerts at this address."),
+                FooterReason: "You are receiving this because someone asked for Santa Tracker alerts at this address.",
+                Pill: new("Confirm", "#e6f0fa", "#0b6bb5")),
             [EventPlanned] = new("Santa's flight is on the calendar",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's next flight is on the calendar, and the time will follow.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Planned", "#e6f0fa", "#0b6bb5"),
+                Link: UnsubscribeFooterLink),
             [EventScheduled] = new("Santa's flight is scheduled",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight has a lift-off time.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Scheduled", "#e6f0fa", "#0b6bb5"),
+                Link: UnsubscribeFooterLink),
             [EventLive] = new("Santa just lifted off",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa is in the air right now, so open the tracker and follow the flight.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Live now", "#e3f6ec", "#1f7f4f"),
+                Link: UnsubscribeFooterLink),
             [EventEnded] = new("Santa has landed",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight is over, and thanks for flying along.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Landed", "#edf1f7", "#5a6885"),
+                Link: UnsubscribeFooterLink),
             [EventCancelled] = new("Santa's flight has been cancelled",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight will not go ahead as planned.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Cancelled", "#fbe7e5", "#c2362c"),
+                Link: UnsubscribeFooterLink),
             [EventPostponed] = new("Santa's flight is postponed",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight is postponed, and a new time will follow.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Postponed", "#f8efd9", "#8a6210"),
+                Link: UnsubscribeFooterLink),
             [EventMessage] = new("Santa update: {{messagePreview}}",
                 RequiredTokens: ImmutableArray.Create("eventName", "messageBody", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray.Create("messagePreview"),
                 Preheader: "A new update from {{eventName}}.",
-                FooterReason: AlertFooterReason),
+                FooterReason: AlertFooterReason,
+                Pill: new("Update", "#e6f0fa", "#0b6bb5"),
+                Link: UnsubscribeFooterLink),
             [ContactReceived] = new("Contact form: {{contactName}}",
                 RequiredTokens: ImmutableArray.Create("contactName", "contactEmail", "contactMessage"),
                 SubjectTokens: ImmutableArray.Create("contactName"),
@@ -171,8 +203,11 @@ public sealed class EmailTemplates
             if (!File.Exists(textPath))
                 throw new InvalidOperationException($"Missing email template: {textPath}");
 
-            var htmlBody = Compose(htmlLayout, File.ReadAllText(htmlPath));
-            var textBody = Compose(textLayout, File.ReadAllText(textPath));
+            var htmlFrame = FillSlot(htmlLayout.Replace(StatusPillMarker, spec.Pill?.Html ?? "", StringComparison.Ordinal),
+                spec.Link?.Html ?? "");
+            var textFrame = FillSlot(textLayout, spec.Link?.Text ?? "");
+            var htmlBody = Compose(htmlFrame, File.ReadAllText(htmlPath));
+            var textBody = Compose(textFrame, File.ReadAllText(textPath));
 
             foreach (var required in spec.RequiredTokens)
             {
@@ -198,6 +233,13 @@ public sealed class EmailTemplates
             throw new InvalidOperationException($"Email layout {fileName} missing {ContentMarker}.");
         return layout;
     }
+
+    // The footer link goes in at {{footerLink}} as-is; an empty one drops
+    // the whole line of the marker.
+    private static string FillSlot(string layout, string footerLink) =>
+        footerLink.Length == 0
+            ? FooterLinkLine.Replace(layout, "")
+            : layout.Replace(FooterLinkMarker, footerLink, StringComparison.Ordinal);
 
     // The fragment goes in at {{content}} as-is (trusted template text); a
     // trailing newline of the fragment file is dropped so the layout decides
@@ -283,7 +325,24 @@ public sealed class EmailTemplates
         ImmutableArray<string> RequiredTokens,
         ImmutableArray<string> SubjectTokens,
         string Preheader,
-        string FooterReason);
+        string FooterReason,
+        StatusPill? Pill = null,
+        FooterLink? Link = null);
+
+    // The header band's pill: the label on its background, in its colour.
+    public sealed record StatusPill(string Label, string Background, string Color)
+    {
+        public const string Style =
+            "display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;"
+            + "text-transform:uppercase;padding:3px 10px;border-radius:999px;";
+
+        public string Html =>
+            $"<span style=\"{Style}background-color:{Background};color:{Color};\">{WebUtility.HtmlEncode(Label)}</span>";
+    }
+
+    // A footer line after the reason, in each part's markup; its {{tokens}}
+    // are substituted like the body's.
+    public sealed record FooterLink(string Html, string Text);
 
     public sealed record LoadedTemplate(string Subject, string Preheader, string FooterReason, string Html, string Text);
 

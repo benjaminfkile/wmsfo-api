@@ -1,6 +1,8 @@
 // The email renderer, with the rules of src/Wmsfo.Api/Email/EmailTemplates.cs:
 // a body fragment is placed as-is at {{content}} of the shared layout (one
-// trailing newline of the fragment dropped), and every {{token}} is replaced
+// trailing newline of the fragment dropped), the status pill and the footer
+// link fill {{statusPill}} and {{footerLink}} (an empty footer link drops the
+// line of its marker), and every {{token}} is replaced
 // by its value, HTML-escaped in HTML bodies and raw in text bodies. A token
 // without a value is an error.
 import { createHash } from "node:crypto";
@@ -8,6 +10,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const CONTENT_MARKER = "{{content}}";
+export const STATUS_PILL_MARKER = "{{statusPill}}";
+export const FOOTER_LINK_MARKER = "{{footerLink}}";
+const FOOTER_LINK_LINE = /^[ \t]*\{\{footerLink\}\}\n/gm;
+const STATUS_PILL_STYLE =
+  "display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;" +
+  "text-transform:uppercase;padding:3px 10px;border-radius:999px;";
 // The layout's {{siteName}} when neither `layout` nor `values` carries one.
 export const DEFAULT_SITE_NAME = "Santa Tracker";
 const TOKEN_PATTERN = /\{\{([a-zA-Z]+)\}\}/g;
@@ -49,11 +57,21 @@ export function substitute(body, values, { htmlEscape }) {
   });
 }
 
-// The layout with the fragment at {{content}}.
-export function compose(layout, fragment) {
+// The header band's pill markup for { label, background, color }.
+export function statusPillHtml({ label, background, color }) {
+  return `<span style="${STATUS_PILL_STYLE}background-color:${background};color:${color};">${htmlEncode(label)}</span>`;
+}
+
+// The layout with the fragment at {{content}}, `statusPill` markup at
+// {{statusPill}}, and `footerLink` at {{footerLink}}; both default to none.
+export function compose(layout, fragment, { statusPill = "", footerLink = "" } = {}) {
   if (!layout.includes(CONTENT_MARKER)) throw new Error(`Email layout missing ${CONTENT_MARKER}.`);
   const body = fragment.endsWith("\n") ? fragment.slice(0, -1) : fragment;
-  return layout.split(CONTENT_MARKER).join(body);
+  const frame = (footerLink === ""
+    ? layout.replace(FOOTER_LINK_LINE, "")
+    : layout.split(FOOTER_LINK_MARKER).join(footerLink)
+  ).split(STATUS_PILL_MARKER).join(statusPill);
+  return frame.split(CONTENT_MARKER).join(body);
 }
 
 // <cdnBaseUrl>/email/<sha256 of logo.png>.png, the layout's {{logoUrl}}.

@@ -4,6 +4,3 @@ Santa's flight is postponed
 
 Details at:
 {{siteUrl}}
-
-To stop receiving these alerts, use the one-click link:
-{{unsubscribeUrl}}
