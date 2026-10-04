@@ -2,6 +2,8 @@
   "cdnBaseUrl": "https://cdn.example.com",
   "siteUrl": "https://site.example.com",
   "logoUrl": "https://cdn.example.com/email/828cc234d64e75173a23214338bf974497c8ccfaca6c2f71d9733ca98106353b.png",
+  "ornamentsUrl": "https://cdn.example.com/email/6013bc9fa1b9aaa6c0a1e7543cbb901f5740cd00c44d4bd77471fa0c34d88294.png",
+  "lightsUrl": "https://cdn.example.com/email/ba0950e87e9043507eb050a1614e3d48ba5c6c246e3411fee76c82ff0abfcdc1.png",
   "renders": {
     "subscription_verify": {
       "subject": "Confirm your Santa tracker alerts",

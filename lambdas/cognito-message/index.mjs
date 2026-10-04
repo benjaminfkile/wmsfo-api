@@ -6,7 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compose, logoUrl, render } from "./render.mjs";
+import { compose, decorationUrls, logoUrl, render } from "./render.mjs";
 
 // Cognito rejects a custom message longer than this.
 export const MAX_MESSAGE_LENGTH = 20000;
@@ -76,6 +76,7 @@ export function createHandler({
     layout = {
       html: readFileSync(join(templatesDir, "_layout.html"), "utf8"),
       logoUrl: logoUrl(templatesDir, cdnBaseUrl),
+      ...decorationUrls(templatesDir, cdnBaseUrl),
       siteUrl: siteBaseUrl,
     };
   } catch (err) {
