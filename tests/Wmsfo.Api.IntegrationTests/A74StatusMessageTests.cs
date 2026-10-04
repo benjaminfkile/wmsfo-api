@@ -87,7 +87,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
         // The event_message row: trimmed body, no event time, created by the actor.
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(Text, message.Body);
-        Assert.Null(message.EventTime);
+        Assert.False(message.Notify);
         Assert.Equal(DevStaticTokens.AdminEmail, message.CreatedBy);
 
         // The history row references it, and the DTO carries the body and id.
@@ -167,7 +167,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
         var stock = EmailTemplates.StockParagraph(2, "Event 2103", Scheduled);
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(stock, message.Body);
-        Assert.Null(message.EventTime);
+        Assert.False(message.Notify);
         Assert.Equal(DevStaticTokens.AdminEmail, message.CreatedBy);
         var history = await ReadNewestHistoryAsync(id);
         Assert.Equal(stock, history.GetProperty("message").GetString());
@@ -200,7 +200,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
 
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(Text, message.Body);
-        Assert.Null(message.EventTime);
+        Assert.False(message.Notify);
         Assert.Equal(DevStaticTokens.AdminEmail, message.CreatedBy);
 
         var history = await ReadNewestHistoryAsync(id);
@@ -303,7 +303,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
 
     // ---------- helpers ----------
 
-    private sealed record MessageRow(long Id, string Body, DateTimeOffset? EventTime, string CreatedBy);
+    private sealed record MessageRow(long Id, string Body, bool Notify, string CreatedBy);
 
     private async Task<HttpResponseMessage> SendAdminAsync(HttpMethod method, string path, string body)
     {
@@ -371,7 +371,7 @@ values ($1, 'email', $2, $3, now());", conn);
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "select id, body, event_time, created_by from event_message where event_id = $1 order by id;", conn);
+            "select id, body, notify, created_by from event_message where event_id = $1 order by id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         await using var reader = await cmd.ExecuteReaderAsync();
         var rows = new List<MessageRow>();
@@ -380,7 +380,7 @@ values ($1, 'email', $2, $3, now());", conn);
             rows.Add(new MessageRow(
                 reader.GetInt64(0),
                 reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetBoolean(2),
                 reader.GetString(3)));
         }
         return rows;
@@ -497,17 +497,16 @@ select id, 2, 2, 'admin@wmsfo.test', true, null from event where year = 2111;");
         await migrator.MigrateAsync();
 
         await using (var cmd = new NpgsqlCommand(@"
-select m.event_id = h.event_id, m.body, m.event_time, m.created_by, m.created_at, m.updated_at, h.changed_at
+select m.event_id = h.event_id, m.body, m.created_by, m.created_at, m.updated_at, h.changed_at
 from event_status_history h join event_message m on m.id = h.message_id;", conn))
         await using (var reader = await cmd.ExecuteReaderAsync())
         {
             Assert.True(await reader.ReadAsync());
             Assert.True(reader.GetBoolean(0));
             Assert.Equal("Old text", reader.GetString(1));
-            Assert.True(reader.IsDBNull(2));
-            Assert.Equal("admin@wmsfo.test", reader.GetString(3));
-            Assert.Equal(reader.GetFieldValue<DateTimeOffset>(6), reader.GetFieldValue<DateTimeOffset>(4));
-            Assert.Equal(reader.GetFieldValue<DateTimeOffset>(6), reader.GetFieldValue<DateTimeOffset>(5));
+            Assert.Equal("admin@wmsfo.test", reader.GetString(2));
+            Assert.Equal(reader.GetFieldValue<DateTimeOffset>(5), reader.GetFieldValue<DateTimeOffset>(3));
+            Assert.Equal(reader.GetFieldValue<DateTimeOffset>(5), reader.GetFieldValue<DateTimeOffset>(4));
             Assert.False(await reader.ReadAsync());
         }
         Assert.Equal(1L, Convert.ToInt64(await ScalarAsync(conn, "select count(*) from event_message;")));

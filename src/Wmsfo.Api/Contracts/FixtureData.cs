@@ -176,7 +176,6 @@ public static class FixtureData
                 {
                     Id = 12,
                     Body = "Santa is airborne over the valley.",
-                    EventTime = DateTimeOffset.Parse("2026-12-22T01:02:00.000Z"),
                     CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
                 },
             },

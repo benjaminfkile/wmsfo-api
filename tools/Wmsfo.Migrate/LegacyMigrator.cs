@@ -503,7 +503,8 @@ returning id;",
         step.Considered = legacyRows.Count;
         foreach (var row in legacyRows)
         {
-            var routeTs = row.EventTimeUtc ?? row.CreatedAtUtc;
+            // `time` only picks the event; the message keeps created_at.
+            var routeTs = row.TimeUtc ?? row.CreatedAtUtc;
             var denverYear = TimeZoneInfo.ConvertTimeFromUtc(routeTs, _denverTz).Year;
             var eventId = await ScalarLongAsync(target,
                 "select id from event where year = $1;", (NpgsqlDbType.Integer, denverYear));
@@ -526,16 +527,13 @@ returning id;",
                 continue;
             }
             await ExecAsync(target, @"
-insert into event_message (id, event_id, body, event_time, created_by, created_at, updated_at)
+insert into event_message (id, event_id, body, created_by, created_at, updated_at)
 overriding system value
-values ($1, $2, $3, $4, $5, $6, $6)
+values ($1, $2, $3, $4, $5, $5)
 on conflict on constraint event_message_pkey do nothing;",
                 (NpgsqlDbType.Bigint, (long)row.Id),
                 (NpgsqlDbType.Bigint, eventId.Value),
                 (NpgsqlDbType.Text, row.Message),
-                row.EventTimeUtc is null
-                    ? (NpgsqlDbType.TimestampTz, (object)DBNull.Value)
-                    : (NpgsqlDbType.TimestampTz, (object)row.EventTimeUtc.Value),
                 (NpgsqlDbType.Text, MigrationActor),
                 (NpgsqlDbType.TimestampTz, (object)row.CreatedAtUtc));
             step.Inserted++;
@@ -803,7 +801,7 @@ from sponsor_years order by id;", legacy);
             list.Add(new LegacyEventUpdate(
                 Id: reader.GetInt32(0),
                 Message: reader.GetString(1),
-                EventTimeUtc: reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTime>(2).ToUniversalTime(),
+                TimeUtc: reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTime>(2).ToUniversalTime(),
                 CreatedAtUtc: reader.GetFieldValue<DateTime>(3).ToUniversalTime()));
         }
         return list;
@@ -926,7 +924,7 @@ internal sealed record LegacySponsorYear(
 internal sealed record LegacyFlightPoint(int Id, int Seq, long TimeMs, double Lat, double Lng);
 
 internal sealed record LegacyEventUpdate(
-    int Id, string Message, DateTime? EventTimeUtc, DateTime CreatedAtUtc);
+    int Id, string Message, DateTime? TimeUtc, DateTime CreatedAtUtc);
 
 internal sealed record LegacyFunds(string? Percent, string? Created);
 

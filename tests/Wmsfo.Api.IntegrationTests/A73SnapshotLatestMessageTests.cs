@@ -22,7 +22,7 @@ namespace Wmsfo.Api.IntegrationTests;
 //     rejects an event object carrying messages.
 public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
-    private static readonly string[] MessageKeys = { "id", "body", "eventTime", "createdAt" };
+    private static readonly string[] MessageKeys = { "id", "body", "createdAt" };
     private static readonly DateTimeOffset BaseTime = DateTimeOffset.Parse("2032-12-22T00:00:00Z");
 
     private readonly PostgresFixture _fixture;
@@ -69,9 +69,9 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
     public async Task Three_messages_give_the_newest_by_created_at_then_id_and_no_messages_key()
     {
         var eventId = await CreateEventAsync(2032);
-        await InsertMessageAsync(eventId, "Oldest", BaseTime, eventTime: null);
-        await InsertMessageAsync(eventId, "Tied lower id", BaseTime.AddMinutes(20), eventTime: null);
-        var newest = await InsertMessageAsync(eventId, "Tied higher id", BaseTime.AddMinutes(20), eventTime: BaseTime.AddMinutes(19));
+        await InsertMessageAsync(eventId, "Oldest", BaseTime);
+        await InsertMessageAsync(eventId, "Tied lower id", BaseTime.AddMinutes(20));
+        var newest = await InsertMessageAsync(eventId, "Tied higher id", BaseTime.AddMinutes(20));
 
         using var doc = await ReadSnapshotAsync();
         var ev = doc.RootElement.GetProperty("event");
@@ -81,7 +81,6 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
         Assert.Equal(MessageKeys, latest.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(newest, latest.GetProperty("id").GetInt64());
         Assert.Equal("Tied higher id", latest.GetProperty("body").GetString());
-        Assert.Equal(BaseTime.AddMinutes(19), latest.GetProperty("eventTime").GetDateTimeOffset());
         Assert.Equal(BaseTime.AddMinutes(20), latest.GetProperty("createdAt").GetDateTimeOffset());
     }
 
@@ -101,10 +100,10 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
     {
         var eventId = await CreateEventAsync(2036);
         // Created before now(), so the posted message is newer.
-        var older = await InsertMessageAsync(eventId, "Older", DateTimeOffset.UtcNow.AddDays(-1), eventTime: null);
+        var older = await InsertMessageAsync(eventId, "Older", DateTimeOffset.UtcNow.AddDays(-1));
 
         var post = await SendAsync(HttpMethod.Post, $"/admin/events/{eventId}/messages",
-            "{\"body\":\"Posted\",\"eventTime\":null,\"notify\":false}", DevStaticTokens.AdminToken);
+            "{\"body\":\"Posted\",\"notify\":false}", DevStaticTokens.AdminToken);
         Assert.Equal(HttpStatusCode.Created, post.StatusCode);
         long posted;
         using (var created = JsonDocument.Parse(await post.Content.ReadAsStringAsync()))
@@ -139,7 +138,7 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
     public async Task Schema_validates_the_fixture_and_a_built_snapshot_and_rejects_messages_on_event()
     {
         var eventId = await CreateEventAsync(2037);
-        await InsertMessageAsync(eventId, "One", BaseTime, eventTime: BaseTime);
+        await InsertMessageAsync(eventId, "One", BaseTime);
 
         var schemaText = File.ReadAllText(Path.Combine(TestPaths.ContractsDir, "schema", "snapshot.schema.json"));
         var schema = JsonSchema.FromText(schemaText);
@@ -200,16 +199,15 @@ values ($1, $2, 1, true, 'seed', now()) returning id;", conn);
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 
-    private async Task<long> InsertMessageAsync(long eventId, string body, DateTimeOffset createdAt, DateTimeOffset? eventTime)
+    private async Task<long> InsertMessageAsync(long eventId, string body, DateTimeOffset createdAt)
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(@"
-insert into event_message (event_id, body, event_time, created_by, created_at, updated_at)
-values ($1, $2, $3, 'seed', $4, $4) returning id;", conn);
+insert into event_message (event_id, body, created_by, created_at, updated_at)
+values ($1, $2, 'seed', $3, $3) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)eventTime?.UtcDateTime ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = createdAt.UtcDateTime });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }

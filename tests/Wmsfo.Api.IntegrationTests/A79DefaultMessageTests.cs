@@ -77,7 +77,7 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
         var stock = EmailTemplates.StockParagraph(2, "Event 2201", Scheduled);
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(stock, message.Body);
-        Assert.Null(message.EventTime);
+        Assert.False(message.Notify);
         Assert.Equal(DevStaticTokens.AdminEmail, message.CreatedBy);
 
         var history = await ReadNewestHistoryAsync(id);
@@ -171,7 +171,7 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
 
     // ---------- helpers ----------
 
-    private sealed record MessageRow(long Id, string Body, DateTimeOffset? EventTime, string CreatedBy);
+    private sealed record MessageRow(long Id, string Body, bool Notify, string CreatedBy);
 
     private async Task<HttpResponseMessage> SendAdminAsync(HttpMethod method, string path, string body)
     {
@@ -239,7 +239,7 @@ values ($1, 'email', $2, $3, now());", conn);
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
-            "select id, body, event_time, created_by from event_message where event_id = $1 order by id;", conn);
+            "select id, body, notify, created_by from event_message where event_id = $1 order by id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         await using var reader = await cmd.ExecuteReaderAsync();
         var rows = new List<MessageRow>();
@@ -248,7 +248,7 @@ values ($1, 'email', $2, $3, now());", conn);
             rows.Add(new MessageRow(
                 reader.GetInt64(0),
                 reader.GetString(1),
-                reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetBoolean(2),
                 reader.GetString(3)));
         }
         return rows;

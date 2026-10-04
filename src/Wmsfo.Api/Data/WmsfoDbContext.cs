@@ -193,13 +193,19 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.EventId).HasColumnType("bigint").IsRequired();
             e.Property(x => x.Body).HasColumnType("text").IsRequired();
-            e.Property(x => x.EventTime).HasColumnType("timestamptz")
-                .HasComment("The time the message is about, as entered by the admin. Display only.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.Notify).HasColumnType("boolean").IsRequired().HasDefaultValue(false)
+                .HasComment("The admin asked for subscribers to be emailed when the message was posted from the message form. False for the messages a status change or an announcement writes; their emails are counted on the history row.");
+            e.Property(x => x.OutboxId).HasColumnType("bigint")
+                .HasComment("The event.message_posted outbox row while it exists (set null when the row is cleaned up).");
+            e.Property(x => x.SentCount).HasColumnType("integer").IsRequired().HasDefaultValue(0)
+                .HasComment("Alert emails sent for this message, incremented by the alert-send chore per successful send; survives the outbox row.");
             e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
                 .HasConstraintName("event_message_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Outbox>().WithMany().HasForeignKey(x => x.OutboxId)
+                .HasConstraintName("event_message_outbox_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => new { x.EventId, x.CreatedAt })
                 .HasDatabaseName("event_message_event_created")
                 .IsDescending(false, true);

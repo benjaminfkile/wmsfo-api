@@ -88,10 +88,10 @@ public sealed class AlertSender
                 var message = WithBrand(BuildMessage(row), brand);
                 var messageId = await _sender.SendAsync(message, ct).ConfigureAwait(false);
                 await MarkSuccessAsync(row.Id, messageId, conn, ct).ConfigureAwait(false);
-                // sql.md 9.3: bump event_status_history.sent_count for alert
-                // topics; a message_posted row has no history link and is a
-                // no-op for the update.
-                await BumpHistorySentCountAsync(row.OutboxId, conn, ct).ConfigureAwait(false);
+                // sql.md 9.3: bump sent_count on the row that owns the outbox
+                // row: a history row for a status alert, a message row for
+                // event.message_posted.
+                await BumpSentCountAsync(row.OutboxId, conn, ct).ConfigureAwait(false);
                 sent++;
             }
             catch (Exception ex)
@@ -110,12 +110,20 @@ public sealed class AlertSender
         return sent;
     }
 
-    private static async Task BumpHistorySentCountAsync(long outboxId, NpgsqlConnection conn, CancellationToken ct)
+    // At most one of the two updates matches: an outbox row belongs to one
+    // history row or one message row.
+    private static async Task BumpSentCountAsync(long outboxId, NpgsqlConnection conn, CancellationToken ct)
     {
-        await using var cmd = new NpgsqlCommand(
-            "update event_status_history set sent_count = sent_count + 1 where outbox_id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        foreach (var sql in new[]
+        {
+            "update event_status_history set sent_count = sent_count + 1 where outbox_id = $1;",
+            "update event_message set sent_count = sent_count + 1 where outbox_id = $1;",
+        })
+        {
+            await using var cmd = new NpgsqlCommand(sql, conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = outboxId });
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
     }
 
     // The message with the layout's logoUrl and siteName set from `brand`;

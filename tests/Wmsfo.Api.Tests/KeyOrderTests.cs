@@ -48,7 +48,7 @@ public class KeyOrderTests
         var expectedRouteMapConfig = new[] { "display", "controls", "landmarks", "pois" };
         var expectedRouteMapDisplay = new[] { "timeLabelIntervalMinutes", "routeWidth" };
         var expectedLandmark = new[] { "name", "lat", "lng", "icon", "description" };
-        var expectedLatestMessage = new[] { "id", "body", "eventTime", "createdAt" };
+        var expectedLatestMessage = new[] { "id", "body", "createdAt" };
         var expectedSponsor = new[]
         {
             "id", "name", "websiteUrl", "fbUrl", "igUrl", "logoMediaId",

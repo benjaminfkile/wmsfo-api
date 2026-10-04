@@ -820,13 +820,14 @@ update event set status_notified_at = case when $1 then now() else null end wher
     }
 
     // Inserts the event_message row a status change or an announcement
-    // carries (event_time null, created_by the actor) and returns its id.
+    // carries (created_by the actor, notify false: the history row owns the
+    // alert) and returns its id.
     private static async Task<long> InsertStatusMessageAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, long eventId, string body, string actor, CancellationToken ct)
     {
         await using var ins = new NpgsqlCommand(@"
-insert into event_message (event_id, body, event_time, created_by)
-values ($1, $2, null, $3) returning id;", conn, tx);
+insert into event_message (event_id, body, created_by)
+values ($1, $2, $3) returning id;", conn, tx);
         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body });
         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = actor });
@@ -1087,7 +1088,7 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
                 await conn.OpenAsync(ct);
                 var items = new List<EventMessageDto>();
                 await using var cmd = new NpgsqlCommand(@"
-select em.id, em.event_id, em.body, em.event_time, em.created_by, em.created_at, em.updated_at,
+select em.id, em.event_id, em.body, em.created_by, em.created_at, em.updated_at, em.notify, em.sent_count,
        a.action, a.actor, a.at
 from event_message em
 left join lateral (
@@ -1110,7 +1111,8 @@ order by em.created_at desc, em.id desc;", conn);
     }
 
     // POST /admin/events/{id}/messages [snapshot]. body 1..1000; notify required;
-    // outbox row only when notify is true.
+    // any other field is 400. With notify true the outbox row is written and
+    // the message carries notify true and its outbox_id, in one transaction.
     private static void MapCreateMessage(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/messages",
@@ -1134,14 +1136,14 @@ order by em.created_at desc, em.id desc;", conn);
                     long msgId;
                     EventMessageDto stored;
                     await using (var ins = new NpgsqlCommand(@"
-insert into event_message (event_id, body, event_time, created_by)
+insert into event_message (event_id, body, created_by, notify)
 values ($1, $2, $3, $4)
-returning id, event_id, body, event_time, created_by, created_at, updated_at;", conn, tx))
+returning " + MessageColumns + ";", conn, tx))
                     {
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Body.Trim() });
-                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)body.EventTime?.ToUniversalTime() ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = body.Notify });
                         await using var reader = await ins.ExecuteReaderAsync(token);
                         await reader.ReadAsync(token);
                         stored = ReadMessage(reader);
@@ -1151,8 +1153,12 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;", 
                     {
                         var payload = JsonSerializer.Serialize(new { eventId = id, messageId = msgId });
                         await using var outbox = new NpgsqlCommand(@"
-insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);", conn, tx);
+with o as (
+  insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb) returning id
+)
+update event_message set outbox_id = (select id from o) where id = $2;", conn, tx);
                         outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
+                        outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = msgId });
                         await outbox.ExecuteNonQueryAsync(token);
                     }
                     var stamp = await audit.RecordAsync(conn, tx, "create", "event_message",
@@ -1189,7 +1195,7 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
                 {
                     EventMessageDto? before = null;
                     await using (var read = new NpgsqlCommand(
-                        "select id, event_id, body, event_time, created_by, created_at, updated_at from event_message where event_id = $1 and id = $2 for update;", conn, tx))
+                        "select " + MessageColumns + " from event_message where event_id = $1 and id = $2 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
@@ -1206,18 +1212,13 @@ insert into outbox (topic, payload) values ('event.message_posted', $1::jsonb);"
                         sets.Add($"body = ${next++}");
                         parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Body.Trim() });
                     }
-                    if (body.EventTime is not null)
-                    {
-                        sets.Add($"event_time = ${next++}");
-                        parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = body.EventTime.Value.ToUniversalTime() });
-                    }
                     sets.Add("updated_at = now()");
                     var eventIdIdx = next++;
                     var msgIdIdx = next;
                     var sql = @"
 update event_message set " + string.Join(", ", sets) + @"
 where event_id = $" + eventIdIdx + " and id = $" + msgIdIdx + @"
-returning id, event_id, body, event_time, created_by, created_at, updated_at;";
+returning " + MessageColumns + ";";
                     EventMessageDto after;
                     await using (var upd = new NpgsqlCommand(sql, conn, tx))
                     {
@@ -1258,7 +1259,7 @@ returning id, event_id, body, event_time, created_by, created_at, updated_at;";
                 {
                     EventMessageDto? before = null;
                     await using (var read = new NpgsqlCommand(
-                        "select id, event_id, body, event_time, created_by, created_at, updated_at from event_message where event_id = $1 and id = $2 for update;", conn, tx))
+                        "select " + MessageColumns + " from event_message where event_id = $1 and id = $2 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
@@ -1847,6 +1848,10 @@ left join lateral (
         return dto;
     }
 
+    // The event_message columns ReadMessage reads, in its order.
+    private const string MessageColumns =
+        "id, event_id, body, created_by, created_at, updated_at, notify, sent_count";
+
     private static EventMessageDto ReadMessage(NpgsqlDataReader reader)
     {
         var dto = new EventMessageDto
@@ -1854,20 +1859,21 @@ left join lateral (
             Id = reader.GetInt64(0),
             EventId = reader.GetInt64(1),
             Body = reader.GetString(2),
-            EventTime = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-            CreatedBy = reader.GetString(4),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
+            CreatedBy = reader.GetString(3),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(4),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+            Notify = reader.GetBoolean(6),
+            SentCount = reader.GetInt32(7),
         };
         // Optional audit columns follow when the caller's select includes them
-        // (list and single-row reads via ReadMessageWithAudit).
-        if (reader.FieldCount > 7 && !reader.IsDBNull(7))
+        // (the list read).
+        if (reader.FieldCount > 8 && !reader.IsDBNull(8))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(7),
-                By = reader.GetString(8),
-                At = reader.GetFieldValue<DateTimeOffset>(9),
+                Action = reader.GetString(8),
+                By = reader.GetString(9),
+                At = reader.GetFieldValue<DateTimeOffset>(10),
             };
         }
         return dto;

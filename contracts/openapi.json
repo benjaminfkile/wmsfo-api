@@ -4506,17 +4506,11 @@
           "body": {
             "type": "string"
           },
-          "eventTime": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
           "notify": {
             "type": "boolean"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreateEventRequest": {
         "type": "object",
@@ -5088,13 +5082,6 @@
           "body": {
             "type": "string"
           },
-          "eventTime": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
-          },
           "createdBy": {
             "type": "string"
           },
@@ -5105,6 +5092,17 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "sentCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "audit": {
             "oneOf": [
@@ -6969,15 +6967,9 @@
               "null",
               "string"
             ]
-          },
-          "eventTime": {
-            "type": [
-              "null",
-              "string"
-            ],
-            "format": "date-time"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "PatchEventRequest": {
         "type": "object",

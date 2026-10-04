@@ -166,8 +166,7 @@ public sealed class SnapshotLatestMessage
 {
     [JsonPropertyOrder(0)] public long Id { get; set; }
     [JsonPropertyOrder(1)] public string Body { get; set; } = "";
-    [JsonPropertyOrder(2)] public DateTimeOffset? EventTime { get; set; }
-    [JsonPropertyOrder(3)] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyOrder(2)] public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class SnapshotSponsor

@@ -144,14 +144,18 @@ on conflict (key) do update
       updated_at = now();";
 
     public const string EventMessageInsert = @"
-insert into event_message (event_id, body, event_time, created_by)
-values (@event_id, @body, @event_time, @admin_email)
-returning id, event_id, body, event_time, created_by, created_at, updated_at;";
+insert into event_message (event_id, body, created_by, notify)
+values (@event_id, @body, @admin_email, @notify)
+returning id, event_id, body, created_by, created_at, updated_at, notify, sent_count;";
 
     public const string OutboxInsertMessagePosted = @"
-insert into outbox (topic, payload)
-values ('event.message_posted',
-        jsonb_build_object('eventId', @event_id, 'messageId', @message_id));";
+with o as (
+  insert into outbox (topic, payload)
+  values ('event.message_posted',
+          jsonb_build_object('eventId', @event_id, 'messageId', @message_id))
+  returning id
+)
+update event_message set outbox_id = (select id from o) where id = @message_id;";
 
     // 8.6 Set current event.
     public const string EventCurrentPeek = @"
