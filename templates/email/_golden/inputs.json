@@ -12,7 +12,8 @@
       "statusPill": {
         "label": "Confirm",
         "background": "#e6f0fa",
-        "color": "#0b6bb5"
+        "color": "#0b6bb5",
+        "tone": "pillAccent"
       },
       "values": {
         "verifyUrl": "https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -26,10 +27,11 @@
       "statusPill": {
         "label": "Live now",
         "background": "#e3f6ec",
-        "color": "#1f7f4f"
+        "color": "#1f7f4f",
+        "tone": "pillOk"
       },
       "footerLink": {
-        "html": "                <p style=\"margin:0 0 8px 0;\">To stop receiving these alerts, use the one-click link: <a href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
+        "html": "                <p style=\"margin:0 0 8px 0;\">To stop receiving these alerts, use the one-click link: <a class=\"link\" href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
         "txt": "To stop receiving these alerts, use the one-click link: {{unsubscribeUrl}}"
       },
       "values": {

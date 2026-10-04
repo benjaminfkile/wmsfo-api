@@ -266,7 +266,7 @@ public sealed class EmailTemplatesTests
         Assert.Contains("<title>" + System.Net.WebUtility.HtmlEncode(rendered.Subject) + "</title>", rendered.Html);
         Assert.Contains("href=\"" + SiteBase + "\"", rendered.Html);
         Assert.Equal(1, CountOf(rendered.Html, "<style"));
-        Assert.Contains(":root { color-scheme: light only; }", rendered.Html);
+        Assert.Contains(":root { color-scheme: light dark; }", rendered.Html);
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(rendered.Html) < 100 * 1024, "under 100 KB");
         Assert.DoesNotContain("<script", rendered.Html);
         Assert.DoesNotContain("{{", rendered.Html);
@@ -306,7 +306,7 @@ public sealed class EmailTemplatesTests
         Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"64\"", rendered.Html);
         Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
         Assert.Contains("alt=\"North Pole &amp; Co\"", rendered.Html);
-        Assert.Contains("color:#0f1a30 !important;\">North Pole &amp; Co</td>", rendered.Html);
+        Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</td>", rendered.Html);
         Assert.Equal(3, CountOf(rendered.Html, "<img "));
         Assert.StartsWith("North Pole & Co\n", rendered.Text);
     }
@@ -317,7 +317,7 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var rendered = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive));
 
-        Assert.Contains("color:#0f1a30 !important;\">Santa Tracker</td>", rendered.Html);
+        Assert.Contains("color:#0f1a30;\">Santa Tracker</td>", rendered.Html);
         Assert.StartsWith("Santa Tracker\n", rendered.Text);
     }
 
@@ -381,7 +381,8 @@ public sealed class EmailTemplatesTests
         var spec = EmailTemplates.Specs[name];
         Assert.Equal(render.TryGetProperty("statusPill", out var pill)
                 ? new EmailTemplates.StatusPill(pill.GetProperty("label").GetString()!,
-                    pill.GetProperty("background").GetString()!, pill.GetProperty("color").GetString()!)
+                    pill.GetProperty("background").GetString()!, pill.GetProperty("color").GetString()!,
+                    pill.GetProperty("tone").GetString()!)
                 : null,
             spec.Pill);
         Assert.Equal(render.TryGetProperty("footerLink", out var link)
@@ -405,22 +406,18 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var html = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive)).Html;
 
-        // The light-only declarations.
-        Assert.Contains("<meta name=\"color-scheme\" content=\"light\" />", html);
-        Assert.Contains("<meta name=\"supported-color-schemes\" content=\"light\" />", html);
-        Assert.Contains(":root { color-scheme: light only; }", html);
-        // The header band, the body, and the footer band, each background by attribute, colour, and gradient.
-        Assert.Contains("class=\"band\" bgcolor=\"#f5f8fd\" style=\"padding:20px 28px;background-color:#f5f8fd;background-image:linear-gradient(#f5f8fd, #f5f8fd);border-bottom:1px solid #d3ddee;", html);
-        Assert.Contains("class=\"body text\" bgcolor=\"#ffffff\" style=\"padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);", html);
-        Assert.Contains("class=\"foot\" bgcolor=\"#eef3fa\" style=\"padding:16px 28px;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);border-top:1px solid #d3ddee;", html);
+        // The header band, the body, and the footer band, each background by attribute and colour.
+        Assert.Contains("class=\"band\" bgcolor=\"#f5f8fd\" style=\"padding:20px 28px;background-color:#f5f8fd;border-bottom:1px solid #d3ddee;", html);
+        Assert.Contains("class=\"body text\" bgcolor=\"#ffffff\" style=\"padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;", html);
+        Assert.Contains("class=\"foot muted\" bgcolor=\"#eef3fa\" style=\"padding:16px 28px;background-color:#eef3fa;border-top:1px solid #d3ddee;", html);
         // The "Live now" pill in its two colours.
         Assert.Contains("border-radius:999px;background-color:#e3f6ec;color:#1f7f4f;\">Live now</span>", html);
         Assert.Contains("letter-spacing:0.08em;text-transform:uppercase;", html);
         // The star heading, the quoted message, and the round button.
-        Assert.Contains("Santa just lifted off <span style=\"color:#8a6210;\">&#9733;</span></h1>", html);
-        Assert.Contains("background-color:#f5f8fd;background-image:linear-gradient(#f5f8fd, #f5f8fd);border-left:3px solid #0b6bb5;border-radius:6px;", html);
+        Assert.Contains("Santa just lifted off <span class=\"star\" style=\"color:#8a6210;\">&#9733;</span></h1>", html);
+        Assert.Contains("<td class=\"quote\" bgcolor=\"#f5f8fd\" style=\"padding:12px 16px;background-color:#f5f8fd;border-left:3px solid #0b6bb5;border-radius:6px;", html);
         Assert.Contains("white-space:pre-wrap;\">customMessage &lt;b&gt;", html);
-        Assert.Contains("bgcolor=\"#0b6bb5\" style=\"background-color:#0b6bb5;background-image:linear-gradient(#0b6bb5, #0b6bb5);border-radius:999px;\"", html);
+        Assert.Contains("<td class=\"button\" align=\"center\" bgcolor=\"#0b6bb5\" style=\"background-color:#0b6bb5;border-radius:999px;\"", html);
         Assert.Contains("padding:12px 22px;", html);
         // The unsubscribe line sits in the footer band after the reason.
         var footer = html.IndexOf("border-top:1px solid #d3ddee;", StringComparison.Ordinal);
@@ -430,7 +427,7 @@ public sealed class EmailTemplatesTests
     }
 
     [Fact]
-    public void The_live_render_looks_like_the_light_theme_site_and_defends_against_dark_modes()
+    public void The_live_render_looks_like_the_light_theme_site()
     {
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var html = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive)).Html;
@@ -446,29 +443,76 @@ public sealed class EmailTemplatesTests
 
         // The site's faces.
         Assert.Contains("<link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Bricolage+Grotesque:wght@700&display=swap\" rel=\"stylesheet\">", html);
-        Assert.Contains("<h1 style=\"margin:4px 0 12px 0;font-family:'Bricolage Grotesque', 'IBM Plex Sans', -apple-system,", html);
+        Assert.Contains("<h1 class=\"heading\" style=\"margin:4px 0 12px 0;font-family:'Bricolage Grotesque', 'IBM Plex Sans', -apple-system,", html);
         Assert.DoesNotContain("font-family:-apple-system", html);
 
-        // The 16 px card with its three-way background.
-        Assert.Contains("bgcolor=\"#ffffff\" style=\"width:100%;max-width:560px;background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);border:1px solid #d3ddee;border-radius:16px;", html);
-        Assert.Contains("background-image:linear-gradient(#f5f8fd, #f5f8fd);border-bottom:1px solid #d3ddee;border-radius:16px 16px 0 0;", html);
+        // The 16 px card with its background by attribute and colour.
+        Assert.Contains("class=\"card\" role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" bgcolor=\"#ffffff\" style=\"width:100%;max-width:560px;background-color:#ffffff;border:1px solid #d3ddee;border-radius:16px;", html);
+        Assert.Contains("background-color:#f5f8fd;border-bottom:1px solid #d3ddee;border-radius:16px 16px 0 0;", html);
 
-        // The dark-mode media query keeps the light colours.
-        Assert.Contains("@media (prefers-color-scheme: dark) {", html);
-        Assert.Contains(".body, .card { background-color: #ffffff !important; }", html);
-        Assert.Contains(".band { background-color: #f5f8fd !important; }", html);
-        Assert.Contains(".foot { background-color: #eef3fa !important; }", html);
-        Assert.Contains(".text { color: #2c3850 !important; }", html);
+        // Plain light text colours: the heading, body, muted text, and the button.
+        Assert.Contains("font-weight:bold;color:#0f1a30;\">Santa just lifted off", html);
+        Assert.Contains("color:#2c3850;", html);
+        Assert.Contains("color:#5a6885;", html);
+        Assert.Contains("color:#ffffff;text-decoration:none;border-radius:999px;\">Watch the tracker</a>", html);
+    }
 
-        // Important text colours: the heading, body, muted text, and the button.
-        Assert.Contains("font-weight:bold;color:#0f1a30 !important;\">Santa just lifted off", html);
-        Assert.Contains("color:#2c3850 !important;", html);
-        Assert.Contains("color:#5a6885 !important;", html);
-        Assert.Contains("color:#ffffff !important;text-decoration:none;border-radius:999px;\">Watch the tracker</a>", html);
+    [Theory]
+    [InlineData(EmailTemplates.EventLive, "pillOk")]
+    [InlineData(EmailTemplates.EventScheduled, "pillAccent")]
+    public void The_render_declares_both_schemes_and_carries_the_site_dark_palette(string name, string pillClass)
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var html = templates.Render(name, TrickyValues(name)).Html;
+
+        // Both schemes, three ways.
+        Assert.Contains("<meta name=\"color-scheme\" content=\"light dark\" />", html);
+        Assert.Contains("<meta name=\"supported-color-schemes\" content=\"light dark\" />", html);
+        Assert.Contains(":root { color-scheme: light dark; }", html);
+
+        // No gradient backgrounds; important declarations only inside the style block.
+        Assert.DoesNotContain("linear-gradient", html);
+        var styleEnd = html.IndexOf("</style>", StringComparison.Ordinal);
+        Assert.True(styleEnd > 0);
+        Assert.DoesNotContain("!important", html[styleEnd..]);
+        Assert.DoesNotContain("!important", html[..html.IndexOf("<style>", StringComparison.Ordinal)]);
+
+        // One dark media query: the per-element reset, then the site's dark palette.
+        Assert.Equal(1, CountOf(html, "@media (prefers-color-scheme: dark) {"));
+        var media = html.IndexOf("@media (prefers-color-scheme: dark) {", StringComparison.Ordinal);
+        var reset = html.IndexOf(".ground table, .ground td, .ground p, .ground h1, .ground span, .ground a { background-color: transparent !important; color: inherit !important; }", StringComparison.Ordinal);
+        var ground = html.IndexOf(".ground, .ground .ground { background-color: #070d1c !important; }", StringComparison.Ordinal);
+        Assert.True(media > 0 && reset > media && ground > reset && styleEnd > ground);
+        Assert.Contains(".ground .card, .ground .body { background-color: #0f182e !important; border-color: #243252 !important; }", html);
+        Assert.Contains(".ground .button { background-color: #6fd3ff !important; }", html);
+        Assert.Contains(".ground .buttonText { color: #070d1c !important; }", html);
+
+        // The pill carries the class of its tone, and the media query colours it.
+        Assert.Contains("<span class=\"pill " + pillClass + "\" style=\"", html);
+        Assert.Contains(".ground ." + pillClass + " { background-color: ", html);
     }
 
     [Fact]
-    public void Every_background_is_declared_three_ways()
+    public void Every_coloured_element_carries_a_class()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        foreach (var name in EmailTemplates.Specs.Keys)
+        {
+            var html = templates.Render(name, TrickyValues(name)).Html;
+            var body = html[html.IndexOf("<body", StringComparison.Ordinal)..];
+            // Every element with an inline background or text colour, other than the hidden preheader and the logo image.
+            var coloured = System.Text.RegularExpressions.Regex.Matches(body, "<(\\w+)([^>]*) style=\"[^\"]*(?:background-color|;color|\"color):[^\"]*\"");
+            Assert.NotEmpty(coloured);
+            foreach (System.Text.RegularExpressions.Match m in coloured)
+            {
+                if (m.Groups[1].Value is "div" or "img") continue;
+                Assert.Contains("class=\"", m.Groups[2].Value);
+            }
+        }
+    }
+
+    [Fact]
+    public void Every_background_is_declared_by_attribute_and_colour()
     {
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         foreach (var name in EmailTemplates.Specs.Keys)
@@ -479,7 +523,8 @@ public sealed class EmailTemplatesTests
             foreach (System.Text.RegularExpressions.Match m in bgcolors)
             {
                 var colour = m.Groups[1].Value;
-                Assert.Contains("background-color:" + colour + ";background-image:linear-gradient(" + colour + ", " + colour + ");", m.Groups[2].Value);
+                Assert.Contains("background-color:" + colour + ";", m.Groups[2].Value);
+                Assert.DoesNotContain("background-image", m.Groups[2].Value);
             }
         }
     }
@@ -524,19 +569,20 @@ public sealed class EmailTemplatesTests
     }
 
     [Theory]
-    [InlineData(EmailTemplates.SubscriptionVerify, "Confirm", "#e6f0fa", "#0b6bb5")]
-    [InlineData(EmailTemplates.EventPlanned, "Planned", "#e6f0fa", "#0b6bb5")]
-    [InlineData(EmailTemplates.EventScheduled, "Scheduled", "#e6f0fa", "#0b6bb5")]
-    [InlineData(EmailTemplates.EventLive, "Live now", "#e3f6ec", "#1f7f4f")]
-    [InlineData(EmailTemplates.EventEnded, "Landed", "#edf1f7", "#5a6885")]
-    [InlineData(EmailTemplates.EventCancelled, "Cancelled", "#fbe7e5", "#c2362c")]
-    [InlineData(EmailTemplates.EventPostponed, "Postponed", "#f8efd9", "#8a6210")]
-    [InlineData(EmailTemplates.EventMessage, "Update", "#e6f0fa", "#0b6bb5")]
-    public void Each_template_carries_its_status_pill(string name, string label, string background, string color)
+    [InlineData(EmailTemplates.SubscriptionVerify, "Confirm", "#e6f0fa", "#0b6bb5", "pillAccent")]
+    [InlineData(EmailTemplates.EventPlanned, "Planned", "#e6f0fa", "#0b6bb5", "pillAccent")]
+    [InlineData(EmailTemplates.EventScheduled, "Scheduled", "#e6f0fa", "#0b6bb5", "pillAccent")]
+    [InlineData(EmailTemplates.EventLive, "Live now", "#e3f6ec", "#1f7f4f", "pillOk")]
+    [InlineData(EmailTemplates.EventEnded, "Landed", "#edf1f7", "#5a6885", "pillDim")]
+    [InlineData(EmailTemplates.EventCancelled, "Cancelled", "#fbe7e5", "#c2362c", "pillErr")]
+    [InlineData(EmailTemplates.EventPostponed, "Postponed", "#f8efd9", "#8a6210", "pillWarn")]
+    [InlineData(EmailTemplates.EventMessage, "Update", "#e6f0fa", "#0b6bb5", "pillAccent")]
+    public void Each_template_carries_its_status_pill(string name, string label, string background, string color, string tone)
     {
-        Assert.Equal(new EmailTemplates.StatusPill(label, background, color), EmailTemplates.Specs[name].Pill);
+        Assert.Equal(new EmailTemplates.StatusPill(label, background, color, tone), EmailTemplates.Specs[name].Pill);
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var html = templates.Render(name, TrickyValues(name)).Html;
+        Assert.Contains($"<span class=\"pill {tone}\" style=\"", html);
         Assert.Contains($"background-color:{background};color:{color};\">{label}</span>", html);
         Assert.Equal(name != EmailTemplates.SubscriptionVerify, html.Contains("&#9733;", StringComparison.Ordinal));
     }

@@ -40,7 +40,7 @@ public sealed class EmailTemplates
     // unsubscribe link.
     public static readonly FooterLink UnsubscribeFooterLink = new(
         Html: "                <p style=\"margin:0 0 8px 0;\">To stop receiving these alerts, use the one-click link: "
-            + "<a href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
+            + "<a class=\"link\" href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
         Text: "To stop receiving these alerts, use the one-click link: {{unsubscribeUrl}}");
 
     // The templates the outbox chore fires (contracts 7.8). Alert templates
@@ -73,55 +73,55 @@ public sealed class EmailTemplates
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "One click confirms this address and turns on your Santa Tracker alerts.",
                 FooterReason: "You are receiving this because someone asked for Santa Tracker alerts at this address.",
-                Pill: new("Confirm", "#e6f0fa", "#0b6bb5")),
+                Pill: new("Confirm", "#e6f0fa", "#0b6bb5", "pillAccent")),
             [EventPlanned] = new("Santa's flight is on the calendar",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's next flight is on the calendar, and the time will follow.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Planned", "#e6f0fa", "#0b6bb5"),
+                Pill: new("Planned", "#e6f0fa", "#0b6bb5", "pillAccent"),
                 Link: UnsubscribeFooterLink),
             [EventScheduled] = new("Santa's flight is scheduled",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight has a lift-off time.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Scheduled", "#e6f0fa", "#0b6bb5"),
+                Pill: new("Scheduled", "#e6f0fa", "#0b6bb5", "pillAccent"),
                 Link: UnsubscribeFooterLink),
             [EventLive] = new("Santa just lifted off",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa is in the air right now, so open the tracker and follow the flight.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Live now", "#e3f6ec", "#1f7f4f"),
+                Pill: new("Live now", "#e3f6ec", "#1f7f4f", "pillOk"),
                 Link: UnsubscribeFooterLink),
             [EventEnded] = new("Santa has landed",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight is over, and thanks for flying along.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Landed", "#edf1f7", "#5a6885"),
+                Pill: new("Landed", "#edf1f7", "#5a6885", "pillDim"),
                 Link: UnsubscribeFooterLink),
             [EventCancelled] = new("Santa's flight has been cancelled",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight will not go ahead as planned.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Cancelled", "#fbe7e5", "#c2362c"),
+                Pill: new("Cancelled", "#fbe7e5", "#c2362c", "pillErr"),
                 Link: UnsubscribeFooterLink),
             [EventPostponed] = new("Santa's flight is postponed",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
                 Preheader: "Santa's flight is postponed, and a new time will follow.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Postponed", "#f8efd9", "#8a6210"),
+                Pill: new("Postponed", "#f8efd9", "#8a6210", "pillWarn"),
                 Link: UnsubscribeFooterLink),
             [EventMessage] = new("Santa update: {{messagePreview}}",
                 RequiredTokens: ImmutableArray.Create("eventName", "messageBody", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray.Create("messagePreview"),
                 Preheader: "A new update from {{eventName}}.",
                 FooterReason: AlertFooterReason,
-                Pill: new("Update", "#e6f0fa", "#0b6bb5"),
+                Pill: new("Update", "#e6f0fa", "#0b6bb5", "pillAccent"),
                 Link: UnsubscribeFooterLink),
             [ContactReceived] = new("Contact form: {{contactName}}",
                 RequiredTokens: ImmutableArray.Create("contactName", "contactEmail", "contactMessage"),
@@ -344,15 +344,17 @@ public sealed class EmailTemplates
         StatusPill? Pill = null,
         FooterLink? Link = null);
 
-    // The header band's pill: the label on its background, in its colour.
-    public sealed record StatusPill(string Label, string Background, string Color)
+    // The header band's pill: the label on its background, in its colour,
+    // classed `pill` and its Tone (one of pillAccent, pillOk, pillDim,
+    // pillErr, pillWarn), the class the layout's dark palette colours it by.
+    public sealed record StatusPill(string Label, string Background, string Color, string Tone)
     {
         public const string Style =
             "display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;"
             + "text-transform:uppercase;padding:3px 10px;border-radius:999px;";
 
         public string Html =>
-            $"<span style=\"{Style}background-color:{Background};color:{Color};\">{WebUtility.HtmlEncode(Label)}</span>";
+            $"<span class=\"pill {Tone}\" style=\"{Style}background-color:{Background};color:{Color};\">{WebUtility.HtmlEncode(Label)}</span>";
     }
 
     // A footer line after the reason, in each part's markup; its {{tokens}}
