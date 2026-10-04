@@ -38,7 +38,7 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "routeImageMediaId", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
+            "fundsPercent", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
@@ -111,9 +111,9 @@ public class KeyOrderTests
         var bytes = CanonicalJson.SerializeToUtf8Bytes(snap);
         using var doc = JsonDocument.Parse(bytes);
         var mediaKeys = KeysOf(doc.RootElement.GetProperty("media"));
-        // The three seeded UUIDs plus the three we added, in ordinal string order.
+        // The two seeded UUIDs plus the three we added, in ordinal string order.
         Assert.Equal(
-            new[] { "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33", "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44", "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc" },
+            new[] { "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33", "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc" },
             mediaKeys);
     }
 

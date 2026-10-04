@@ -4005,9 +4005,6 @@
           "route": {
             "type": "boolean"
           },
-          "poster": {
-            "type": "boolean"
-          },
           "routeMapConfig": {
             "type": "boolean"
           }
@@ -5009,22 +5006,6 @@
             "type": [
               "null",
               "string"
-            ]
-          },
-          "routeImageMediaId": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "routeImage": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/MediaAssetDto"
-              }
             ]
           },
           "routeMapConfig": {
@@ -7015,12 +6996,6 @@
               "string"
             ],
             "format": "int64"
-          },
-          "routeImageMediaId": {
-            "type": [
-              "null",
-              "string"
-            ]
           },
           "scheduleTimeZone": {
             "$ref": "#/components/schemas/JsonElement"

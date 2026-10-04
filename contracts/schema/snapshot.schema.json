@@ -47,12 +47,6 @@
         "fundsPercent": {
           "type": "integer"
         },
-        "routeImageMediaId": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "flightHistory": {
           "type": [
             "object",

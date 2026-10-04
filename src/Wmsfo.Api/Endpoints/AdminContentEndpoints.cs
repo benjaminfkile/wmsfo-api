@@ -2058,9 +2058,9 @@ from section_item where id = $1;", conn, tx);
     }
 
     // The document's referenced media ids plus the snapshot-level ids (sponsor
-    // logos, cookie type media icons, the current event's route poster), since
-    // the site resolves the snapshot's sponsors and cookie types against the
-    // preview and draft media map.
+    // logos and cookie type media icons), since the site resolves the
+    // snapshot's sponsors and cookie types against the preview and draft media
+    // map.
     private static async Task<Guid[]> CollectPreviewMediaIdsAsync(
         NpgsqlConnection conn, ReferenceChecker.WorkingSet workingSet, CancellationToken ct)
     {

@@ -636,11 +636,11 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
 
     // -------------------- route preview keys --------------------
 
-    // A route_preview section with its four keys round-trips through the PATCH
-    // response, the admin page read, and the published document, and carries
-    // nothing else.
+    // A route_preview section with its three keys round-trips through the
+    // PATCH response, the admin page read, and the published document, and
+    // carries nothing else.
     [Fact]
-    public async Task Route_preview_four_keys_round_trip()
+    public async Task Route_preview_three_keys_round_trip()
     {
         await BootstrapFirstBootAsync();
         var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
@@ -649,7 +649,7 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
         using (var patched = JsonDocument.Parse(await patch.Content.ReadAsStringAsync()))
         {
-            AssertRoutePreviewFourKeys(patched.RootElement.GetProperty("data"));
+            AssertRoutePreviewThreeKeys(patched.RootElement.GetProperty("data"));
         }
 
         using (var getReq = _host!.EditorRequest(HttpMethod.Get, $"/admin/pages/{pageId}"))
@@ -657,24 +657,27 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
             var get = await _host.Client.SendAsync(getReq);
             Assert.Equal(HttpStatusCode.OK, get.StatusCode);
             using var page = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            AssertRoutePreviewFourKeys(FindAdminSectionData(page.RootElement, sectionId));
+            AssertRoutePreviewThreeKeys(FindAdminSectionData(page.RootElement, sectionId));
         }
 
         await PublishAsync();
         var (_, versionJson) = await ReadNewestVersionAsync();
         using var version = JsonDocument.Parse(versionJson);
-        AssertRoutePreviewFourKeys(FindPublishedData(version.RootElement, sectionId));
+        AssertRoutePreviewThreeKeys(FindPublishedData(version.RootElement, sectionId));
     }
 
     // The route map keys live on the event (routeMapConfig) and the landmarks
-    // in the site settings, so a route_preview section carrying `controls`,
-    // `landmarks`, `display`, or `pois` is 400 validation_failed on the key.
+    // in the site settings, and the section always draws the map, so a
+    // route_preview section carrying `controls`, `landmarks`, `display`,
+    // `pois`, or `style` is 400 validation_failed on the key.
     [Theory]
+    [InlineData(",\"style\":\"map\"", "/style")]
+    [InlineData(",\"style\":\"image\"", "/style")]
     [InlineData(",\"controls\":{\"fullscreen\":false}", "/controls")]
     [InlineData(",\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]", "/landmarks")]
     [InlineData(",\"display\":{\"arrows\":false}", "/display")]
     [InlineData(",\"pois\":{\"kinds\":[\"school\"]}", "/pois")]
-    public async Task Route_preview_route_map_keys_are_400_on_the_key(string extra, string field)
+    public async Task Route_preview_unknown_keys_are_400_on_the_key(string extra, string field)
     {
         await BootstrapFirstBootAsync();
         var (_, sectionId) = await FindSectionAsync("route", "route_preview");
@@ -842,18 +845,18 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
             Assert.False(published.TryGetProperty("landmarks", out _));
     }
 
-    private static void AssertRoutePreviewFourKeys(JsonElement data)
+    private static void AssertRoutePreviewThreeKeys(JsonElement data)
     {
         Assert.Equal(
-            new[] { "disclaimer", "emptyText", "heading", "style" },
+            new[] { "disclaimer", "emptyText", "heading" },
             data.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
-        Assert.Equal("map", data.GetProperty("style").GetString());
+        Assert.Equal("The route", data.GetProperty("heading").GetString());
     }
 
-    // A PATCH body setting route_preview data in the `map` style, with `extra`
-    // appended after `emptyText`.
+    // A PATCH body setting route_preview data, with `extra` appended after
+    // `emptyText`.
     private static string RoutePreviewDataJson(string extra) =>
-        "{\"data\":{\"heading\":\"The route\",\"style\":\"map\",\"disclaimer\":null,"
+        "{\"data\":{\"heading\":\"The route\",\"disclaimer\":null,"
         + "\"emptyText\":\"Soon.\"" + extra + "}}";
 
     private static JsonElement FindAdminSectionData(JsonElement page, long sectionId) =>
@@ -1665,28 +1668,18 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
     }
 
     // The preview document and the draft response carry the snapshot-level
-    // media (a sponsor logo, a cookie type media icon, the current event's
-    // route poster) next to the document's referenced media, with URLs; an
-    // asset referenced by neither stays absent.
+    // media (a sponsor logo, a cookie type media icon) next to the document's
+    // referenced media, with URLs; an asset referenced by neither stays absent.
     [Fact]
-    public async Task Preview_and_draft_media_maps_carry_sponsor_logo_cookie_icon_and_route_poster()
+    public async Task Preview_and_draft_media_maps_carry_sponsor_logo_and_cookie_icon()
     {
         var logo = await UploadAndConfirmRasterAsync("sponsor-logo.png", 400, 200);
         var cookieIcon = await UploadAndConfirmSvgAsync("cookie-icon.svg");
-        var poster = await UploadAndConfirmRasterAsync("route-poster.png", 800, 600);
         var unreferenced = await UploadAndConfirmRasterAsync("orphan.png", 300, 300);
 
         await SeedCurrentEventAsync(2028);
         await SeedSponsorWithLogoAsync("Logo Co", logo, 2028);
         await SeedCookieTypeWithMediaIconAsync("Gingerbread", cookieIcon);
-        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
-        {
-            await conn.OpenAsync();
-            await using var cmd = new NpgsqlCommand(
-                "update event set route_image_media_id = $1 where is_current;", conn);
-            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(poster) });
-            Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
-        }
 
         var mint = await MintPreviewTokenAsync(null);
         using var minted = JsonDocument.Parse(await mint.Content.ReadAsStringAsync());
@@ -1695,7 +1688,7 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
         Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
         using (var doc = JsonDocument.Parse(await preview.Content.ReadAsStringAsync()))
         {
-            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, poster, unreferenced);
+            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, unreferenced);
         }
 
         using var draftReq = _host.EditorRequest(HttpMethod.Get, "/admin/content/draft");
@@ -1703,18 +1696,16 @@ select (select pg.slug from place pl join page pg on pg.id = pl.opens_page_id wh
         Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
         using (var doc = JsonDocument.Parse(await draft.Content.ReadAsStringAsync()))
         {
-            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, poster, unreferenced);
+            AssertSnapshotLevelMedia(doc.RootElement.GetProperty("media"), logo, cookieIcon, unreferenced);
         }
     }
 
     private void AssertSnapshotLevelMedia(
-        JsonElement media, string logo, string cookieIcon, string poster, string unreferenced)
+        JsonElement media, string logo, string cookieIcon, string unreferenced)
     {
         var cdn = _host!.Options.CdnBaseUrl.TrimEnd('/');
         Assert.Equal(cdn + "/media/" + logo + "/sponsor-logo.png",
             media.GetProperty(logo).GetProperty("url").GetString());
-        Assert.Equal(cdn + "/media/" + poster + "/route-poster.png",
-            media.GetProperty(poster).GetProperty("url").GetString());
         var iconEntry = media.GetProperty(cookieIcon);
         Assert.Equal("svg", iconEntry.GetProperty("kind").GetString());
         Assert.StartsWith(cdn + "/media/" + cookieIcon + "/", iconEntry.GetProperty("url").GetString());

@@ -158,7 +158,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
         // 2. current event (nullable).
         await using (var cmd = new NpgsqlCommand(@"
 select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.route_image_media_id, e.route_id, e.route_map_config
+       e.funds_percent, e.route_id, e.route_map_config
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -175,14 +175,13 @@ where e.is_current;", conn, tx))
                     WentLiveAt = reader.IsDBNull(5) ? null : reader.GetFieldValue<DateTimeOffset>(5),
                     EndedAt = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
                     FundsPercent = reader.GetInt32(7),
-                    RouteImageMediaId = reader.IsDBNull(8) ? null : reader.GetGuid(8).ToString(),
                     FlightHistory = null,
                     RouteMap = null,
-                    RouteMapConfig = reader.IsDBNull(10) ? null : RouteMapConfigRules.FromStored(reader.GetString(10)),
+                    RouteMapConfig = reader.IsDBNull(9) ? null : RouteMapConfigRules.FromStored(reader.GetString(9)),
                     LatestMessage = null,
                 };
                 currentYear = currentEvent.Year;
-                currentRouteId = reader.IsDBNull(9) ? null : reader.GetInt64(9);
+                currentRouteId = reader.IsDBNull(8) ? null : reader.GetInt64(8);
             }
         }
 
@@ -418,7 +417,7 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
         snap.Content = content;
 
         // 8. media map: content media ids + sponsor logos + cookie type media
-        // icons + the current event's route poster (contracts 1.3).
+        // icons (contracts 1.3).
         var mediaIds = new HashSet<Guid>();
         foreach (var id in contentMediaIds) mediaIds.Add(id);
         foreach (var id in await CollectSnapshotLevelMediaIdsAsync(conn, tx, ct).ConfigureAwait(false))
@@ -456,10 +455,9 @@ order by m.id;", conn, tx);
 
     // The media ids the snapshot carries beyond the content document: logos of
     // the sponsors the snapshot lists (the current event's year, active, not
-    // anonymous, can advertise), media icons of active cookie types, and the
-    // current event's route poster. The snapshot media map, the preview
-    // document, and the draft response all add this set to the document's
-    // referenced media.
+    // anonymous, can advertise) and media icons of active cookie types. The
+    // snapshot media map, the preview document, and the draft response all add
+    // this set to the document's referenced media.
     public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
         NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)
     {
@@ -469,10 +467,7 @@ select s.logo_media_id
 from sponsor s
 join sponsor_year y on y.sponsor_id = s.id
 join event e on e.is_current and y.event_year = e.year
-where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is not null
-union
-select route_image_media_id from event
-where is_current and route_image_media_id is not null;", conn, tx))
+where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is not null;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(reader.GetGuid(0));

@@ -23,8 +23,6 @@ public sealed class EventDto
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
     public string? RouteUrl { get; set; }
-    public string? RouteImageMediaId { get; set; }
-    public MediaAssetDto? RouteImage { get; set; }
     // The event's route map configuration (contracts 1.3); null when unset.
     public RouteMapConfig? RouteMapConfig { get; set; }
     public string CreatedBy { get; set; } = "";

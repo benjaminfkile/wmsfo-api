@@ -82,7 +82,7 @@ public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLif
         Assert.Equal(JsonValueKind.Null, ev.GetProperty("routeMap").ValueKind);
         Assert.Equal(
             new[] { "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt", "fundsPercent",
-                    "routeImageMediaId", "flightHistory", "routeMap", "routeMapConfig", "latestMessage" },
+                    "flightHistory", "routeMap", "routeMapConfig", "latestMessage" },
             ev.EnumerateObject().Select(p => p.Name).ToArray());
 
         var points = Recording(241); // 60 minutes, one point every 15 seconds

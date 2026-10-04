@@ -48,10 +48,11 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
         }
     }
 
-    // A24 acceptance criterion 935: the A24Design migration adds the new
-    // columns and the sponsor_year_pinned_ux partial unique index.
+    // The sponsor_year pinned columns, their checks, and the
+    // sponsor_year_pinned_ux partial unique index are in place after every
+    // migration; the event has no route image column.
     [Fact]
-    public async Task A24_migration_adds_the_new_columns_and_pinned_ux()
+    public async Task Migrated_schema_has_the_pinned_columns_and_no_route_image()
     {
         await using (var db = new WmsfoDbContext(Options()))
         {
@@ -59,12 +60,12 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
         }
         var relations = await ListRelationsAsync();
         Assert.Contains("sponsor_year_pinned_ux", relations.Indexes);
-        Assert.Contains("event_route_image_media_id_fkey", relations.Constraints);
+        Assert.DoesNotContain("event_route_image_media_id_fkey", relations.Constraints);
         Assert.Contains("sponsor_year_pinned_position_check", relations.Constraints);
         Assert.Contains("sponsor_year_linger_ms_override_check", relations.Constraints);
 
         var columns = await ListColumnsAsync();
-        Assert.Contains(("event", "route_image_media_id"), columns);
+        Assert.DoesNotContain(("event", "route_image_media_id"), columns);
         Assert.Contains(("sponsor_year", "pinned_position"), columns);
         Assert.Contains(("sponsor_year", "linger_ms_override"), columns);
     }

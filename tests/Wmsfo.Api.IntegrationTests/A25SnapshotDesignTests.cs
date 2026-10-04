@@ -16,7 +16,7 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - lingerMsOverride beats the formula (contracts 1.3).
 //   - flightHistory: null when the event has no route_id; present and thinned
 //     (7 points at max 3 -> points 1, 4, 7) when the event links a route.
-//   - routeImageMediaId: the poster id present on event and its asset in media.
+//   - The event carries no route image and the media map no poster entry.
 //   - PATCH /admin/events/{id} { routeId } rebuilds the snapshot with the new
 //     flightHistory on the next snapshot.
 public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -166,21 +166,23 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
         AssertPointEquals(routePoints[6], points[2]);
     }
 
-    // ---------- event.routeImageMediaId + media map ----------
+    // ---------- no route image on the event or in the media map ----------
 
     [Fact]
-    public async Task Snapshot_routeImageMediaId_present_and_asset_in_media_map()
+    public async Task Snapshot_event_has_no_route_image_and_media_map_skips_the_poster()
     {
         var eventId = await CreateCurrentEventAsync(2027);
         var posterId = await InsertReadyRasterMediaAsync("poster.jpg");
-        await PatchEventAsync(eventId, $"{{\"routeImageMediaId\":\"{posterId}\"}}");
+        var refused = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}",
+            $"{{\"routeImageMediaId\":\"{posterId}\"}}");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
 
         var snapshot = await ReadSnapshotAsync();
         var ev = snapshot.RootElement.GetProperty("event");
-        Assert.Equal(posterId.ToString(), ev.GetProperty("routeImageMediaId").GetString());
+        Assert.Equal(eventId, ev.GetProperty("id").GetInt64());
+        Assert.False(ev.TryGetProperty("routeImageMediaId", out _));
         var media = snapshot.RootElement.GetProperty("media");
-        Assert.True(media.TryGetProperty(posterId.ToString(), out var entry));
-        Assert.Equal("raster", entry.GetProperty("kind").GetString());
+        Assert.False(media.TryGetProperty(posterId.ToString(), out _));
     }
 
     // ---------- PATCH { routeId } rebuilds flightHistory on next snapshot ----------

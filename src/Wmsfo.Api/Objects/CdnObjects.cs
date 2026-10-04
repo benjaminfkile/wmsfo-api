@@ -68,15 +68,14 @@ public sealed class SnapshotEvent
     [JsonPropertyOrder(5)] public DateTimeOffset? WentLiveAt { get; set; }
     [JsonPropertyOrder(6)] public DateTimeOffset? EndedAt { get; set; }
     [JsonPropertyOrder(7)] public int FundsPercent { get; set; }
-    [JsonPropertyOrder(8)] public string? RouteImageMediaId { get; set; }
-    [JsonPropertyOrder(9)] public SnapshotFlightHistory? FlightHistory { get; set; }
+    [JsonPropertyOrder(8)] public SnapshotFlightHistory? FlightHistory { get; set; }
     // The linked recording processed for the route map (contracts 1.3); null
     // when no recording is linked.
-    [JsonPropertyOrder(10)] public RouteMap? RouteMap { get; set; }
+    [JsonPropertyOrder(9)] public RouteMap? RouteMap { get; set; }
     // The event's route map configuration (contracts 1.3); null when the event
     // has none.
-    [JsonPropertyOrder(11)] public RouteMapConfig? RouteMapConfig { get; set; }
-    [JsonPropertyOrder(12)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    [JsonPropertyOrder(10)] public RouteMapConfig? RouteMapConfig { get; set; }
+    [JsonPropertyOrder(11)] public SnapshotLatestMessage? LatestMessage { get; set; }
 }
 
 public sealed class SnapshotFlightHistory

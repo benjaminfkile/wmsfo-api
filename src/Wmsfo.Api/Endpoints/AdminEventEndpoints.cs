@@ -50,7 +50,7 @@ public static class AdminEventEndpoints
     private static void MapList(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/events",
-            async (WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            async (WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
@@ -59,7 +59,7 @@ public static class AdminEventEndpoints
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
-                    items.Add(ReadEvent(reader, options));
+                    items.Add(ReadEvent(reader));
                 }
                 return Results.Ok(new ItemsResponse<EventDto> { Items = items });
             })
@@ -77,7 +77,7 @@ public static class AdminEventEndpoints
     {
         app.MapPost("/admin/events",
             async (CreateEventRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
+                   AuditRecorder audit, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
@@ -124,7 +124,7 @@ returning id;", conn, tx))
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.ScheduleTimeZone ?? DBNull.Value });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
                     }
-                    var e = await ReadEventByIdAsync(conn, tx, newId, options, token);
+                    var e = await ReadEventByIdAsync(conn, tx, newId, token);
                     if (e is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "create", "event",
                         newId.ToString(CultureInfo.InvariantCulture),
@@ -147,11 +147,11 @@ returning id;", conn, tx))
     private static void MapGet(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/events/{id:long}",
-            async (long id, WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+            async (long id, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                var dto = await ReadEventByIdAsync(conn, null, id, options, ct);
+                var dto = await ReadEventByIdAsync(conn, null, id, ct);
                 if (dto is null) throw NotFound();
                 return Results.Ok(dto);
             })
@@ -204,43 +204,22 @@ where e.id = $1;", conn))
     }
 
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
-    // wentLiveAt, endedAt, fundsPercent, routeId, routeImageMediaId,
-    // scheduleTimeZone (an IANA id sets it, null clears it), routeMapConfig (a
-    // RouteMapConfig object sets it, null clears it).
+    // wentLiveAt, endedAt, fundsPercent, routeId, scheduleTimeZone (an IANA
+    // id sets it, null clears it), routeMapConfig (a RouteMapConfig object
+    // sets it, null clears it).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
-    // routeImageMediaId "" clears the link; a uuid must name a ready raster asset
-    // (404 media, 409 media_not_ready, 400 validation_failed for svg or gif).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/events/{id:long}",
             async (long id, PatchEventRequest body, HttpContext ctx,
                    AdminSnapshotTransaction snap, AuditRecorder audit,
                    SchemaValidator validator,
-                   WmsfoOptions options, CancellationToken ct) =>
+                   CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year is int year && (year < 2000 || year > 2100)) v.Field("year", "must be between 2000 and 2100");
                 if (body.Name is not null && (body.Name.Length < 1 || body.Name.Length > 200)) v.Field("name", "must be 1 to 200 characters");
                 if (body.FundsPercent is int fp && (fp < 0 || fp > 100)) v.Field("fundsPercent", "must be between 0 and 100");
-                Guid? parsedRouteImage = null;
-                bool clearRouteImage = false;
-                bool setRouteImage = false;
-                if (body.RouteImageMediaId is not null)
-                {
-                    if (body.RouteImageMediaId.Length == 0)
-                    {
-                        clearRouteImage = true;
-                    }
-                    else if (Guid.TryParse(body.RouteImageMediaId, out var g))
-                    {
-                        parsedRouteImage = g;
-                        setRouteImage = true;
-                    }
-                    else
-                    {
-                        v.Field("routeImageMediaId", "must be a uuid, empty string, or null");
-                    }
-                }
                 string? scheduleTimeZone = null;
                 bool setScheduleTimeZone = false;
                 var tz = body.ScheduleTimeZone;
@@ -313,7 +292,7 @@ where e.id = $1;", conn))
                         currentStatus = reader.GetInt16(0);
                         currentScheduled = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1);
                     }
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
 
                     // Route existence check.
@@ -324,34 +303,6 @@ where e.id = $1;", conn))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull)
                             throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
-                    }
-
-                    // Route image media asset check (ready, raster).
-                    if (setRouteImage && parsedRouteImage is not null)
-                    {
-                        string? state = null;
-                        string? kind = null;
-                        await using (var read = new NpgsqlCommand(
-                            "select state, kind from media_asset where id = $1;", conn, tx))
-                        {
-                            read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = parsedRouteImage.Value });
-                            await using var reader = await read.ExecuteReaderAsync(token);
-                            if (!await reader.ReadAsync(token))
-                                throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "media not found");
-                            state = reader.GetString(0);
-                            kind = reader.GetString(1);
-                        }
-                        if (!string.Equals(state, "ready", StringComparison.Ordinal))
-                        {
-                            throw new ApiException(StatusCodes.Status409Conflict,
-                                "media_not_ready", "media asset is not ready");
-                        }
-                        if (!string.Equals(kind, "raster", StringComparison.Ordinal))
-                        {
-                            var vv = new RequestValidation();
-                            vv.Field("routeImageMediaId", "must reference a raster media asset (svg and gif not allowed)");
-                            vv.ThrowIfInvalid();
-                        }
                     }
 
                     // scheduled_at null while status = 2 → 409 scheduled_at_required.
@@ -372,14 +323,6 @@ where e.id = $1;", conn))
                     if (endedPatch.Set) Set($"ended_at = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = (object?)endedPatch.Value ?? DBNull.Value });
                     if (body.FundsPercent is not null) Set($"funds_percent = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.FundsPercent.Value });
                     if (body.RouteId is not null) Set($"route_id = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = body.RouteId.Value });
-                    if (setRouteImage)
-                    {
-                        Set($"route_image_media_id = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = parsedRouteImage!.Value });
-                    }
-                    else if (clearRouteImage)
-                    {
-                        sets.Add("route_image_media_id = null");
-                    }
                     if (setScheduleTimeZone)
                     {
                         Set($"schedule_time_zone = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)scheduleTimeZone ?? DBNull.Value });
@@ -401,7 +344,7 @@ where e.id = $1;", conn))
                         await update.ExecuteNonQueryAsync(token);
                     }
 
-                    var updated = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var updated = await ReadEventByIdAsync(conn, tx, id, token);
                     if (updated is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "update", "event",
                         id.ToString(CultureInfo.InvariantCulture),
@@ -428,7 +371,7 @@ where e.id = $1;", conn))
     {
         app.MapDelete("/admin/events/{id:long}",
             async (long id, HttpContext ctx, AdminSnapshotTransaction snap,
-                   AuditRecorder audit, WmsfoOptions options, CancellationToken ct) =>
+                   AuditRecorder audit, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await snap.RunAsync<object?>(async (conn, tx, token) =>
@@ -449,7 +392,7 @@ where e.id = $1;", conn))
                     if (isCurrent)
                         throw new ApiException(StatusCodes.Status409Conflict, "event_current", "event is the current event");
 
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
                     var impact = await Impact.EventImpactQueries.PreviewAsync(conn, tx, id, token);
                     await Impact.EventImpactQueries.ApplyAsync(conn, tx, id, token);
                     await using (var del = new NpgsqlCommand(
@@ -478,7 +421,7 @@ where e.id = $1;", conn))
     {
         app.MapPost("/admin/events/{id:long}/current",
             async (long id, HttpContext ctx, AdminSnapshotTransaction snap, AuditRecorder audit,
-                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -492,7 +435,7 @@ where e.id = $1;", conn))
                     if (r is null || r is DBNull) throw NotFound();
                     if ((bool)r)
                     {
-                        var dto = await ReadEventByIdAsync(conn, null, id, options, ct);
+                        var dto = await ReadEventByIdAsync(conn, null, id, ct);
                         return Results.Ok(dto);
                     }
                 }
@@ -507,12 +450,12 @@ where e.id = $1;", conn))
                         if (r is null || r is DBNull) throw NotFound();
                         if ((bool)r)
                         {
-                            var same = await ReadEventByIdAsync(conn, tx, id, options, token);
+                            var same = await ReadEventByIdAsync(conn, tx, id, token);
                             if (same is null) throw NotFound();
                             return same;
                         }
                     }
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
 
                     // 409 current_event_live if any other event is current AND live.
                     await using (var guard = new NpgsqlCommand(
@@ -540,7 +483,7 @@ where e.id = $1;", conn))
                         await set.ExecuteNonQueryAsync(token);
                     }
 
-                    var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var dto = await ReadEventByIdAsync(conn, tx, id, token);
                     if (dto is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "current", "event",
                         id.ToString(CultureInfo.InvariantCulture),
@@ -567,7 +510,7 @@ where e.id = $1;", conn))
         app.MapPost("/admin/events/{id:long}/status",
             async (long id, ChangeEventStatusRequest body, HttpContext ctx,
                    AdminSnapshotTransaction snap, AuditRecorder audit,
-                   WmsfoOptions options, CancellationToken ct) =>
+                   CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.StatusId < 1 || body.StatusId > 6) v.Field("statusId", "must be 1..6");
@@ -596,7 +539,7 @@ where e.id = $1;", conn))
                         eventName = reader.GetString(3);
                         scheduleTimeZone = reader.IsDBNull(4) ? null : reader.GetString(4);
                     }
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
 
                     var to = (short)body.StatusId;
                     if (from == to)
@@ -783,7 +726,7 @@ update event set status_notified_at = case when $1 then now() else null end wher
                         await stampNotify.ExecuteNonQueryAsync(token);
                     }
 
-                    var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var dto = await ReadEventByIdAsync(conn, tx, id, token);
                     if (dto is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "status", "event",
                         id.ToString(CultureInfo.InvariantCulture),
@@ -879,7 +822,7 @@ order by h.changed_at desc, h.id desc;", conn);
     {
         app.MapPost("/admin/events/{id:long}/notify",
             async (long id, NotifyStatusRequest? body, HttpContext ctx, AuditRecorder audit,
-                   AdminSnapshotTransaction snap, WmsfoOptions options, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, CancellationToken ct) =>
             {
                 var message = body?.Message?.Trim();
                 var v = new RequestValidation();
@@ -899,7 +842,7 @@ order by h.changed_at desc, h.id desc;", conn);
                         if (r is null || r is DBNull) throw NotFound();
                         status = Convert.ToInt16(r);
                     }
-                    var before = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
                     long? messageId = message is null
                         ? null
                         : await InsertStatusMessageAsync(conn, tx, id, message, email, token);
@@ -941,7 +884,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         stampNotify.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await stampNotify.ExecuteNonQueryAsync(token);
                     }
-                    var dto = await ReadEventByIdAsync(conn, tx, id, options, token);
+                    var dto = await ReadEventByIdAsync(conn, tx, id, token);
                     if (dto is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "notify", "event",
                         id.ToString(CultureInfo.InvariantCulture),
@@ -968,14 +911,13 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     // Creates a new event in status 1, not current, funds 0, no scheduled time;
     // copy.sponsors copies year's sponsor_year rows (with pinned/linger) to the
     // new year (skipping sponsors that already have it); copy.route links the
-    // source's routeId; copy.poster links the source's routeImageMediaId;
-    // copy.routeMapConfig copies the source's route map configuration. Not
+    // source's routeId; copy.routeMapConfig copies the source's route map configuration. Not
     // snapshot-affecting (the new event is not current).
     private static void MapClone(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/clone",
             async (long id, CloneEventRequest body, HttpContext ctx, AuditRecorder audit,
-                   WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
@@ -986,7 +928,6 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
 
                 var copySponsors = body.Copy?.Sponsors ?? false;
                 var copyRoute = body.Copy?.Route ?? false;
-                var copyPoster = body.Copy?.Poster ?? false;
                 var copyRouteMapConfig = body.Copy?.RouteMapConfig ?? false;
 
                 await using var conn = new NpgsqlConnection(connections.App);
@@ -996,30 +937,27 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                 {
                     int sourceYear;
                     long? sourceRouteId;
-                    Guid? sourcePosterId;
                     string? sourceRouteMapConfig;
                     await using (var read = new NpgsqlCommand(
-                        "select year, route_id, route_image_media_id, route_map_config from event where id = $1 for update;", conn, tx))
+                        "select year, route_id, route_map_config from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(ct);
                         if (!await reader.ReadAsync(ct)) throw NotFound();
                         sourceYear = reader.GetInt32(0);
                         sourceRouteId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
-                        sourcePosterId = reader.IsDBNull(2) ? null : reader.GetGuid(2);
-                        sourceRouteMapConfig = reader.IsDBNull(3) ? null : reader.GetString(3);
+                        sourceRouteMapConfig = reader.IsDBNull(2) ? null : reader.GetString(2);
                     }
 
                     long newId;
                     try
                     {
                         await using var ins = new NpgsqlCommand(@"
-insert into event (year, name, status_id, is_current, funds_percent, route_id, route_image_media_id, created_by, updated_at, route_map_config)
-values ($1, $2, 1, false, 0, $3, $4, $5, now(), $6) returning id;", conn, tx);
+insert into event (year, name, status_id, is_current, funds_percent, route_id, created_by, updated_at, route_map_config)
+values ($1, $2, 1, false, 0, $3, $4, now(), $5) returning id;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)(copyRoute ? sourceRouteId : null) ?? DBNull.Value });
-                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = (object?)(copyPoster ? sourcePosterId : null) ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)(copyRouteMapConfig ? sourceRouteMapConfig : null) ?? DBNull.Value });
                         newId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
@@ -1041,7 +979,7 @@ on conflict (sponsor_id, event_year) do nothing;", conn, tx);
                         await cp.ExecuteNonQueryAsync(ct);
                     }
 
-                    var read3 = await ReadEventByIdAsync(conn, tx, newId, options, ct);
+                    var read3 = await ReadEventByIdAsync(conn, tx, newId, ct);
                     if (read3 is null) throw NotFound();
                     dto = read3;
                     var stamp = await audit.RecordAsync(conn, tx, "clone", "event",
@@ -1719,20 +1657,13 @@ limit $" + limitIdx + ";";
         new(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "not found");
 
     // Base select for Event responses (contracts 4.5 Events). Includes the
-    // linked route (for routeUrl) and the linked route image media asset (for
-    // routeImage). Column order used by ReadEvent.
+    // linked route (for routeUrl). Column order used by ReadEvent.
     private const string EventSelectSql = @"
 select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.route_id, r.url, e.route_image_media_id, e.created_by, e.created_at, e.updated_at,
-       m.filename, m.content_type, m.kind, m.state, m.s3_key,
-       m.size_bytes, m.width, m.height, m.sha256, m.variants,
-       m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at,
-       m.unreferenced_since, m.orphaned_at, m.dzi_key, e.status_notified_at,
-       a.action, a.actor, a.at, m.dark_media_id, m.invert_in_dark, e.schedule_time_zone, m.small_media_id,
-       e.route_map_config, m.credit
+       e.funds_percent, e.route_id, r.url, e.created_by, e.created_at, e.updated_at,
+       e.status_notified_at, a.action, a.actor, a.at, e.schedule_time_zone, e.route_map_config
 from event e
 left join route r on r.id = e.route_id
-left join media_asset m on m.id = e.route_image_media_id
 left join lateral (
   select action, actor, at from audit_log
   where entity = 'event' and entity_id = e.id::text
@@ -1746,16 +1677,16 @@ left join lateral (
         && TimeZoneInfo.TryFindSystemTimeZoneById(id, out _);
 
     private static async Task<EventDto?> ReadEventByIdAsync(
-        NpgsqlConnection conn, NpgsqlTransaction? tx, long id, WmsfoOptions options, CancellationToken ct)
+        NpgsqlConnection conn, NpgsqlTransaction? tx, long id, CancellationToken ct)
     {
         await using var cmd = new NpgsqlCommand(EventSelectSql + " where e.id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return null;
-        return ReadEvent(reader, options);
+        return ReadEvent(reader);
     }
 
-    private static EventDto ReadEvent(NpgsqlDataReader reader, WmsfoOptions options)
+    private static EventDto ReadEvent(NpgsqlDataReader reader)
     {
         var dto = new EventDto
         {
@@ -1770,62 +1701,20 @@ left join lateral (
             FundsPercent = reader.GetInt32(8),
             RouteId = reader.IsDBNull(9) ? null : reader.GetInt64(9),
             RouteUrl = reader.IsDBNull(10) ? null : reader.GetString(10),
-            RouteImageMediaId = reader.IsDBNull(11) ? null : reader.GetGuid(11).ToString(),
-            CreatedBy = reader.GetString(12),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(13),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(14),
-            StatusNotifiedAt = reader.IsDBNull(33) ? null : reader.GetFieldValue<DateTimeOffset>(33),
-            ScheduleTimeZone = reader.IsDBNull(39) ? null : reader.GetString(39),
-            RouteMapConfig = reader.IsDBNull(41) ? null : RouteMapConfigRules.FromStored(reader.GetString(41)),
+            CreatedBy = reader.GetString(11),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(12),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(13),
+            StatusNotifiedAt = reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
+            ScheduleTimeZone = reader.IsDBNull(18) ? null : reader.GetString(18),
+            RouteMapConfig = reader.IsDBNull(19) ? null : RouteMapConfigRules.FromStored(reader.GetString(19)),
         };
-        if (!reader.IsDBNull(34))
+        if (!reader.IsDBNull(15))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(34),
-                By = reader.GetString(35),
-                At = reader.GetFieldValue<DateTimeOffset>(36),
-            };
-        }
-        if (!reader.IsDBNull(11))
-        {
-            var cdn = options.CdnBaseUrl.TrimEnd('/');
-            var s3Key = reader.GetString(19);
-            var variantsJson = reader.IsDBNull(24) ? "{}" : reader.GetString(24);
-            var variants = new SortedDictionary<string, string>(StringComparer.Ordinal);
-            using (var doc = System.Text.Json.JsonDocument.Parse(variantsJson))
-            {
-                foreach (var entry in doc.RootElement.EnumerateObject())
-                {
-                    var v = entry.Value.GetString() ?? "";
-                    variants[entry.Name] = cdn + "/" + v;
-                }
-            }
-            dto.RouteImage = new MediaAssetDto
-            {
-                Id = dto.RouteImageMediaId ?? "",
-                Filename = reader.GetString(15),
-                ContentType = reader.GetString(16),
-                Kind = reader.GetString(17),
-                State = reader.GetString(18),
-                SizeBytes = reader.IsDBNull(20) ? null : reader.GetInt64(20),
-                Width = reader.IsDBNull(21) ? null : reader.GetInt32(21),
-                Height = reader.IsDBNull(22) ? null : reader.GetInt32(22),
-                Sha256 = reader.IsDBNull(23) ? null : reader.GetString(23).Trim(),
-                Variants = variants,
-                Alt = reader.GetString(25),
-                Title = reader.GetString(26),
-                UploadedBy = reader.GetString(27),
-                CreatedAt = reader.GetFieldValue<DateTimeOffset>(28),
-                ConfirmedAt = reader.IsDBNull(29) ? null : reader.GetFieldValue<DateTimeOffset>(29),
-                UnreferencedSince = reader.IsDBNull(30) ? null : reader.GetFieldValue<DateTimeOffset>(30),
-                OrphanedAt = reader.IsDBNull(31) ? null : reader.GetFieldValue<DateTimeOffset>(31),
-                Url = cdn + "/" + s3Key,
-                DziUrl = reader.IsDBNull(32) ? null : cdn + "/" + reader.GetString(32),
-                DarkMediaId = reader.IsDBNull(37) ? null : reader.GetGuid(37).ToString(),
-                InvertInDark = reader.GetBoolean(38),
-                SmallMediaId = reader.IsDBNull(40) ? null : reader.GetGuid(40).ToString(),
-                Credit = reader.IsDBNull(42) ? null : reader.GetString(42),
+                Action = reader.GetString(15),
+                By = reader.GetString(16),
+                At = reader.GetFieldValue<DateTimeOffset>(17),
             };
         }
         return dto;

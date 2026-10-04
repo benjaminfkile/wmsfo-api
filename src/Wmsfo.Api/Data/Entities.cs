@@ -37,7 +37,6 @@ public sealed class Event
     public DateTimeOffset? EndedAt { get; set; }
     public int FundsPercent { get; set; }
     public long? RouteId { get; set; }
-    public Guid? RouteImageMediaId { get; set; }
     public JsonDocument? FinalCookieTally { get; set; }
     public DateTimeOffset? StatusNotifiedAt { get; set; }
     public long NextSeq { get; set; }

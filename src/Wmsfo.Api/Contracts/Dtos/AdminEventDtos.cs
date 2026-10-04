@@ -33,9 +33,6 @@ public sealed class PatchEventRequest
     public JsonElement EndedAt { get; set; }
     public int? FundsPercent { get; set; }
     public long? RouteId { get; set; }
-    // A string value sets the link (uuid) or clears it (empty string).
-    // Null / absent leaves the current value unchanged.
-    public string? RouteImageMediaId { get; set; }
     // An IANA zone id sets the zone, null clears it, absent leaves the row
     // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
     // `ValueKind == Null` and absent yields `Undefined`.
@@ -74,7 +71,6 @@ public sealed class CloneEventCopy
 {
     public bool Sponsors { get; set; }
     public bool Route { get; set; }
-    public bool Poster { get; set; }
     public bool RouteMapConfig { get; set; }
 }
 

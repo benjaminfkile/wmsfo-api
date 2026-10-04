@@ -201,14 +201,24 @@ public sealed class A29DeepZoomTests : IClassFixture<PostgresFixture>, IAsyncLif
         var pngBytes = BuildPng(3000, 2000);
         var id = await UploadAndConfirmAsync("poster.png", "image/png", pngBytes);
 
-        // Reference the asset from the current event's route poster so the
-        // snapshot builder picks it up (the media map includes event.routeImage).
+        // Reference the asset as the logo of a sponsor the current event lists
+        // so the snapshot builder picks it up (the media map includes the
+        // listed sponsors' logos).
         await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
         {
             await conn.OpenAsync();
+            await using (var ev = new NpgsqlCommand(@"
+insert into event (year, name, status_id, is_current, created_by)
+values (2027, 'Flyover 2027', 1, true, 'test');", conn))
+            {
+                await ev.ExecuteNonQueryAsync();
+            }
             await using var ins = new NpgsqlCommand(@"
-insert into event (year, name, status_id, is_current, route_image_media_id, created_by)
-values (2027, 'Flyover 2027', 1, true, $1, 'test');", conn);
+with s as (
+  insert into sponsor (name, logo_media_id, updated_at) values ('Tiled Co', $1, now()) returning id
+)
+insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
+select id, 2027, 500, true, true, false from s;", conn);
             ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(id) });
             await ins.ExecuteNonQueryAsync();
         }

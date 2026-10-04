@@ -16,7 +16,6 @@ public static class FixtureData
     public const string CandyCaneIconSha = "aa1100000000000000000000000000000000000000000000000000000000ffff";
     public const string HangarMediaId      = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
     public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
-    public const string RoutePosterMediaId = "5f2a7c9e-1b4d-4e8a-9c3f-7d6e2a1b0c44";
     public const string HangarDarkMediaId  = "9d4b2e6f-3c8a-4f1d-8e7b-1a5c0f9d2b55";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
@@ -53,21 +52,6 @@ public static class FixtureData
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal)
         {
-            [RoutePosterMediaId] = new MediaEntry
-            {
-                Url = $"{CdnBase}/media/{RoutePosterMediaId}/route-2026.jpg",
-                Kind = "raster",
-                Width = 1600,
-                Height = 2400,
-                Alt = "The 2026 route poster",
-                Variants = new SortedDictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["1600"] = $"{CdnBase}/media/{RoutePosterMediaId}/w1600.webp",
-                    ["480"]  = $"{CdnBase}/media/{RoutePosterMediaId}/w480.webp",
-                    ["960"]  = $"{CdnBase}/media/{RoutePosterMediaId}/w960.webp",
-                },
-                Dzi = $"{CdnBase}/media/{RoutePosterMediaId}/dzi/poster.dzi",
-            },
             [HangarMediaId] = new MediaEntry
             {
                 Url = $"{CdnBase}/media/{HangarMediaId}/hangar.jpg",
@@ -124,7 +108,6 @@ public static class FixtureData
                 WentLiveAt  = DateTimeOffset.Parse("2026-12-22T01:02:11.000Z"),
                 EndedAt     = null,
                 FundsPercent = 63,
-                RouteImageMediaId = RoutePosterMediaId,
                 FlightHistory = new SnapshotFlightHistory
                 {
                     RouteId = 3,

@@ -121,8 +121,6 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Cheer meter, 0 to 100.");
             e.Property(x => x.RouteId).HasColumnType("bigint")
                 .HasComment("Route shown for this event; null when unlinked.");
-            e.Property(x => x.RouteImageMediaId).HasColumnType("uuid")
-                .HasComment("The route poster the site shows (contracts 1.3). A ready raster media_asset; svg and gif are refused at PATCH.");
             e.Property(x => x.FinalCookieTally).HasColumnType("jsonb");
             e.Property(x => x.StatusNotifiedAt).HasColumnType("timestamptz")
                 .HasComment("When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.");
@@ -141,8 +139,6 @@ public sealed class WmsfoDbContext : DbContext
                 .HasConstraintName("event_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
             e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
                 .HasConstraintName("event_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
-            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.RouteImageMediaId)
-                .HasConstraintName("event_route_image_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
 
             e.HasIndex(x => x.StatusId).HasDatabaseName("event_one_live").IsUnique().HasFilter("status_id = 3");
             e.HasIndex(x => x.IsCurrent).HasDatabaseName("event_one_current").IsUnique().HasFilter("is_current");
