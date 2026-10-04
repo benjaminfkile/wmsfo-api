@@ -50,10 +50,12 @@ public sealed class EmailTemplatesTests
     [InlineData(EmailTemplates.ContactReceived, "contactMessage")]
     public void Both_html_and_text_bodies_contain_every_required_substitution(string name, string token)
     {
+        // The fragment or, for the unsubscribe link, the template's footer link.
+        var link = EmailTemplates.Specs[name].Link;
         var htmlPath = Path.Combine(TemplatesDir, name + ".html");
         var textPath = Path.Combine(TemplatesDir, name + ".txt");
-        var html = File.ReadAllText(htmlPath);
-        var text = File.ReadAllText(textPath);
+        var html = File.ReadAllText(htmlPath) + link?.Html;
+        var text = File.ReadAllText(textPath) + link?.Text;
         var marker = "{{" + token + "}}";
         Assert.Contains(marker, html);
         Assert.Contains(marker, text);
@@ -251,13 +253,15 @@ public sealed class EmailTemplatesTests
 
         // HTML part: the layout frame, the logo, the footer, escaped values.
         Assert.StartsWith("<!DOCTYPE html>", rendered.Html);
-        Assert.Contains("<img src=\"" + logoUrl + "\" width=\"96\"", rendered.Html);
+        Assert.Contains("<img src=\"" + logoUrl + "\" width=\"64\" height=\"64\"", rendered.Html);
         Assert.Contains("alt=\"Santa Tracker\"", rendered.Html);
         Assert.Equal(1, CountOf(rendered.Html, "<img "));
         Assert.Contains(System.Net.WebUtility.HtmlEncode(spec.FooterReason), rendered.Html);
         Assert.Contains("<title>" + System.Net.WebUtility.HtmlEncode(rendered.Subject) + "</title>", rendered.Html);
         Assert.Contains("href=\"" + SiteBase + "\"", rendered.Html);
-        Assert.DoesNotContain("<style", rendered.Html);
+        Assert.Equal(1, CountOf(rendered.Html, "<style"));
+        Assert.Contains("<style>:root { color-scheme: light only; }</style>", rendered.Html);
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(rendered.Html) < 100 * 1024, "under 100 KB");
         Assert.DoesNotContain("<script", rendered.Html);
         Assert.DoesNotContain("{{", rendered.Html);
         Assert.True(CountOf(rendered.Html, "bgcolor=\"#0b6bb5\"") <= 1, "at most one button");
@@ -272,7 +276,9 @@ public sealed class EmailTemplatesTests
             }
         }
         if (spec.RequiredTokens.Contains("unsubscribeUrl"))
-            Assert.Contains("unsubscribe", rendered.Html);
+            Assert.Contains("unsubscribe</a>.</p>", rendered.Html);
+        if (spec.Pill is { } pill)
+            Assert.Contains(pill.Html, rendered.Html);
 
         // Text part: the same content, raw, with the footer.
         Assert.Contains(spec.FooterReason, rendered.Text);
@@ -291,7 +297,7 @@ public sealed class EmailTemplatesTests
         values["logoUrl"] = CdnBase + "/email/abc.png";
         var rendered = templates.Render(EmailTemplates.EventLive, values);
 
-        Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"96\"", rendered.Html);
+        Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"64\"", rendered.Html);
         Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
         Assert.Contains("alt=\"North Pole &amp; Co\"", rendered.Html);
         Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</td>", rendered.Html);
@@ -364,6 +370,16 @@ public sealed class EmailTemplatesTests
         Assert.Equal(root.GetProperty("logoUrl").GetString(), templates.Logo.Url);
 
         var render = root.GetProperty("renders").GetProperty(name);
+        var spec = EmailTemplates.Specs[name];
+        Assert.Equal(render.TryGetProperty("statusPill", out var pill)
+                ? new EmailTemplates.StatusPill(pill.GetProperty("label").GetString()!,
+                    pill.GetProperty("background").GetString()!, pill.GetProperty("color").GetString()!)
+                : null,
+            spec.Pill);
+        Assert.Equal(render.TryGetProperty("footerLink", out var link)
+                ? new EmailTemplates.FooterLink(link.GetProperty("html").GetString()!, link.GetProperty("txt").GetString()!)
+                : null,
+            spec.Link);
         var values = render.GetProperty("values").EnumerateObject()
             .ToDictionary(p => p.Name, p => p.Value.GetString()!, StringComparer.Ordinal);
         var rendered = templates.Render(name, values);
@@ -373,6 +389,86 @@ public sealed class EmailTemplatesTests
         Assert.Equal(render.GetProperty("footerReason").GetString(), EmailTemplates.Specs[name].FooterReason);
         Assert.Equal(File.ReadAllBytes(Path.Combine(goldenDir, name + ".html")), System.Text.Encoding.UTF8.GetBytes(rendered.Html));
         Assert.Equal(File.ReadAllBytes(Path.Combine(goldenDir, name + ".txt")), System.Text.Encoding.UTF8.GetBytes(rendered.Text));
+    }
+
+    [Fact]
+    public void The_live_render_is_the_light_banner_layout()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var html = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive)).Html;
+
+        // The light-only declarations.
+        Assert.Contains("<meta name=\"color-scheme\" content=\"light\" />", html);
+        Assert.Contains("<meta name=\"supported-color-schemes\" content=\"light\" />", html);
+        Assert.Contains("<style>:root { color-scheme: light only; }</style>", html);
+        // The header band, the body, and the footer band, each background by attribute and style.
+        Assert.Contains("bgcolor=\"#f5f8fd\" style=\"padding:20px 28px;background-color:#f5f8fd;border-bottom:1px solid #d3ddee;", html);
+        Assert.Contains("bgcolor=\"#ffffff\" style=\"padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;", html);
+        Assert.Contains("bgcolor=\"#eef3fa\" style=\"padding:16px 28px;background-color:#eef3fa;border-top:1px solid #d3ddee;", html);
+        // The "Live now" pill in its two colours.
+        Assert.Contains("border-radius:999px;background-color:#e3f6ec;color:#1f7f4f;\">Live now</span>", html);
+        Assert.Contains("letter-spacing:0.08em;text-transform:uppercase;", html);
+        // The star heading, the quoted message, and the round button.
+        Assert.Contains("Santa just lifted off <span style=\"color:#8a6210;\">&#9733;</span></h1>", html);
+        Assert.Contains("background-color:#f5f8fd;border-left:3px solid #0b6bb5;border-radius:6px;", html);
+        Assert.Contains("white-space:pre-wrap;\">customMessage &lt;b&gt;", html);
+        Assert.Contains("bgcolor=\"#0b6bb5\" style=\"background-color:#0b6bb5;border-radius:999px;\"", html);
+        Assert.Contains("padding:12px 22px;", html);
+        // The unsubscribe line sits in the footer band after the reason.
+        var footer = html.IndexOf("border-top:1px solid #d3ddee;", StringComparison.Ordinal);
+        Assert.True(footer > 0 && html.IndexOf("unsubscribe</a>", StringComparison.Ordinal) > footer);
+        Assert.True(html.IndexOf(EmailTemplates.Specs[EmailTemplates.EventLive].FooterReason, StringComparison.Ordinal)
+            < html.IndexOf("unsubscribe</a>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_contact_render_carries_no_pill_and_no_footer_link()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var rendered = templates.Render(EmailTemplates.ContactReceived, TrickyValues(EmailTemplates.ContactReceived));
+
+        Assert.DoesNotContain(EmailTemplates.StatusPill.Style, rendered.Html);
+        Assert.DoesNotContain("<span", rendered.Html);
+        Assert.DoesNotContain("&#9733;", rendered.Html);
+        Assert.DoesNotContain("unsubscribe", rendered.Html);
+        Assert.DoesNotContain("unsubscribe", rendered.Text);
+        // The footer reason is followed directly by the site link.
+        Assert.EndsWith(EmailTemplates.Specs[EmailTemplates.ContactReceived].FooterReason + "\n" + SiteBase + "\n", rendered.Text);
+    }
+
+    [Theory]
+    [InlineData(EmailTemplates.SubscriptionVerify, "Confirm", "#e6f0fa", "#0b6bb5")]
+    [InlineData(EmailTemplates.EventPlanned, "Planned", "#e6f0fa", "#0b6bb5")]
+    [InlineData(EmailTemplates.EventScheduled, "Scheduled", "#e6f0fa", "#0b6bb5")]
+    [InlineData(EmailTemplates.EventLive, "Live now", "#e3f6ec", "#1f7f4f")]
+    [InlineData(EmailTemplates.EventEnded, "Landed", "#edf1f7", "#5a6885")]
+    [InlineData(EmailTemplates.EventCancelled, "Cancelled", "#fbe7e5", "#c2362c")]
+    [InlineData(EmailTemplates.EventPostponed, "Postponed", "#f8efd9", "#8a6210")]
+    [InlineData(EmailTemplates.EventMessage, "Update", "#e6f0fa", "#0b6bb5")]
+    public void Each_template_carries_its_status_pill(string name, string label, string background, string color)
+    {
+        Assert.Equal(new EmailTemplates.StatusPill(label, background, color), EmailTemplates.Specs[name].Pill);
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var html = templates.Render(name, TrickyValues(name)).Html;
+        Assert.Contains($"background-color:{background};color:{color};\">{label}</span>", html);
+        Assert.Equal(name != EmailTemplates.SubscriptionVerify, html.Contains("&#9733;", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_template_loads_with_every_required_token_in_both_parts()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        Assert.Equal(EmailTemplates.Specs.Keys.Order(), templates.Names.Order());
+        foreach (var (name, spec) in EmailTemplates.Specs)
+        {
+            var rendered = templates.Render(name, TrickyValues(name));
+            foreach (var token in spec.RequiredTokens)
+            {
+                var value = TrickyValues(name)[token];
+                Assert.Contains(System.Net.WebUtility.HtmlEncode(value), rendered.Html);
+                Assert.Contains(value, rendered.Text);
+            }
+        }
     }
 
     private static int CountOf(string haystack, string needle)

@@ -4,6 +4,3 @@ An update from {{eventName}}:
 
 Follow the tracker at:
 {{siteUrl}}
-
-To stop receiving these alerts, use the one-click link:
-{{unsubscribeUrl}}

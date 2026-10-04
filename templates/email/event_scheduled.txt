@@ -4,6 +4,3 @@ Santa's flight is scheduled
 
 Follow along at:
 {{siteUrl}}
-
-To stop receiving these alerts, use the one-click link:
-{{unsubscribeUrl}}

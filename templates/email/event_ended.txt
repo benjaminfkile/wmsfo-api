@@ -4,6 +4,3 @@ Santa has landed
 
 See the recap at:
 {{siteUrl}}
-
-To stop receiving these alerts, use the one-click link:
-{{unsubscribeUrl}}

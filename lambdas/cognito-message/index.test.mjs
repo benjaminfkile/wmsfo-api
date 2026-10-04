@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { COGNITO_CODE, COGNITO_USERNAME, MAX_MESSAGE_LENGTH, createHandler } from "./index.mjs";
-import { compose, logoUrl, render } from "./render.mjs";
+import { compose, logoUrl, render, statusPillHtml } from "./render.mjs";
 
 const templatesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "templates", "email");
 const settings = {
@@ -182,6 +182,10 @@ test("the A56 golden files match this renderer byte for byte", () => {
       const composed = compose(
         readFileSync(join(templatesDir, `_layout.${ext}`), "utf8"),
         readFileSync(join(templatesDir, `${name}.${ext}`), "utf8"),
+        {
+          statusPill: spec.statusPill && ext === "html" ? statusPillHtml(spec.statusPill) : "",
+          footerLink: spec.footerLink?.[ext] ?? "",
+        },
       );
       const { subject, body } = render(composed, spec, spec.values, layout, { htmlEscape: ext === "html" });
       assert.equal(subject, spec.subject);

@@ -4,6 +4,3 @@ Santa's flight is on the calendar
 
 Follow along at:
 {{siteUrl}}
-
-To stop receiving these alerts, use the one-click link:
-{{unsubscribeUrl}}

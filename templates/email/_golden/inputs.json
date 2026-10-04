@@ -7,6 +7,11 @@
       "subject": "Confirm your Santa tracker alerts",
       "preheader": "One click confirms this address and turns on your Santa Tracker alerts.",
       "footerReason": "You are receiving this because someone asked for Santa Tracker alerts at this address.",
+      "statusPill": {
+        "label": "Confirm",
+        "background": "#e6f0fa",
+        "color": "#0b6bb5"
+      },
       "values": {
         "verifyUrl": "https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "siteUrl": "https://site.example.com"
@@ -16,6 +21,15 @@
       "subject": "Santa just lifted off",
       "preheader": "Santa is in the air right now, so open the tracker and follow the flight.",
       "footerReason": "You are receiving this because you signed up for Santa Tracker alerts at this address.",
+      "statusPill": {
+        "label": "Live now",
+        "background": "#e3f6ec",
+        "color": "#1f7f4f"
+      },
+      "footerLink": {
+        "html": "                <p style=\"margin:0 0 8px 0;\">To stop receiving these alerts, use the one-click link: <a href=\"{{unsubscribeUrl}}\" style=\"color:#0b6bb5;text-decoration:underline;\">unsubscribe</a>.</p>",
+        "txt": "To stop receiving these alerts, use the one-click link: {{unsubscribeUrl}}"
+      },
       "values": {
         "customMessage": "Santa & the reindeer are live! Watch the <tracker> and wave at \"Rudolph\" as the sleigh passes.",
         "siteUrl": "https://site.example.com",
