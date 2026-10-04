@@ -3,34 +3,47 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <meta name="supported-color-schemes" content="light" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="supported-color-schemes" content="light dark" />
     <title>Confirm your Santa tracker alerts</title>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Bricolage+Grotesque:wght@700&display=swap" rel="stylesheet">
     <style>
-      :root { color-scheme: light only; }
+      :root { color-scheme: light dark; }
       @media (prefers-color-scheme: dark) {
-        .ground { background-color: #eef3fa !important; }
-        .body, .card { background-color: #ffffff !important; }
-        .band { background-color: #f5f8fd !important; }
-        .foot { background-color: #eef3fa !important; }
-        .text { color: #2c3850 !important; }
+        .ground table, .ground td, .ground p, .ground h1, .ground span, .ground a { background-color: transparent !important; color: inherit !important; }
+        .ground, .ground .ground { background-color: #070d1c !important; }
+        .ground .card, .ground .body { background-color: #0f182e !important; border-color: #243252 !important; }
+        .ground .band, .ground .quote { background-color: #16213c !important; border-color: #243252 !important; }
+        .ground .foot { background-color: #070d1c !important; border-color: #243252 !important; }
+        .ground .text, .ground .quote { color: #c9d5ec !important; }
+        .ground .quote { border-left-color: #6fd3ff !important; }
+        .ground .name, .ground .heading { color: #eef3ff !important; }
+        .ground .muted { color: #8393b5 !important; }
+        .ground .link { color: #6fd3ff !important; }
+        .ground .button { background-color: #6fd3ff !important; }
+        .ground .buttonText { color: #070d1c !important; }
+        .ground .star { color: #f0c05a !important; }
+        .ground .pillAccent { background-color: #163452 !important; color: #6fd3ff !important; }
+        .ground .pillOk { background-color: #15372b !important; color: #56d29a !important; }
+        .ground .pillDim { background-color: #1a2540 !important; color: #8393b5 !important; }
+        .ground .pillErr { background-color: #3d2326 !important; color: #ff7a70 !important; }
+        .ground .pillWarn { background-color: #3a3119 !important; color: #f0c05a !important; }
       }
     </style>
   </head>
-  <body class="ground" bgcolor="#eef3fa" style="margin:0;padding:0;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);">
+  <body class="ground" bgcolor="#eef3fa" style="margin:0;padding:0;background-color:#eef3fa;">
     <div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:#eef3fa;">One click confirms this address and turns on your Santa Tracker alerts.</div>
-    <table class="ground" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef3fa" style="width:100%;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);">
+    <table class="ground" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef3fa" style="width:100%;background-color:#eef3fa;">
       <tr>
-        <td class="ground" align="center" bgcolor="#eef3fa" style="padding:24px 12px;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);">
-          <table class="ground" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef3fa" style="width:100%;max-width:560px;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);">
+        <td class="ground" align="center" bgcolor="#eef3fa" style="padding:24px 12px;background-color:#eef3fa;">
+          <table class="ground" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef3fa" style="width:100%;max-width:560px;background-color:#eef3fa;">
             <tr>
-              <td class="ground" align="center" bgcolor="#eef3fa" style="padding:0;font-size:0;line-height:0;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);"><img src="https://cdn.example.com/email/6013bc9fa1b9aaa6c0a1e7543cbb901f5740cd00c44d4bd77471fa0c34d88294.png" width="560" height="110" alt="" style="display:block;width:100%;height:auto;max-width:560px;border:0;outline:none;text-decoration:none;" /></td>
+              <td class="ground" align="center" bgcolor="#eef3fa" style="padding:0;font-size:0;line-height:0;background-color:#eef3fa;"><img src="https://cdn.example.com/email/6013bc9fa1b9aaa6c0a1e7543cbb901f5740cd00c44d4bd77471fa0c34d88294.png" width="560" height="110" alt="" style="display:block;width:100%;height:auto;max-width:560px;border:0;outline:none;text-decoration:none;" /></td>
             </tr>
           </table>
-          <table class="card" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:560px;background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);border:1px solid #d3ddee;border-radius:16px;border-collapse:separate;overflow:hidden;">
+          <table class="card" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:560px;background-color:#ffffff;border:1px solid #d3ddee;border-radius:16px;border-collapse:separate;overflow:hidden;">
             <tr>
-              <td class="band" bgcolor="#f5f8fd" style="padding:20px 28px;background-color:#f5f8fd;background-image:linear-gradient(#f5f8fd, #f5f8fd);border-bottom:1px solid #d3ddee;border-radius:16px 16px 0 0;">
+              <td class="band" bgcolor="#f5f8fd" style="padding:20px 28px;background-color:#f5f8fd;border-bottom:1px solid #d3ddee;border-radius:16px 16px 0 0;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
                   <tr>
                     <td style="padding:0;vertical-align:middle;">
@@ -39,37 +52,37 @@
                           <td style="padding:0 14px 0 0;vertical-align:middle;">
                             <a href="https://site.example.com" style="text-decoration:none;"><img src="https://cdn.example.com/email/828cc234d64e75173a23214338bf974497c8ccfaca6c2f71d9733ca98106353b.png" width="64" height="64" alt="Santa Tracker" style="display:block;width:64px;height:64px;border:0;outline:none;text-decoration:none;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:bold;color:#0f1a30;" /></a>
                           </td>
-                          <td style="vertical-align:middle;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:19px;line-height:24px;font-weight:bold;color:#0f1a30 !important;">Santa Tracker</td>
+                          <td class="name" style="vertical-align:middle;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:19px;line-height:24px;font-weight:bold;color:#0f1a30;">Santa Tracker</td>
                         </tr>
                       </table>
                     </td>
-                    <td align="right" style="padding:0 0 0 12px;vertical-align:middle;text-align:right;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;"><span style="display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;padding:3px 10px;border-radius:999px;background-color:#e6f0fa;color:#0b6bb5;">Confirm</span></td>
+                    <td align="right" style="padding:0 0 0 12px;vertical-align:middle;text-align:right;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;"><span class="pill pillAccent" style="display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;text-transform:uppercase;padding:3px 10px;border-radius:999px;background-color:#e6f0fa;color:#0b6bb5;">Confirm</span></td>
                   </tr>
                 </table>
               </td>
             </tr>
             <tr>
-              <td style="padding:0;font-size:0;line-height:0;"><img src="https://cdn.example.com/email/ba0950e87e9043507eb050a1614e3d48ba5c6c246e3411fee76c82ff0abfcdc1.png" width="560" height="4" alt="" style="display:block;width:100%;height:auto;max-width:560px;border:0;outline:none;text-decoration:none;" /></td>
+              <td class="lights" style="padding:0;font-size:0;line-height:0;"><img src="https://cdn.example.com/email/ba0950e87e9043507eb050a1614e3d48ba5c6c246e3411fee76c82ff0abfcdc1.png" width="560" height="4" alt="" style="display:block;width:100%;height:auto;max-width:560px;border:0;outline:none;text-decoration:none;" /></td>
             </tr>
             <tr>
-              <td class="body text" bgcolor="#ffffff" style="padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#2c3850 !important;">
-                <h1 style="margin:4px 0 12px 0;font-family:'Bricolage Grotesque', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:24px;line-height:32px;font-weight:bold;color:#0f1a30 !important;">Confirm your alerts</h1>
-                <p class="text" style="margin:0 0 18px 0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#2c3850 !important;">Thanks for signing up for Santa Tracker alerts. Confirm this address and we will let you know when Santa's flight is planned, scheduled, and in the air.</p>
+              <td class="body text" bgcolor="#ffffff" style="padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#2c3850;">
+                <h1 class="heading" style="margin:4px 0 12px 0;font-family:'Bricolage Grotesque', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:24px;line-height:32px;font-weight:bold;color:#0f1a30;">Confirm your alerts</h1>
+                <p class="text" style="margin:0 0 18px 0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#2c3850;">Thanks for signing up for Santa Tracker alerts. Confirm this address and we will let you know when Santa's flight is planned, scheduled, and in the air.</p>
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 12px 0;border-collapse:separate;">
                   <tr>
-                    <td align="center" bgcolor="#0b6bb5" style="background-color:#0b6bb5;background-image:linear-gradient(#0b6bb5, #0b6bb5);border-radius:999px;">
-                      <a href="https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" style="display:inline-block;padding:12px 22px;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;font-weight:bold;color:#ffffff !important;text-decoration:none;border-radius:999px;">Confirm my alerts</a>
+                    <td class="button" align="center" bgcolor="#0b6bb5" style="background-color:#0b6bb5;border-radius:999px;">
+                      <a class="buttonText" href="https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" style="display:inline-block;padding:12px 22px;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:999px;">Confirm my alerts</a>
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 16px 0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885 !important;word-break:break-all;">Or open this link: <a href="https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</a></p>
-                <p style="margin:0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885 !important;">If you did not sign up, ignore this message and no email will follow. You can follow Santa any time at <a href="https://site.example.com" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com</a>.</p>
+                <p class="muted" style="margin:0 0 16px 0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885;word-break:break-all;">Or open this link: <a class="link" href="https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com/alerts/verify?token=wsv_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</a></p>
+                <p class="muted" style="margin:0;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885;">If you did not sign up, ignore this message and no email will follow. You can follow Santa any time at <a class="link" href="https://site.example.com" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com</a>.</p>
               </td>
             </tr>
             <tr>
-              <td class="foot" bgcolor="#eef3fa" style="padding:16px 28px;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);border-top:1px solid #d3ddee;border-radius:0 0 16px 16px;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885 !important;">
+              <td class="foot muted" bgcolor="#eef3fa" style="padding:16px 28px;background-color:#eef3fa;border-top:1px solid #d3ddee;border-radius:0 0 16px 16px;font-family:'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#5a6885;">
                 <p style="margin:0 0 8px 0;">You are receiving this because someone asked for Santa Tracker alerts at this address.</p>
-                <p style="margin:0;"><a href="https://site.example.com" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com</a></p>
+                <p style="margin:0;"><a class="link" href="https://site.example.com" style="color:#0b6bb5;text-decoration:underline;">https://site.example.com</a></p>
               </td>
             </tr>
           </table>

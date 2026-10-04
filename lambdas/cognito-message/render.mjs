@@ -57,9 +57,10 @@ export function substitute(body, values, { htmlEscape }) {
   });
 }
 
-// The header band's pill markup for { label, background, color }.
-export function statusPillHtml({ label, background, color }) {
-  return `<span style="${STATUS_PILL_STYLE}background-color:${background};color:${color};">${htmlEncode(label)}</span>`;
+// The header band's pill markup for { label, background, color, tone }, classed
+// `pill` and its tone.
+export function statusPillHtml({ label, background, color, tone }) {
+  return `<span class="pill ${tone}" style="${STATUS_PILL_STYLE}background-color:${background};color:${color};">${htmlEncode(label)}</span>`;
 }
 
 // The layout with the fragment at {{content}}, `statusPill` markup at
