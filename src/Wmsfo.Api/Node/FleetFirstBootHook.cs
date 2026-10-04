@@ -57,22 +57,26 @@ public sealed class FleetFirstBootHook : IFirstBootHook
             }
         }
 
-        // The email logo: templates/email/logo.png at email/{sha256}.png, written
-        // when that key is absent (platform.md 1.2). Skipped when the templates
-        // are not registered (test hosts without templates/email/).
+        // The bundled email images: templates/email/logo.png, ornaments.png,
+        // and lights.png, each at email/{sha256}.png, written when that key is
+        // absent (platform.md 1.2). Skipped when the templates are not
+        // registered (test hosts without templates/email/).
         var emailTemplates = scope.ServiceProvider.GetService<EmailTemplates>();
         if (emailTemplates is not null && store is not null)
         {
-            try
+            foreach (var image in emailTemplates.BundledImages)
             {
-                if (await emailTemplates.Logo.EnsureWrittenAsync(store, ct).ConfigureAwait(false))
+                try
                 {
-                    _logger.LogInformation("email logo written key={Key}", emailTemplates.Logo.Key);
+                    if (await image.EnsureWrittenAsync(store, ct).ConfigureAwait(false))
+                    {
+                        _logger.LogInformation("email image written key={Key}", image.Key);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "email logo ensure failed (non-fatal for tests)");
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "email image ensure failed (non-fatal for tests)");
+                }
             }
         }
 

@@ -74,16 +74,30 @@ export function compose(layout, fragment, { statusPill = "", footerLink = "" } =
   return frame.split(CONTENT_MARKER).join(body);
 }
 
-// <cdnBaseUrl>/email/<sha256 of logo.png>.png, the layout's {{logoUrl}}.
-export function logoUrl(templatesDir, cdnBaseUrl) {
-  const sha = createHash("sha256").update(readFileSync(join(templatesDir, "logo.png"))).digest("hex");
+// <cdnBaseUrl>/email/<sha256 of the bundled image>.png.
+export function imageUrl(templatesDir, cdnBaseUrl, fileName) {
+  const sha = createHash("sha256").update(readFileSync(join(templatesDir, fileName))).digest("hex");
   return `${cdnBaseUrl.replace(/\/+$/, "")}/email/${sha}.png`;
+}
+
+// The layout's {{logoUrl}}, the URL of logo.png.
+export function logoUrl(templatesDir, cdnBaseUrl) {
+  return imageUrl(templatesDir, cdnBaseUrl, "logo.png");
+}
+
+// The layout's {{ornamentsUrl}} and {{lightsUrl}}, the URLs of ornaments.png
+// and lights.png.
+export function decorationUrls(templatesDir, cdnBaseUrl) {
+  return {
+    ornamentsUrl: imageUrl(templatesDir, cdnBaseUrl, "ornaments.png"),
+    lightsUrl: imageUrl(templatesDir, cdnBaseUrl, "lights.png"),
+  };
 }
 
 // Renders one composed body. `spec` carries subject, preheader, and
 // footerReason, each substituted raw before it reaches the layout; `layout`
-// supplies logoUrl, siteUrl, and siteName (DEFAULT_SITE_NAME when absent),
-// and a siteUrl or siteName in `values` wins.
+// supplies logoUrl, ornamentsUrl, lightsUrl, siteUrl, and siteName
+// (DEFAULT_SITE_NAME when absent), and a siteUrl or siteName in `values` wins.
 export function render(composed, spec, values, layout, { htmlEscape }) {
   const subject = substitute(spec.subject, values, { htmlEscape: false });
   const all = {
@@ -93,6 +107,8 @@ export function render(composed, spec, values, layout, { htmlEscape }) {
     subject,
     preheader: substitute(spec.preheader, values, { htmlEscape: false }),
     logoUrl: layout.logoUrl,
+    ornamentsUrl: layout.ornamentsUrl,
+    lightsUrl: layout.lightsUrl,
     footerReason: substitute(spec.footerReason, values, { htmlEscape: false }),
   };
   return { subject, body: substitute(composed, all, { htmlEscape }) };

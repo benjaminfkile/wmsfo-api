@@ -8,16 +8,19 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Email;
 
-// contracts 7.8 / platform.md 1.2: the bundled email logo,
-// templates/email/logo.png, served from the CDN at email/{sha256}.png where
+// contracts 7.8 / platform.md 1.2: a bundled email image under
+// templates/email/ (the logo, logo.png; the ornaments, ornaments.png; the
+// light string, lights.png), served from the CDN at email/{sha256}.png where
 // {sha256} is the lowercase hex SHA-256 of the file. The boot migrator calls
 // EnsureWrittenAsync, which PUTs the object only when the key is absent, so
-// each logo change is written once and an existing key is never overwritten.
-// It is the fallback of EmailLogoResolver, which serves the published
-// `logoMedia` as a tile DeriveTile cuts.
+// each image change is written once and an existing key is never overwritten.
+// The bundled logo is the fallback of EmailLogoResolver, which serves the
+// published `logoMedia` as a tile DeriveTile cuts.
 public sealed class EmailLogo
 {
     public const string FileName = "logo.png";
+    public const string OrnamentsFileName = "ornaments.png";
+    public const string LightsFileName = "lights.png";
     public const string CdnPathPrefix = "email/";
     public const string PngContentType = "image/png";
     public const string ImmutableCacheControl = "public, max-age=31536000, immutable";
@@ -40,16 +43,19 @@ public sealed class EmailLogo
     public string Sha256 { get; }
     public string Key { get; }
 
-    // WMSFO_CDN_BASE_URL/email/{sha256}.png, the {{logoUrl}} of the layout.
+    // WMSFO_CDN_BASE_URL/email/{sha256}.png, the layout's {{logoUrl}},
+    // {{ornamentsUrl}}, or {{lightsUrl}}.
     public string Url { get; }
 
-    public static EmailLogo Load(string templatesDir, string cdnBaseUrl)
+    // The bundled image templates/email/{fileName}, logo.png by default.
+    public static EmailLogo Load(string templatesDir, string cdnBaseUrl, string fileName = FileName)
     {
         ArgumentNullException.ThrowIfNull(templatesDir);
         ArgumentNullException.ThrowIfNull(cdnBaseUrl);
-        var path = Path.Combine(templatesDir, FileName);
+        ArgumentNullException.ThrowIfNull(fileName);
+        var path = Path.Combine(templatesDir, fileName);
         if (!File.Exists(path))
-            throw new InvalidOperationException($"Missing email logo: {path}");
+            throw new InvalidOperationException($"Missing email image: {path}");
 
         var bytes = File.ReadAllBytes(path);
         var sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
@@ -57,7 +63,7 @@ public sealed class EmailLogo
         return new EmailLogo(bytes, sha, key, UrlFor(cdnBaseUrl, key));
     }
 
-    // PUTs the logo with the immutable cache header when its key is not in the
+    // PUTs the image with the immutable cache header when its key is not in the
     // store yet. Returns true when it wrote.
     public async Task<bool> EnsureWrittenAsync(IObjectStore store, CancellationToken cancellationToken = default)
     {

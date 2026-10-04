@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { COGNITO_CODE, COGNITO_USERNAME, MAX_MESSAGE_LENGTH, createHandler } from "./index.mjs";
-import { compose, logoUrl, render, statusPillHtml } from "./render.mjs";
+import { compose, decorationUrls, logoUrl, render, statusPillHtml } from "./render.mjs";
 
 const templatesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "templates", "email");
 const settings = {
@@ -67,6 +67,9 @@ for (const [triggerSource, template, subject] of CASES) {
     assert.ok(body.startsWith("<!DOCTYPE html>"));
     assert.ok(body.includes(`<title>${subject}</title>`));
     assert.ok(body.includes(logoUrl(templatesDir, settings.cdnBaseUrl)));
+    const { ornamentsUrl, lightsUrl } = decorationUrls(templatesDir, settings.cdnBaseUrl);
+    assert.ok(body.includes(`<img src="${ornamentsUrl}" width="560" height="110" alt=""`));
+    assert.ok(body.includes(`<img src="${lightsUrl}" width="560" height="4" alt=""`));
     assert.ok(!body.includes("{{"), "no token is left");
     assert.ok(body.length < MAX_MESSAGE_LENGTH);
 
@@ -175,8 +178,14 @@ test("a body over the Cognito limit returns the event untouched", async () => {
 test("the A56 golden files match this renderer byte for byte", () => {
   const goldenDir = join(templatesDir, "_golden");
   const inputs = JSON.parse(readFileSync(join(goldenDir, "inputs.json"), "utf8"));
-  const layout = { logoUrl: logoUrl(templatesDir, inputs.cdnBaseUrl), siteUrl: inputs.siteUrl };
+  const layout = {
+    logoUrl: logoUrl(templatesDir, inputs.cdnBaseUrl),
+    ...decorationUrls(templatesDir, inputs.cdnBaseUrl),
+    siteUrl: inputs.siteUrl,
+  };
   assert.equal(layout.logoUrl, inputs.logoUrl);
+  assert.equal(layout.ornamentsUrl, inputs.ornamentsUrl);
+  assert.equal(layout.lightsUrl, inputs.lightsUrl);
   for (const [name, spec] of Object.entries(inputs.renders)) {
     for (const ext of ["html", "txt"]) {
       const composed = compose(

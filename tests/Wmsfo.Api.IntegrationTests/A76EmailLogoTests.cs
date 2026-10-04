@@ -116,6 +116,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
         var message = Assert.Single(host.Sender.Sent);
         var rendered = templates.Render(message.TemplateName, message.Values);
         Assert.Contains("<img src=\"" + templates.Logo.Url + "\"", rendered.Html);
+        Assert.Contains("<img src=\"" + templates.Ornaments.Url + "\"", rendered.Html);
+        Assert.Contains("<img src=\"" + templates.Lights.Url + "\"", rendered.Html);
         Assert.Contains("alt=\"Santa Tracker\"", rendered.Html);
         Assert.StartsWith("Santa Tracker\n", rendered.Text);
     }

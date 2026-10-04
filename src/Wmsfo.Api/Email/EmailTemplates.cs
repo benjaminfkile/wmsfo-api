@@ -14,8 +14,8 @@ namespace Wmsfo.Api.Email;
 // as trusted template text; a {{footerLink}} line is dropped when the
 // template has none. Rendering substitutes {{token}} values: HTML-escaped in
 // the HTML part, raw in the text part. The layout tokens {{subject}},
-// {{preheader}}, {{logoUrl}}, {{siteName}}, {{siteUrl}}, and
-// {{footerReason}} are supplied by Render.
+// {{preheader}}, {{logoUrl}}, {{ornamentsUrl}}, {{lightsUrl}},
+// {{siteName}}, {{siteUrl}}, and {{footerReason}} are supplied by Render.
 public sealed class EmailTemplates
 {
     private static readonly Regex TokenPattern = new(@"\{\{([a-zA-Z]+)\}\}", RegexOptions.Compiled);
@@ -163,23 +163,33 @@ public sealed class EmailTemplates
     private readonly ImmutableDictionary<string, LoadedTemplate> _templates;
     private readonly string _siteUrl;
 
-    private EmailTemplates(ImmutableDictionary<string, LoadedTemplate> templates, EmailLogo logo, string siteUrl)
+    private EmailTemplates(ImmutableDictionary<string, LoadedTemplate> templates,
+        EmailLogo logo, EmailLogo ornaments, EmailLogo lights, string siteUrl)
     {
         _templates = templates;
         Logo = logo;
+        Ornaments = ornaments;
+        Lights = lights;
         _siteUrl = siteUrl;
     }
 
     public IEnumerable<string> Names => _templates.Keys;
 
-    // The layout's one image; the boot migrator writes it to the CDN.
+    // The layout's bundled images: the logo ({{logoUrl}} unless a render
+    // carries the resolved one), the ornaments above the card
+    // ({{ornamentsUrl}}), and the light string under the header band
+    // ({{lightsUrl}}). The boot migrator writes each to the CDN.
     public EmailLogo Logo { get; }
+    public EmailLogo Ornaments { get; }
+    public EmailLogo Lights { get; }
+
+    public IReadOnlyList<EmailLogo> BundledImages => [Logo, Ornaments, Lights];
 
     // Load, compose, and validate every template under templates/email/.
-    // A missing layout, layout without {{content}}, logo, fragment .html or
+    // A missing layout, layout without {{content}}, bundled image, fragment .html or
     // .txt, or a composed template that does not contain each substitution
     // the spec lists throws so boot fails fast. `cdnBaseUrl` is
-    // WMSFO_CDN_BASE_URL (the logo URL's base); `siteUrl` is
+    // WMSFO_CDN_BASE_URL (the base of the image URLs); `siteUrl` is
     // WMSFO_SITE_BASE_URL, the layout's {{siteUrl}} when the values of a
     // render do not carry one.
     public static EmailTemplates Load(string templatesDir, string cdnBaseUrl = "", string siteUrl = "")
@@ -192,6 +202,8 @@ public sealed class EmailTemplates
         var htmlLayout = ReadLayout(templatesDir, HtmlLayoutFile);
         var textLayout = ReadLayout(templatesDir, TextLayoutFile);
         var logo = EmailLogo.Load(templatesDir, cdnBaseUrl);
+        var ornaments = EmailLogo.Load(templatesDir, cdnBaseUrl, EmailLogo.OrnamentsFileName);
+        var lights = EmailLogo.Load(templatesDir, cdnBaseUrl, EmailLogo.LightsFileName);
 
         var builder = ImmutableDictionary.CreateBuilder<string, LoadedTemplate>(StringComparer.Ordinal);
         foreach (var (name, spec) in Specs)
@@ -220,7 +232,7 @@ public sealed class EmailTemplates
 
             builder[name] = new LoadedTemplate(spec.Subject, spec.Preheader, spec.FooterReason, htmlBody, textBody);
         }
-        return new EmailTemplates(builder.ToImmutable(), logo, siteUrl);
+        return new EmailTemplates(builder.ToImmutable(), logo, ornaments, lights, siteUrl);
     }
 
     private static string ReadLayout(string templatesDir, string fileName)
@@ -253,8 +265,9 @@ public sealed class EmailTemplates
     // Substitute the tokens into subject, html, and text. `values` MUST
     // include every RequiredToken plus every SubjectToken. Render adds the
     // layout tokens: subject, preheader, and footerReason from the spec;
-    // logoUrl (the bundled logo), siteName (DefaultSiteName), and siteUrl
-    // (the configured site URL), each unless `values` carries it.
+    // ornamentsUrl and lightsUrl (the bundled images); logoUrl (the bundled
+    // logo), siteName (DefaultSiteName), and siteUrl (the configured site
+    // URL), each unless `values` carries it.
     public RenderedTemplate Render(string name, IReadOnlyDictionary<string, string> values)
     {
         if (!_templates.TryGetValue(name, out var tpl))
@@ -267,6 +280,8 @@ public sealed class EmailTemplates
             ["preheader"] = Substitute(tpl.Preheader, values, htmlEscape: false),
             ["footerReason"] = Substitute(tpl.FooterReason, values, htmlEscape: false),
         };
+        all["ornamentsUrl"] = Ornaments.Url;
+        all["lightsUrl"] = Lights.Url;
         all.TryAdd("logoUrl", Logo.Url);
         all.TryAdd("siteName", DefaultSiteName);
         all.TryAdd("siteUrl", _siteUrl);

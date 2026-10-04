@@ -200,9 +200,13 @@ public sealed class EmailTemplatesTests
             Path.Combine(tmp.Path, EmailTemplates.SubscriptionVerify + ".html"));
         File.WriteAllText(Path.Combine(tmp.Path, EmailTemplates.SubscriptionVerify + ".txt"),
             "no substitutions at all");
-        // The layouts, the logo, and every other template have to be present or
-        // the load fails on a different file.
-        foreach (var file in new[] { EmailTemplates.HtmlLayoutFile, EmailTemplates.TextLayoutFile, "logo.png" })
+        // The layouts, the bundled images, and every other template have to be
+        // present or the load fails on a different file.
+        foreach (var file in new[]
+                 {
+                     EmailTemplates.HtmlLayoutFile, EmailTemplates.TextLayoutFile,
+                     EmailLogo.FileName, EmailLogo.OrnamentsFileName, EmailLogo.LightsFileName,
+                 })
             File.Copy(Path.Combine(TemplatesDir, file), Path.Combine(tmp.Path, file));
         foreach (var name in new[]
         {
@@ -255,12 +259,14 @@ public sealed class EmailTemplatesTests
         Assert.StartsWith("<!DOCTYPE html>", rendered.Html);
         Assert.Contains("<img src=\"" + logoUrl + "\" width=\"64\" height=\"64\"", rendered.Html);
         Assert.Contains("alt=\"Santa Tracker\"", rendered.Html);
-        Assert.Equal(1, CountOf(rendered.Html, "<img "));
+        Assert.Contains("<img src=\"" + templates.Ornaments.Url + "\" width=\"560\" height=\"110\" alt=\"\"", rendered.Html);
+        Assert.Contains("<img src=\"" + templates.Lights.Url + "\" width=\"560\" height=\"4\" alt=\"\"", rendered.Html);
+        Assert.Equal(3, CountOf(rendered.Html, "<img "));
         Assert.Contains(System.Net.WebUtility.HtmlEncode(spec.FooterReason), rendered.Html);
         Assert.Contains("<title>" + System.Net.WebUtility.HtmlEncode(rendered.Subject) + "</title>", rendered.Html);
         Assert.Contains("href=\"" + SiteBase + "\"", rendered.Html);
         Assert.Equal(1, CountOf(rendered.Html, "<style"));
-        Assert.Contains("<style>:root { color-scheme: light only; }</style>", rendered.Html);
+        Assert.Contains(":root { color-scheme: light only; }", rendered.Html);
         Assert.True(System.Text.Encoding.UTF8.GetByteCount(rendered.Html) < 100 * 1024, "under 100 KB");
         Assert.DoesNotContain("<script", rendered.Html);
         Assert.DoesNotContain("{{", rendered.Html);
@@ -300,8 +306,8 @@ public sealed class EmailTemplatesTests
         Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"64\"", rendered.Html);
         Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
         Assert.Contains("alt=\"North Pole &amp; Co\"", rendered.Html);
-        Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</td>", rendered.Html);
-        Assert.Equal(1, CountOf(rendered.Html, "<img "));
+        Assert.Contains("color:#0f1a30 !important;\">North Pole &amp; Co</td>", rendered.Html);
+        Assert.Equal(3, CountOf(rendered.Html, "<img "));
         Assert.StartsWith("North Pole & Co\n", rendered.Text);
     }
 
@@ -311,7 +317,7 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var rendered = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive));
 
-        Assert.Contains("color:#0f1a30;\">Santa Tracker</td>", rendered.Html);
+        Assert.Contains("color:#0f1a30 !important;\">Santa Tracker</td>", rendered.Html);
         Assert.StartsWith("Santa Tracker\n", rendered.Text);
     }
 
@@ -368,6 +374,8 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir,
             root.GetProperty("cdnBaseUrl").GetString()!, root.GetProperty("siteUrl").GetString()!);
         Assert.Equal(root.GetProperty("logoUrl").GetString(), templates.Logo.Url);
+        Assert.Equal(root.GetProperty("ornamentsUrl").GetString(), templates.Ornaments.Url);
+        Assert.Equal(root.GetProperty("lightsUrl").GetString(), templates.Lights.Url);
 
         var render = root.GetProperty("renders").GetProperty(name);
         var spec = EmailTemplates.Specs[name];
@@ -400,25 +408,104 @@ public sealed class EmailTemplatesTests
         // The light-only declarations.
         Assert.Contains("<meta name=\"color-scheme\" content=\"light\" />", html);
         Assert.Contains("<meta name=\"supported-color-schemes\" content=\"light\" />", html);
-        Assert.Contains("<style>:root { color-scheme: light only; }</style>", html);
-        // The header band, the body, and the footer band, each background by attribute and style.
-        Assert.Contains("bgcolor=\"#f5f8fd\" style=\"padding:20px 28px;background-color:#f5f8fd;border-bottom:1px solid #d3ddee;", html);
-        Assert.Contains("bgcolor=\"#ffffff\" style=\"padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;", html);
-        Assert.Contains("bgcolor=\"#eef3fa\" style=\"padding:16px 28px;background-color:#eef3fa;border-top:1px solid #d3ddee;", html);
+        Assert.Contains(":root { color-scheme: light only; }", html);
+        // The header band, the body, and the footer band, each background by attribute, colour, and gradient.
+        Assert.Contains("class=\"band\" bgcolor=\"#f5f8fd\" style=\"padding:20px 28px;background-color:#f5f8fd;background-image:linear-gradient(#f5f8fd, #f5f8fd);border-bottom:1px solid #d3ddee;", html);
+        Assert.Contains("class=\"body text\" bgcolor=\"#ffffff\" style=\"padding:28px;padding:clamp(20px, 5vw, 28px);background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);", html);
+        Assert.Contains("class=\"foot\" bgcolor=\"#eef3fa\" style=\"padding:16px 28px;background-color:#eef3fa;background-image:linear-gradient(#eef3fa, #eef3fa);border-top:1px solid #d3ddee;", html);
         // The "Live now" pill in its two colours.
         Assert.Contains("border-radius:999px;background-color:#e3f6ec;color:#1f7f4f;\">Live now</span>", html);
         Assert.Contains("letter-spacing:0.08em;text-transform:uppercase;", html);
         // The star heading, the quoted message, and the round button.
         Assert.Contains("Santa just lifted off <span style=\"color:#8a6210;\">&#9733;</span></h1>", html);
-        Assert.Contains("background-color:#f5f8fd;border-left:3px solid #0b6bb5;border-radius:6px;", html);
+        Assert.Contains("background-color:#f5f8fd;background-image:linear-gradient(#f5f8fd, #f5f8fd);border-left:3px solid #0b6bb5;border-radius:6px;", html);
         Assert.Contains("white-space:pre-wrap;\">customMessage &lt;b&gt;", html);
-        Assert.Contains("bgcolor=\"#0b6bb5\" style=\"background-color:#0b6bb5;border-radius:999px;\"", html);
+        Assert.Contains("bgcolor=\"#0b6bb5\" style=\"background-color:#0b6bb5;background-image:linear-gradient(#0b6bb5, #0b6bb5);border-radius:999px;\"", html);
         Assert.Contains("padding:12px 22px;", html);
         // The unsubscribe line sits in the footer band after the reason.
         var footer = html.IndexOf("border-top:1px solid #d3ddee;", StringComparison.Ordinal);
         Assert.True(footer > 0 && html.IndexOf("unsubscribe</a>", StringComparison.Ordinal) > footer);
         Assert.True(html.IndexOf(EmailTemplates.Specs[EmailTemplates.EventLive].FooterReason, StringComparison.Ordinal)
             < html.IndexOf("unsubscribe</a>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_live_render_looks_like_the_light_theme_site_and_defends_against_dark_modes()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var html = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive)).Html;
+
+        // The ornaments hang above the card; the light string sits under the band.
+        var ornaments = html.IndexOf("<img src=\"" + templates.Ornaments.Url + "\" width=\"560\" height=\"110\" alt=\"\" style=\"display:block;width:100%;height:auto;max-width:560px;", StringComparison.Ordinal);
+        var card = html.IndexOf("class=\"card\"", StringComparison.Ordinal);
+        var band = html.IndexOf("class=\"band\"", StringComparison.Ordinal);
+        var lights = html.IndexOf("<img src=\"" + templates.Lights.Url + "\" width=\"560\" height=\"4\" alt=\"\" style=\"display:block;width:100%;height:auto;max-width:560px;", StringComparison.Ordinal);
+        var body = html.IndexOf("class=\"body text\"", StringComparison.Ordinal);
+        Assert.True(ornaments > 0 && card > ornaments, "ornaments above the card");
+        Assert.True(band > card && lights > band && body > lights, "the light string between the band and the body");
+
+        // The site's faces.
+        Assert.Contains("<link href=\"https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Bricolage+Grotesque:wght@700&display=swap\" rel=\"stylesheet\">", html);
+        Assert.Contains("<h1 style=\"margin:4px 0 12px 0;font-family:'Bricolage Grotesque', 'IBM Plex Sans', -apple-system,", html);
+        Assert.DoesNotContain("font-family:-apple-system", html);
+
+        // The 16 px card with its three-way background.
+        Assert.Contains("bgcolor=\"#ffffff\" style=\"width:100%;max-width:560px;background-color:#ffffff;background-image:linear-gradient(#ffffff, #ffffff);border:1px solid #d3ddee;border-radius:16px;", html);
+        Assert.Contains("background-image:linear-gradient(#f5f8fd, #f5f8fd);border-bottom:1px solid #d3ddee;border-radius:16px 16px 0 0;", html);
+
+        // The dark-mode media query keeps the light colours.
+        Assert.Contains("@media (prefers-color-scheme: dark) {", html);
+        Assert.Contains(".body, .card { background-color: #ffffff !important; }", html);
+        Assert.Contains(".band { background-color: #f5f8fd !important; }", html);
+        Assert.Contains(".foot { background-color: #eef3fa !important; }", html);
+        Assert.Contains(".text { color: #2c3850 !important; }", html);
+
+        // Important text colours: the heading, body, muted text, and the button.
+        Assert.Contains("font-weight:bold;color:#0f1a30 !important;\">Santa just lifted off", html);
+        Assert.Contains("color:#2c3850 !important;", html);
+        Assert.Contains("color:#5a6885 !important;", html);
+        Assert.Contains("color:#ffffff !important;text-decoration:none;border-radius:999px;\">Watch the tracker</a>", html);
+    }
+
+    [Fact]
+    public void Every_background_is_declared_three_ways()
+    {
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        foreach (var name in EmailTemplates.Specs.Keys)
+        {
+            var html = templates.Render(name, TrickyValues(name)).Html;
+            var bgcolors = System.Text.RegularExpressions.Regex.Matches(html, "bgcolor=\"(#[0-9a-f]{6})\" style=\"([^\"]*)\"");
+            Assert.NotEmpty(bgcolors);
+            foreach (System.Text.RegularExpressions.Match m in bgcolors)
+            {
+                var colour = m.Groups[1].Value;
+                Assert.Contains("background-color:" + colour + ";background-image:linear-gradient(" + colour + ", " + colour + ");", m.Groups[2].Value);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(EmailLogo.OrnamentsFileName)]
+    [InlineData(EmailLogo.LightsFileName)]
+    public async Task Each_decoration_is_email_sha256_of_its_file_and_written_once(string fileName)
+    {
+        var bytes = File.ReadAllBytes(Path.Combine(TemplatesDir, fileName));
+        var sha = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes));
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase + "/", SiteBase);
+        var image = fileName == EmailLogo.OrnamentsFileName ? templates.Ornaments : templates.Lights;
+        Assert.Equal("email/" + sha + ".png", image.Key);
+        Assert.Equal(CdnBase + "/email/" + sha + ".png", image.Url);
+        Assert.Contains(image, templates.BundledImages);
+
+        using var tmp = TempDir.Create();
+        var store = new Wmsfo.Api.Objects.LocalObjectStore(tmp.Path, "http://localhost:5000");
+        Assert.True(await image.EnsureWrittenAsync(store));
+        var head = await store.HeadObjectAsync(image.Key);
+        Assert.NotNull(head);
+        Assert.Equal("image/png", head!.ContentType);
+        Assert.Equal(EmailLogo.ImmutableCacheControl, head.CacheControl);
+        Assert.Equal(bytes, (await store.GetObjectAsync(image.Key))!.Bytes);
+        Assert.False(await image.EnsureWrittenAsync(store));
     }
 
     [Fact]
