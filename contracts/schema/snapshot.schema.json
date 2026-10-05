@@ -197,21 +197,6 @@
                 }
               },
               "additionalProperties": false
-            },
-            "pois": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "properties": {
-                "kinds": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                }
-              },
-              "additionalProperties": false
             }
           },
           "additionalProperties": false

@@ -34,7 +34,7 @@ public static class RouteMapConfigRules
     public static RouteMapConfig? FromStored(string json) =>
         JsonSerializer.Deserialize<RouteMapConfig>(json, CanonicalJson.Options);
 
-    // A schema instance location (`/pois/kinds/1`) as a request field path.
+    // A schema instance location (`/display/arrowSize`) as a request field path.
     private static string FieldPath(string field, string pointer)
     {
         var path = new StringBuilder(field);
