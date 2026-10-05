@@ -36,6 +36,10 @@ public sealed class SiteSettings
     // The sitewide landmarks the route preview and the live tracker draw (0 to
     // 50); absent when null, and a reader treats absent as none.
     [JsonPropertyOrder(15), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IList<Landmark>? Landmarks { get; set; }
+    // The places both maps draw (`tracker` and `routeMap`, each `{ kinds }`),
+    // kept as written and validated by the schema; absent when null, and a
+    // reader treats absent as each map's default.
+    [JsonPropertyOrder(16), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? Places { get; set; }
 }
 
 public sealed class SiteTheme

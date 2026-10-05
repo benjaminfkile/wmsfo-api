@@ -779,6 +779,70 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.False(version.RootElement.GetProperty("settings").TryGetProperty("landmarks", out _));
     }
 
+    // The places both maps draw, saved in the site settings, publish and reach
+    // the snapshot's `settings` as written; a change to them alone counts as
+    // an unpublished change; the starter settings publish without the key.
+    [Fact]
+    public async Task Places_publish_and_the_snapshot_carries_them_and_a_change_counts_as_unpublished()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, starter) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(starter))
+        {
+            Assert.False(version.RootElement.GetProperty("settings").TryGetProperty("places", out _));
+        }
+
+        var put = await PutSiteSettingsAsync(data =>
+        {
+            data["places"] = new JsonObject
+            {
+                ["tracker"] = new JsonObject { ["kinds"] = new JsonArray("park", "school") },
+                ["routeMap"] = new JsonObject { ["kinds"] = new JsonArray() },
+            };
+        });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.True(await HasUnpublishedChangesAsync());
+
+        await PublishAsync();
+        Assert.False(await HasUnpublishedChangesAsync());
+
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            var places = version.RootElement.GetProperty("settings").GetProperty("places");
+            Assert.Equal(2, places.GetProperty("tracker").GetProperty("kinds").GetArrayLength());
+            Assert.Equal(0, places.GetProperty("routeMap").GetProperty("kinds").GetArrayLength());
+        }
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using (var snap = JsonDocument.Parse(snapshotBytes!))
+        {
+            var kinds = snap.RootElement.GetProperty("content").GetProperty("settings")
+                .GetProperty("places").GetProperty("tracker").GetProperty("kinds");
+            Assert.Equal(new[] { "park", "school" }, kinds.EnumerateArray().Select(k => k.GetString()).ToArray());
+        }
+
+        var again = await PutSiteSettingsAsync(data =>
+        {
+            data["places"] = new JsonObject
+            {
+                ["tracker"] = new JsonObject { ["kinds"] = new JsonArray("park") },
+            };
+        });
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.True(await HasUnpublishedChangesAsync());
+    }
+
+    private async Task<bool> HasUnpublishedChangesAsync()
+    {
+        using var req = _host!.EditorRequest(HttpMethod.Get, "/admin/content/status");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("hasUnpublishedChanges").GetBoolean();
+    }
+
     // A landmark whose library icon is not in the library fails publish at the
     // icon's id; one whose media icon is pending fails at the same place.
     [Theory]
