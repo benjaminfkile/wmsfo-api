@@ -13,8 +13,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - a whole config and each key alone round-trip through PATCH and GET
 //   - display.labelSize round-trips last in display and stays absent when unset
 //   - absent leaves it, null clears it, a new event has null
-//   - bad enums, a bad kind token, unknown keys (`landmarks` among them, a
-//     site setting), and a non-object are 400 on the field; the row is unchanged
+//   - bad enums, unknown keys (`landmarks` and `pois` among them, both site
+//     settings), and a non-object are 400 on the field; the row is unchanged
 //   - the PATCH rebuilds the snapshot, whose current event block carries the
 //     config (null without one)
 //   - clone copies the config behind copy.routeMapConfig only
@@ -23,8 +23,7 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     // Every key set, in contract order, as the API answers and publishes it.
     private const string FullConfig =
         "{\"display\":{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\",\"labelSize\":\"large\"},"
-        + "\"controls\":{\"fullscreen\":false,\"terrain\":false},"
-        + "\"pois\":{\"kinds\":[\"school\",\"place_of_worship\"]}}";
+        + "\"controls\":{\"fullscreen\":false,\"terrain\":false}}";
 
     private readonly PostgresFixture _fixture;
     private A9Host? _host;
@@ -103,8 +102,6 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"controls\":{}}")]
     [InlineData("{\"controls\":{\"fullscreen\":false}}")]
     [InlineData("{\"controls\":{\"terrain\":true}}")]
-    [InlineData("{\"pois\":{\"kinds\":[]}}")]
-    [InlineData("{\"pois\":{\"kinds\":[\"hospital\"]}}")]
     public async Task Each_key_round_trips_alone(string config)
     {
         var id = await CreateEventAsync(2302);
@@ -150,11 +147,11 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     {
         var id = await CreateEventAsync(2303);
         var patch = await PatchAsync(id,
-            "{\"routeMapConfig\":{\"pois\":{\"kinds\":[\"park\"]},\"display\":{\"routeWidth\":\"thick\",\"arrows\":true}}}");
+            "{\"routeMapConfig\":{\"display\":{\"routeWidth\":\"thick\",\"arrows\":true}}}");
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
 
         using var got = await GetEventAsync(id);
-        Assert.Equal("{\"display\":{\"arrows\":true,\"routeWidth\":\"thick\"},\"pois\":{\"kinds\":[\"park\"]}}",
+        Assert.Equal("{\"display\":{\"arrows\":true,\"routeWidth\":\"thick\"}}",
             got.RootElement.GetProperty("routeMapConfig").GetRawText());
     }
 
@@ -194,12 +191,12 @@ public sealed class A67RouteMapConfigTests : IClassFixture<PostgresFixture>, IAs
     [InlineData("{\"display\":{\"labelSize\":\"xlarge\"}}", "routeMapConfig.display.labelSize")]
     [InlineData("{\"display\":{\"labelSize\":2}}", "routeMapConfig.display.labelSize")]
     [InlineData("{\"controls\":{\"terrain\":1}}", "routeMapConfig.controls.terrain")]
-    [InlineData("{\"pois\":{\"kinds\":[\"school\",\"Bad-Kind\"]}}", "routeMapConfig.pois.kinds[1]")]
+    [InlineData("{\"pois\":{\"kinds\":[\"park\"]}}", "routeMapConfig.pois")]
     [InlineData("{\"pois\":{}}", "routeMapConfig.pois")]
     [InlineData("{\"color\":\"red\"}", "routeMapConfig.color")]
     [InlineData("{\"display\":{\"color\":\"red\"}}", "routeMapConfig.display.color")]
     [InlineData("{\"controls\":{\"satellite\":true}}", "routeMapConfig.controls.satellite")]
-    [InlineData("{\"pois\":{\"kinds\":[],\"zoom\":14}}", "routeMapConfig.pois.zoom")]
+    [InlineData("{\"pois\":{\"kinds\":[]}}", "routeMapConfig.pois")]
     [InlineData("{\"landmarks\":[]}", "routeMapConfig.landmarks")]
     [InlineData("{\"landmarks\":[{\"name\":\"Courthouse\",\"lat\":46.87,\"lng\":-113.99}]}", "routeMapConfig.landmarks")]
     [InlineData("[]", "routeMapConfig")]

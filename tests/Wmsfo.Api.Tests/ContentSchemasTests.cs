@@ -36,7 +36,8 @@ public class ContentSchemasTests
             "{\"display\":{\"color\":\"red\"}}",
             "{\"controls\":{\"satellite\":true}}",
             "{\"landmarks\":[]}",
-            "{\"pois\":{\"kinds\":[],\"zoom\":14}}",
+            "{\"pois\":{\"kinds\":[]}}",
+            "{\"pois\":{\"kinds\":[\"park\"]}}",
         })
         {
             Assert.NotEmpty(Validator.ValidateRouteMapConfig(JsonNode.Parse(bad)));
@@ -176,6 +177,60 @@ public class ContentSchemasTests
         ["donateUrl"] = null,
         ["analyticsEnabled"] = false,
     };
+
+    // settings.places: the tracker's Google kinds and the route map's basemap
+    // kinds, each optional; the draft level keeps the shape and the ceilings
+    // and publish adds the required `kinds`.
+    [Fact]
+    public void Site_settings_places_validate_at_both_levels()
+    {
+        foreach (var level in new[] { ValidationLevel.Publish, ValidationLevel.Draft })
+        {
+            Assert.Empty(Validator.ValidateSiteSettings(WithPlaces(
+                "{\"tracker\":{\"kinds\":[\"park\",\"school\"]},\"routeMap\":{\"kinds\":[\"hospital\",\"park\"]}}"), level));
+            Assert.Empty(Validator.ValidateSiteSettings(WithPlaces(
+                "{\"tracker\":{\"kinds\":[]},\"routeMap\":{\"kinds\":[]}}"), level));
+            Assert.Empty(Validator.ValidateSiteSettings(WithPlaces("{}"), level));
+
+            foreach (var bad in new[]
+            {
+                "{\"tracker\":{\"kinds\":[\"hospital\"]}}",
+                "{\"tracker\":{\"kinds\":[\"park\",\"park\"]}}",
+                "{\"routeMap\":{\"kinds\":[\"Bad-Kind\"]}}",
+                "{\"poi\":{\"kinds\":[]}}",
+                "{\"tracker\":{\"kinds\":[],\"zoom\":14}}",
+            })
+            {
+                Assert.True(Validator.ValidateSiteSettings(WithPlaces(bad), level).Count > 0,
+                    $"site-settings {level} accepted places {bad}");
+            }
+        }
+
+        var noKinds = WithPlaces("{\"tracker\":{}}");
+        Assert.NotEmpty(Validator.ValidateSiteSettings(noKinds, ValidationLevel.Publish));
+        Assert.Empty(Validator.ValidateSiteSettings(noKinds, ValidationLevel.Draft));
+    }
+
+    private static JsonObject WithPlaces(string places)
+    {
+        var settings = ValidSiteSettings();
+        settings["places"] = JsonNode.Parse(places);
+        return settings;
+    }
+
+    // The tracker's places are a site setting: `poiFilter` and `poiKinds` are
+    // unknown keys on a map section.
+    [Fact]
+    public void Map_section_refuses_poi_filter_and_poi_kinds()
+    {
+        foreach (var key in new[] { "poiFilter", "poiKinds" })
+        {
+            var data = (JsonObject)Registry.ByName["map"].Defaults.DeepClone();
+            data[key] = key == "poiFilter" ? JsonValue.Create(true) : new JsonArray("park");
+            Assert.NotEmpty(Validator.ValidateSectionData("map", data, ValidationLevel.Publish));
+            Assert.NotEmpty(Validator.ValidateSectionData("map", data, ValidationLevel.Draft));
+        }
+    }
 
     [Fact]
     public void Draft_derivation_strips_exactly_the_four_keywords()

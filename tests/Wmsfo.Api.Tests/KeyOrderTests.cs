@@ -45,7 +45,7 @@ public class KeyOrderTests
         var expectedRouteMap = new[] { "path", "timeline", "durationMinutes", "timed" };
         var expectedRouteMapPoint = new[] { "lat", "lng" };
         var expectedTimelineEntry = new[] { "minutes", "lat", "lng" };
-        var expectedRouteMapConfig = new[] { "display", "controls", "pois" };
+        var expectedRouteMapConfig = new[] { "display", "controls" };
         var expectedRouteMapDisplay = new[] { "timeLabelIntervalMinutes", "routeWidth" };
         var expectedLatestMessage = new[] { "id", "body", "createdAt" };
         var expectedSponsor = new[]

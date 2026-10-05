@@ -141,7 +141,6 @@ public static class FixtureData
                 {
                     Display = new RouteMapDisplay { TimeLabelIntervalMinutes = 10, RouteWidth = "thick" },
                     Controls = new RouteMapControls { Terrain = false },
-                    Pois = new RouteMapPois { Kinds = new List<string> { "hospital", "park" } },
                 },
                 LatestMessage = new SnapshotLatestMessage
                 {

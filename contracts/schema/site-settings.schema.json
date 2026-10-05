@@ -66,6 +66,38 @@
       "items": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Landmark" },
       "minItems": 0,
       "maxItems": 50
+    },
+    "places": {
+      "type": "object",
+      "properties": {
+        "tracker": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "items": { "enum": ["attraction", "business", "government", "medical", "park", "place_of_worship", "school", "sports_complex", "transit"] },
+              "minItems": 0,
+              "maxItems": 9,
+              "uniqueItems": true
+            }
+          },
+          "required": ["kinds"],
+          "additionalProperties": false
+        },
+        "routeMap": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[a-z0-9_]+$" }
+            }
+          },
+          "required": ["kinds"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [

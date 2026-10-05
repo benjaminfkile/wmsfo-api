@@ -8424,16 +8424,6 @@
                 "$ref": "#/components/schemas/RouteMapControls"
               }
             ]
-          },
-          "pois": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RouteMapPois"
-              }
-            ]
           }
         }
       },
@@ -8510,17 +8500,6 @@
               "string"
             ],
             "format": "double"
-          }
-        }
-      },
-      "RouteMapPois": {
-        "type": "object",
-        "properties": {
-          "kinds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         }
       },

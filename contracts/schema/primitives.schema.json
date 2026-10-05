@@ -131,18 +131,6 @@
             "terrain": { "type": "boolean" }
           },
           "additionalProperties": false
-        },
-        "pois": {
-          "type": "object",
-          "properties": {
-            "kinds": {
-              "type": "array",
-              "maxItems": 100,
-              "items": { "type": "string", "minLength": 1, "maxLength": 50, "pattern": "^[a-z0-9_]+$" }
-            }
-          },
-          "required": ["kinds"],
-          "additionalProperties": false
         }
       },
       "additionalProperties": false
