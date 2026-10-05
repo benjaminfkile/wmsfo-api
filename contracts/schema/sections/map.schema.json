@@ -53,6 +53,14 @@
       },
       "required": ["liveIndicator", "liftoffTimer", "latestMessage", "leaderboardPanel", "sponsorCarousel", "cookieControl", "distanceChip"],
       "additionalProperties": false
+    },
+    "poiFilter": { "type": ["boolean", "null"] },
+    "poiKinds": {
+      "type": "array",
+      "items": { "enum": ["attraction", "business", "government", "medical", "park", "place_of_worship", "school", "sports_complex", "transit"] },
+      "minItems": 0,
+      "maxItems": 9,
+      "uniqueItems": true
     }
   },
   "required": ["themes", "defaultTheme", "defaultCenter", "defaultZoom", "controls", "flightHistoryDefault", "overlays"],
