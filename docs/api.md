@@ -292,7 +292,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `/admin/qr-codes*`, `/admin/places*` | Canvasser (`qr`); the two deletes Admin | codes: list, mint a batch, detail with history and daily counts, patch, attach, detach, delete; places: tree, create, patch (with the cycle check), location put and delete, delete, the map | section 11b |
 | `/qr-codes/{tag}/scans` | none; rate limited like `/contact` | the scan beacon, always 204 | section 11b |
 | `/me/alerts` | Person | the alert emails sent to the caller's subscriptions, newest first, 100 at most, each with `message`: the body of the `event_message` row the payload's `messageId` names (status and message alerts alike; null when none or deleted) (contracts 4.4) | |
-| `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` svg asset); `409 event_live` guard on every write, the delete included; a delete takes the type's cookies with it (sql.md 8.10) | [snapshot] |
+| `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` media asset of any kind); `409 event_live` guard on every write, the delete included; a delete takes the type's cookies with it (sql.md 8.10) | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
 | `/admin/site-settings` | Editor | read and replace the single row; draft validation | sql.md 8.21 |
 | `GET /admin/content/kinds` | Editor | the registry as `KindInfo[]` with schemas inlined | section 11a.1 |
@@ -301,7 +301,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `GET /admin/content/versions*`, `POST .../restore` | Editor | list, get, restore (11a.5) | sql.md 8.20 |
 | `POST /admin/content/preview-token` | Editor | mint `wpv_`, insert the hash, answer the site URL | sql.md 8.23 |
 | `GET /preview/document` | none (240/min burst 60 per client IP) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
-| `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (alt and title, [snapshot]), delete with every reference cleared | section 11.2 to 11.5 |
+| `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (`alt`, `title`, `darkMediaId`, `invertInDark`, `smallMediaId`, `credit`, [snapshot]), delete with every reference cleared | section 11.2 to 11.5 |
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
 | `/admin/contact-messages*`, `/admin/subscribers*`, `/admin/people*` | Admin | paged lists, deletes, summary | |
