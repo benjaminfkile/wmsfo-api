@@ -950,7 +950,7 @@ An API key lets a script or an agent (Claude Code configuring the site, a postin
 | Acting as | Requests carry no `email`; audit columns record `key:<name>`. No `person` row is upserted. The TOTP gate does not apply to keys. |
 | Rate limit | The `/admin/*` bucket is keyed by key id instead of person id. |
 
-Capabilities, one per endpoint group of 4.5, each named after its heading (Posters rides `events`): `events`, `routes`, `beacons`, `sponsors`, `cookie_types`, `pages`, `sections`, `site_settings`, `content`, `media`, `icons`, `settings`, `contact_messages`, `subscribers`, `people`, `diagnostics`, `audit`, `qr`. Every `/admin/*` endpoint except the API-key endpoints names its capability in the endpoint metadata; a key request whose key lacks it is `403 forbidden`. A key with a capability reaches every endpoint in that group regardless of the group's Cognito policy (a key with `events` can change status; a key with `sponsors` can pin sponsors).
+Capabilities, one per endpoint group of 4.5, each named after its heading (Posters rides `events`), 19 in all: `events`, `routes`, `beacons`, `sponsors`, `cookie_types`, `pages`, `sections`, `site_settings`, `content`, `media`, `icons`, `settings`, `contact_messages`, `subscribers`, `people`, `diagnostics`, `audit`, `qr`, `help`. Every `/admin/*` endpoint except the API-key endpoints names its capability in the endpoint metadata; a key request whose key lacks it is `403 forbidden`. A key with a capability reaches every endpoint in that group regardless of the group's Cognito policy (a key with `events` can change status; a key with `sponsors` can pin sponsors).
 
 ### 3.5 Protecting the callback endpoints
 
@@ -1015,6 +1015,15 @@ type Poster = {
   layout: object | null;             // the panel's poster composer layout, opaque to the API, in canonical form (4.5 Posters); null means unset
   createdBy: string; createdAt: string; updatedAt: string; audit: AuditStamp | null;
 };
+type HelpLink = { label: string; to: string };   // to: a path of the admin panel ("/events") or an https:// URL
+type HelpTopic = {
+  key: string; page: string; label: string;   // from help/topics.json; key is dotted lower-case segments (page, page.card, page.dialog)
+  title: string; body: string; links: HelpLink[];   // the text shown: the seed's until an admin edits it
+  edited: boolean;                   // true while an admin's text replaces the seed's
+  editedBy: string | null; editedAt: string | null;   // the last edit's actor (email or key:<name>) and time; null while not edited
+  defaultChanged: boolean;           // edited, and the seed's text changed after the edit (a reset would show the new text)
+  updatedAt: string; audit: AuditStamp | null;
+};
 type Beacon = {
   id: number; name: string; notes: string; keyPrefix: string; isActive: boolean;
   revokedAt: string | null; lastSeenAt: string | null; lastLocationAt: string | null; lastHeartbeatAt: string | null;
@@ -1036,7 +1045,7 @@ type Sponsor = {
 };
 type SponsorYear = { eventYear: number; amountDonated: number | null; active: boolean; canAdvertise: boolean; anonymous: boolean; pinnedPosition: number | null; lingerMsOverride: number | null; lingerMs: number; registeredAt: string };
                     // lingerMs is the value the snapshot would carry (1.3), computed by the API for the panel to show
-type ApiKeyCapability = "events" | "routes" | "beacons" | "sponsors" | "cookie_types" | "pages" | "sections" | "site_settings" | "content" | "media" | "icons" | "settings" | "contact_messages" | "subscribers" | "people" | "diagnostics" | "audit" | "qr";
+type ApiKeyCapability = "events" | "routes" | "beacons" | "sponsors" | "cookie_types" | "pages" | "sections" | "site_settings" | "content" | "media" | "icons" | "settings" | "contact_messages" | "subscribers" | "people" | "diagnostics" | "audit" | "qr" | "help";
 type ApiKey = { id: number; name: string; keyPrefix: string; allCapabilities: boolean; capabilities: ApiKeyCapability[]; expiresAt: string | null; createdBy: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null; audit: AuditStamp | null };
 type ApiKeyMinted = ApiKey & { key: string };   // the only response that ever carries the full key
 type CookieType = { id: number; name: string; icon: Icon | null; sort: number; active: boolean; cookieCount: number; createdAt: string; updatedAt: string; audit: AuditStamp | null };
@@ -1205,7 +1214,7 @@ Rules: `name` 1 to 100, `email` a valid address 3 to 254, `message` 1 to 2000. S
 
 ### 4.5 Admin endpoints (`Authorization: Bearer <id-token>` with group `admin` or `editor`)
 
-Each group of endpoints names its policy (3.1): **Editor** admits both groups, **Admin** admits `admin` only. Editor endpoints: Sponsors, Pages, Sections and items, Site settings, Content, Media, Icons, Posters, `GET /admin/events/{id}/route-map`, and `GET /admin/routes/{id}/route-map`. Everything else is Admin. Every group except API keys is also reachable with an API key carrying that group's capability (3.6). All admin writes record the caller's `email` claim, or `key:<name>` for a key, in the audit column named per table. Writes marked **[snapshot]** run the transaction in 7.3 and answer `502 snapshot_write_failed` if the snapshot upload fails; after commit the node writes the live object (1.8). The response is sent immediately after commit. The live-object write and publish run after the response and never delay it; their outcome is visible only through `GET /admin/live`.
+Each group of endpoints names its policy (3.1): **Editor** admits both groups, **Admin** admits `admin` only. Editor endpoints: Sponsors, Pages, Sections and items, Site settings, Content, Media, Icons, Posters, `GET /admin/help`, `GET /admin/events/{id}/route-map`, and `GET /admin/routes/{id}/route-map`. Everything else is Admin. Every group except API keys is also reachable with an API key carrying that group's capability (3.6). All admin writes record the caller's `email` claim, or `key:<name>` for a key, in the audit column named per table. Writes marked **[snapshot]** run the transaction in 7.3 and answer `502 snapshot_write_failed` if the snapshot upload fails; after commit the node writes the live object (1.8). The response is sent immediately after commit. The live-object write and publish run after the response and never delay it; their outcome is visible only through `GET /admin/live`.
 
 #### Events (Admin)
 
@@ -1416,6 +1425,16 @@ Uploaded icons are any ready media assets; the panel's icon picker shows the lib
 | `GET /admin/settings` | | `200 { "items": Setting[] }` (every key in section 6; defaults filled in for keys without a row, with `updatedBy` and `updatedAt` null) | |
 | `PUT /admin/settings/{key}` **[snapshot]** | `{ "value": 5000 }` | `200 Setting` | `400 validation_failed` (unknown key, wrong type, or out of range) |
 
+#### Help (Editor read, Admin write)
+
+Every page, card, and dialog of the admin panel has a help popover whose text lives in `help_topic`, one row per entry of `help/topics.json` in the API repository (keys listed in `contracts/help-keys.json`, 13). Every boot rewrites the seed's text as the row's defaults and shows it until an admin edits the topic; an edit survives later boots, and `defaultChanged` tells the panel the seed moved on since. A key the seed drops is deleted. The group rides the `help` capability (3.6); the reads are Editor, the writes Admin. Nothing here is snapshot-affecting; help topics are never public.
+
+| Method and path | Body | Success | Errors |
+|---|---|---|---|
+| `GET /admin/help` | | `200 { "items": HelpTopic[] }` every topic, ordered by `page` then `key` (ordinal) | |
+| `PUT /admin/help/{key}` | `{ "title": "What the dashboard shows", "body": "...", "links": [ { "label": "Events", "to": "/events" } ] }` (`title` 1 to 120, `body` 1 to 2000, `links` an array of 0 to 6 with `label` 1 to 60 and `to` a path starting with one `/` or an `https://` URL; every string trimmed; an em dash or en dash in any of them is refused) | `200 HelpTopic` with `edited` true; `editedBy` the actor, `editedAt` now; audit action `update` | `400 validation_failed` on the field (`title`, `body`, `links`, `links[i].label`, `links[i].to`), `404` (unknown key) |
+| `POST /admin/help/{key}/reset` | | `200 HelpTopic`: title, body, and links back to the seed's, `edited` false, `editedBy` and `editedAt` null; audit action `reset` | `404` |
+
 #### Contact messages, subscribers, people (Admin)
 
 | Method and path | Success |
@@ -1508,7 +1527,7 @@ type PlacePin = { placeId: number; name: string; path: string[]; lat: number; ln
 | `GET /admin/audit?entity=&entityId=&action=&actor=&cursor=&limit=` | | `200 Page<AuditEntry>` newest first, `limit` 1 to 200 (default 50); every filter optional; `entity` and `entityId` together give one row's history; `action=delete` alone lists what was deleted anywhere | `400 validation_failed` |
 | `GET /admin/audit/entities` | | `200 { "items": string[] }`: the entity kinds the log knows | |
 
-Actions are `create`, `update`, `delete` for the generic writes and the endpoint's own verb otherwise: `status`, `notify`, `current`, `clone`, `activate`, `deactivate`, `revoke`, `rotate`, `order`, `copy`, `import`, `confirm`, `publish`, `restore`, `move`, `duplicate`, `enroll`. Entities: `event`, `event_message`, `route`, `beacon`, `sponsor`, `sponsor_year`, `sponsor_order`, `cookie_type`, `api_key`, `person`, `subscriber`, `contact_message`, `setting`, `page`, `section`, `section_item`, `site_settings`, `content_version`, `media_asset`, `qr_code`, `place`, `poster`. The log is never pruned.
+Actions are `create`, `update`, `delete` for the generic writes and the endpoint's own verb otherwise: `status`, `notify`, `current`, `clone`, `activate`, `deactivate`, `revoke`, `rotate`, `order`, `copy`, `import`, `confirm`, `publish`, `restore`, `move`, `duplicate`, `enroll`, `reset`. Entities: `event`, `event_message`, `route`, `beacon`, `sponsor`, `sponsor_year`, `sponsor_order`, `cookie_type`, `api_key`, `person`, `subscriber`, `contact_message`, `setting`, `page`, `section`, `section_item`, `site_settings`, `content_version`, `media_asset`, `qr_code`, `place`, `poster`, `help_topic`. The log is never pruned.
 
 ### 4.6 Internal gateway callbacks
 
@@ -1614,6 +1633,22 @@ create table poster (
   created_by text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table help_topic (
+  key                text primary key,                    -- the seed key from help/topics.json
+  page               text not null,                       -- from the seed, rewritten every boot
+  label              text not null,                       -- from the seed, rewritten every boot
+  title              text not null,                       -- shown: default_title while edited_by is null, else the admin's
+  body               text not null,
+  links              jsonb not null default '[]',         -- HelpLink[]
+  default_title      text not null,                       -- the seed's text, rewritten every boot
+  default_body       text not null,
+  default_links      jsonb not null default '[]',
+  default_updated_at timestamptz not null,                -- moves only when a default changed
+  edited_by          text,                                -- null while the seed's text is shown
+  edited_at          timestamptz,
+  updated_at         timestamptz not null default now()
 );
 
 create table event_status_history (
@@ -2505,8 +2540,9 @@ The API repository holds `contracts/`:
 | `contracts/starter-content.json` | The `ContentDocument` the first boot seeds and publishes as version 1 (with `mediaId` references to nothing, so it uses library icons only). |
 | `contracts/fixtures/live-object.json`, `snapshot.json`, `route.json`, `location.json`, `heartbeat.json`, `content-document.json` | Canonical examples, validated against the schemas in the API's tests and consumed by the site's and Red-Nose's tests. `live-object.json` and `snapshot.json` are the canonical (1.6) serialization of the 1.2 and 1.3 examples with concrete values: full 64-character hex keys and `https://cdn.example` as the CDN base. |
 | `contracts/admin-thresholds.json` | `{ "batteryLowPercent": 20, "noFixAgeS": 30, "noLocationAgeS": 30 }`, the constants in 1.11 (`staleAfterS` is not one of them; it comes from `GET /admin/beacons`). |
+| `contracts/help-keys.json` | `[ { "key", "page", "label" } ]`, one per entry of `help/topics.json` in file order, canonical JSON: the help topic keys the admin panel may ask `GET /admin/help` for (4.5 Help). |
 | `contracts/icons/<id>.svg` | The icon library, byte-identical to `icons/` in the API repository (a CI check compares them), so the site can vendor it with the contracts and generate inline icon components (1.5). |
-| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`; currently 57 (`settings.places` holds the places both maps draw, the tracker's and the route preview's lists apart; `map` data without `poiFilter` and `poiKinds`; `RouteMapConfig` without `pois`, 1.3 and 1.3a). Previously 56 (`map` data gains `poiFilter` and `poiKinds`, the tracker's choice of Google-supplied place kinds, 1.3a), and before that 55 (`route_preview` data without `style`, 1.3a; `event.routeImageMediaId` gone from the snapshot and `routeImageMediaId`, `routeImage`, and the clone's `copy.poster` gone from the admin API, 1.3 and 4.5). |
+| `contracts/CONTRACTS_VERSION` | An integer bumped on every change under `contracts/`; currently 58 (`contracts/help-keys.json` added; `GET /admin/help`, `PUT /admin/help/{key}`, `POST /admin/help/{key}/reset` and the `HelpTopic` and `HelpLink` shapes in `openapi.json`, 4.5 Help; the `help` capability, 3.6). Previously 57 (`settings.places` holds the places both maps draw, the tracker's and the route preview's lists apart; `map` data without `poiFilter` and `poiKinds`; `RouteMapConfig` without `pois`, 1.3 and 1.3a). Before that 56 (`map` data gains `poiFilter` and `poiKinds`, the tracker's choice of Google-supplied place kinds, 1.3a). |
 
 Distribution: the site, admin panel, and Red-Nose repositories each vendor a copy of `contracts/` and a `CONTRACTS_SHA` file naming the API commit it came from; a CI step in each consumer repository fetches that commit's `contracts/` and fails when the copy differs. Updating a consumer is a copy plus a `CONTRACTS_SHA` bump in one commit.
 

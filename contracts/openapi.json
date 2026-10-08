@@ -3262,6 +3262,73 @@
         }
       }
     },
+    "/admin/help": {
+      "get": {
+        "tags": [
+          "AdminHelp"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfHelpTopicDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/help/{key}": {
+      "put": {
+        "tags": [
+          "AdminHelp"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutHelpTopicRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpTopicDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/help/{key}/reset": {
+      "post": {
+        "tags": [
+          "AdminHelp"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpTopicDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/snapshot": {
       "get": {
         "tags": [
@@ -5190,6 +5257,76 @@
           }
         }
       },
+      "HelpLinkDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "HelpTopicDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "page": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HelpLinkDto"
+            }
+          },
+          "edited": {
+            "type": "boolean"
+          },
+          "editedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "editedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "defaultChanged": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
+          }
+        }
+      },
       "IconInfoDto": {
         "type": "object",
         "properties": {
@@ -5342,6 +5479,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/EventMessageDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfHelpTopicDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HelpTopicDto"
             }
           }
         }
@@ -7898,6 +8046,51 @@
           }
         }
       },
+      "PutHelpLinkRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PutHelpTopicRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "body": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "links": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PutHelpLinkRequest"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "PutPlaceLocationRequest": {
         "type": "object",
         "properties": {
@@ -9499,6 +9692,9 @@
     },
     {
       "name": "AdminPosters"
+    },
+    {
+      "name": "AdminHelp"
     },
     {
       "name": "AdminDiagnostics"

@@ -13,6 +13,7 @@ COPY --from=build /out .
 COPY templates ./templates
 COPY contracts ./contracts
 COPY icons ./icons
+COPY help ./help
 USER app
 EXPOSE 5000
 ENTRYPOINT ["dotnet", "Wmsfo.Api.dll"]

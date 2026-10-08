@@ -11,6 +11,7 @@ using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Email;
+using Wmsfo.Api.Help;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Node;
@@ -36,6 +37,12 @@ if (args.Length > 0)
                 Path.Combine(root, "starter-content.json"),
                 CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
             AdminThresholds.WriteTo(Path.Combine(root, "admin-thresholds.json"));
+            // The help topic keys the admin panel may ask for, from help/topics.json.
+            var helpSeedRoot = HelpTopicSeed.ResolveRoot(AppContext.BaseDirectory, Directory.GetCurrentDirectory())
+                ?? throw new FileNotFoundException("help topic seed not found: " + HelpTopicSeed.RelativePath);
+            await File.WriteAllBytesAsync(
+                Path.Combine(root, "help-keys.json"),
+                HelpTopicSeed.Load(helpSeedRoot).KeysToCanonicalJson());
             await OpenApiExport.WriteAsync(Path.Combine(root, "openapi.json"));
             return;
     }
@@ -112,6 +119,11 @@ if (iconRoot is not null)
 {
     builder.Services.AddSingleton(_ => IconLibrary.Load(iconRoot, options.CdnBaseUrl));
 }
+// api.md 11a.9: the help topic seed, located like icons/ and validated now so
+// a bad entry stops the boot before the migrator runs.
+var helpRoot = HelpTopicSeed.ResolveRoot(AppContext.BaseDirectory, builder.Environment.ContentRootPath)
+    ?? throw new FileNotFoundException("help topic seed not found: " + HelpTopicSeed.RelativePath);
+builder.Services.AddSingleton(new HelpTopics(HelpTopicSeed.Load(helpRoot)));
 static string? ResolveIconRoot(string start)
 {
     var dir = new DirectoryInfo(start);
@@ -327,6 +339,8 @@ QrEndpoints.MapAll(app);
 PlaceEndpoints.MapAll(app);
 // Posters: the admin panel's poster documents (contracts 4.5 Posters).
 AdminPosterEndpoints.MapAll(app);
+// Help topics: the admin panel's help popover texts (contracts 4.5 Help).
+AdminHelpEndpoints.MapAll(app);
 // A36: `GET /admin/<resource>/{id}/impact` previews for every deletable
 // resource (contracts 4.5 Delete impact, api.md 5b).
 AdminImpactEndpoints.MapAll(app);
@@ -352,7 +366,8 @@ EndpointStubs.MapAll(app,
     includeAdminApiKeysStubs: false,
     includeQrPlacesStubs: false,
     includeAdminImpactStubs: false,
-    includeAdminPostersStubs: false);
+    includeAdminPostersStubs: false,
+    includeAdminHelpStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

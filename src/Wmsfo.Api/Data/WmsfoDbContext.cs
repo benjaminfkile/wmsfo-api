@@ -58,6 +58,7 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<QrAttachment> QrAttachment => Set<QrAttachment>();
     public DbSet<QrScan> QrScan => Set<QrScan>();
     public DbSet<Poster> Poster => Set<Poster>();
+    public DbSet<HelpTopic> HelpTopic => Set<HelpTopic>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -953,6 +954,42 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
                 .HasConstraintName("poster_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // 3.32 help_topic
+        mb.Entity<HelpTopic>(e =>
+        {
+            e.ToTable("help_topic", t =>
+            {
+                t.HasComment("One help popover of the admin panel: the text shown, the seed's default text from help/topics.json, and who last edited it. Admin only; never in the snapshot or on the site.");
+            });
+            e.HasKey(x => x.Key).HasName("help_topic_pkey");
+            e.Property(x => x.Key).HasColumnType("text").ValueGeneratedNever()
+                .HasComment("The seed key, dotted lower-case segments (page, page.card, page.dialog).");
+            e.Property(x => x.Page).HasColumnType("text").IsRequired()
+                .HasComment("The admin panel page the topic belongs to, from the seed.");
+            e.Property(x => x.Label).HasColumnType("text").IsRequired()
+                .HasComment("What the topic is about, from the seed; the panel lists topics by it.");
+            e.Property(x => x.Title).HasColumnType("text").IsRequired()
+                .HasComment("The title shown: the default while edited_by is null, else the admin's.");
+            e.Property(x => x.Body).HasColumnType("text").IsRequired()
+                .HasComment("The body shown: the default while edited_by is null, else the admin's.");
+            e.Property(x => x.Links).HasColumnType("jsonb").IsRequired().HasDefaultValueSql("'[]'::jsonb")
+                .HasComment("The links shown, an array of { label, to }: the default while edited_by is null, else the admin's.");
+            e.Property(x => x.DefaultTitle).HasColumnType("text").IsRequired()
+                .HasComment("The seed's title, rewritten on every boot.");
+            e.Property(x => x.DefaultBody).HasColumnType("text").IsRequired()
+                .HasComment("The seed's body, rewritten on every boot.");
+            e.Property(x => x.DefaultLinks).HasColumnType("jsonb").IsRequired().HasDefaultValueSql("'[]'::jsonb")
+                .HasComment("The seed's links, rewritten on every boot.");
+            e.Property(x => x.DefaultUpdatedAt).HasColumnType("timestamptz").IsRequired()
+                .HasComment("When the boot last found a default_title, default_body, or default_links different from the seed.");
+            e.Property(x => x.EditedBy).HasColumnType("text")
+                .HasComment("The actor of the last edit (the audit text of contracts 3.1); null while the shown text is the seed's.");
+            e.Property(x => x.EditedAt).HasColumnType("timestamptz")
+                .HasComment("When the last edit was made; null while the shown text is the seed's.");
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()")
+                .HasComment("When the row last changed, by an edit, a reset, or the boot.");
         });
 
         // 3.28 icon_library_state

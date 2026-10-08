@@ -454,6 +454,24 @@ public sealed class Poster
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
+// sql.md 3.32: one help popover of the admin panel, keyed by its seed key.
+public sealed class HelpTopic
+{
+    public string Key { get; set; } = "";
+    public string Page { get; set; } = "";
+    public string Label { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Body { get; set; } = "";
+    public JsonDocument Links { get; set; } = JsonDocument.Parse("[]");
+    public string DefaultTitle { get; set; } = "";
+    public string DefaultBody { get; set; } = "";
+    public JsonDocument DefaultLinks { get; set; } = JsonDocument.Parse("[]");
+    public DateTimeOffset DefaultUpdatedAt { get; set; }
+    public string? EditedBy { get; set; }   // null while the shown text is the seed's
+    public DateTimeOffset? EditedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
 public sealed class QrAttachment
 {
     public long Id { get; set; }

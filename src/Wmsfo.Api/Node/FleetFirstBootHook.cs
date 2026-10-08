@@ -1,20 +1,25 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
+using Wmsfo.Api.Config;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Email;
+using Wmsfo.Api.Help;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Node;
 
-// api.md 3 step 5: after MigrateAsync runs the four first-boot steps of sql.md 8.16:
+// api.md 3 step 5: after MigrateAsync runs the first-boot steps of sql.md 8.16:
 //   1. Starter content - A14
 //   2. Icon library - A3 (IconLibrary.EnsureWrittenAsync); we skip when the library
 //      is unavailable (test hosts don't ship the icons folder)
+//   2a. Help topics (HelpTopics.EnsureWrittenAsync); skipped when the seed is
+//      not registered
 //   3. Content version 1 - A14 (SnapshotBootstrap uses a fixture stand-in)
 //   4. Snapshot version 1 - this task
-// Between steps 2 and 4 it writes the email logo (contracts 7.8).
+// Between steps 2a and 4 it writes the email logo (contracts 7.8).
 // The migrator holds the advisory lock across the hook.
 public sealed class FleetFirstBootHook : IFirstBootHook
 {
@@ -55,6 +60,20 @@ public sealed class FleetFirstBootHook : IFirstBootHook
             {
                 _logger.LogWarning(ex, "icon library ensure failed (non-fatal for tests)");
             }
+        }
+
+        // 2a. Help topics: bring help_topic in line with help/topics.json. A
+        // failure here fails the boot, which retries (sql.md 8.16).
+        var helpTopics = scope.ServiceProvider.GetService<HelpTopics>();
+        var connections = scope.ServiceProvider.GetService<WmsfoConnectionStrings>();
+        if (helpTopics is not null && connections is not null)
+        {
+            await using var conn = new NpgsqlConnection(connections.Migrate);
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+            var result = await helpTopics.EnsureWrittenAsync(conn, ct).ConfigureAwait(false);
+            _logger.LogInformation(
+                "help topics ensured inserted={Inserted} updated={Updated} unchanged={Unchanged} deleted={Deleted}",
+                result.Inserted, result.Updated, result.Unchanged, result.Deleted);
         }
 
         // The bundled email images: templates/email/logo.png, ornaments.png,
