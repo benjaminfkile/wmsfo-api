@@ -18,6 +18,8 @@ public static class LogMarkers
     public const string MediaWriteFailed = "wmsfo_media_write_failed";
     public const string ContentPublished = "wmsfo_content_published";
     public const string IconLibraryWritten = "wmsfo_icon_library_written";
+    // A tracker theme's style object is missing and its body is not a seeded one.
+    public const string ThemeStyleMissing = "wmsfo_theme_style_missing";
 
     // The list every marker test iterates. Order matches api.md 16.
     public static readonly string[] All =

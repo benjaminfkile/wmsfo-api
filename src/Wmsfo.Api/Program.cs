@@ -18,6 +18,7 @@ using Wmsfo.Api.Node;
 using Wmsfo.Api.Endpoints;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Realtime;
+using Wmsfo.Api.Themes;
 
 if (args.Length > 0)
 {
@@ -124,6 +125,11 @@ if (iconRoot is not null)
 var helpRoot = HelpTopicSeed.ResolveRoot(AppContext.BaseDirectory, builder.Environment.ContentRootPath)
     ?? throw new FileNotFoundException("help topic seed not found: " + HelpTopicSeed.RelativePath);
 builder.Services.AddSingleton(new HelpTopics(HelpTopicSeed.Load(helpRoot)));
+// api.md 11a.10: the seeded theme style bodies, located like help/ and
+// hash-checked now so a changed fixture stops the boot.
+var themeStylesRoot = ThemeStyles.ResolveRoot(AppContext.BaseDirectory, builder.Environment.ContentRootPath)
+    ?? throw new FileNotFoundException("tracker theme styles not found: " + ThemeStyles.RelativePath);
+builder.Services.AddSingleton(ThemeStyles.Load(themeStylesRoot));
 static string? ResolveIconRoot(string start)
 {
     var dir = new DirectoryInfo(start);

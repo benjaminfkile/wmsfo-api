@@ -36,6 +36,7 @@ public sealed class SchemaValidator
     private readonly JsonSchema _presentationDraft;
     private readonly JsonSchema _routeMapConfig;
     private readonly JsonSchema _icon;
+    private readonly JsonSchema _bbox;
 
     public SchemaValidator(KindRegistry registry)
     {
@@ -78,6 +79,7 @@ public sealed class SchemaValidator
         _presentationDraft = ExtractDef(registry.PrimitivesNode, "Presentation", isDraft: true);
         _routeMapConfig = ExtractDef(registry.PrimitivesNode, "RouteMapConfig", isDraft: false);
         _icon = ExtractDef(registry.PrimitivesNode, "Icon", isDraft: false);
+        _bbox = ExtractDef(registry.PrimitivesNode, "Bbox", isDraft: false);
     }
 
     public IReadOnlyList<ProblemDto> ValidateSectionData(string kind, JsonNode? data, ValidationLevel level)
@@ -131,6 +133,17 @@ public sealed class SchemaValidator
     // state, so the full schema always applies.
     public IReadOnlyList<ProblemDto> ValidateIcon(JsonNode? data) =>
         Evaluate(_icon, data);
+
+    // A tracker box (`$defs/Bbox`) with the writer's side limits of BboxRules,
+    // the rule settings.tracker.defaultBbox follows; the limit's problem has
+    // the path of the box itself.
+    public IReadOnlyList<ProblemDto> ValidateBbox(JsonNode? data)
+    {
+        var problems = Evaluate(_bbox, data);
+        if (problems.Count == 0 && BboxRules.Problem(data) is string message)
+            return new[] { new ProblemDto { Path = "", Message = message } };
+        return problems;
+    }
 
     public IReadOnlyList<ProblemDto> ValidateDocument(JsonNode? data, ValidationLevel level)
     {

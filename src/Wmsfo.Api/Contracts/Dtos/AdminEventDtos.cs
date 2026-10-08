@@ -15,6 +15,10 @@ public sealed class CreateEventRequest
     public bool InheritRoute { get; set; }
     // IANA zone id (e.g. America/Denver) the scheduled time was entered in.
     public string? ScheduleTimeZone { get; set; }
+    // A Bbox sets the event's box; null or absent takes the published
+    // settings.tracker.defaultBbox (or the Missoula valley box). A bare
+    // JsonElement so the shape is checked against `$defs/Bbox`.
+    public JsonElement TrackerBbox { get; set; }
 }
 
 // PATCH /admin/events/{id} - any of the listed fields; any other field is
@@ -41,6 +45,14 @@ public sealed class PatchEventRequest
     // clears it, absent leaves the row unchanged (the same bare JsonElement
     // convention).
     public JsonElement RouteMapConfig { get; set; }
+    // A Bbox sets the event's box; null is refused (the box is required);
+    // absent leaves it unchanged.
+    public JsonElement TrackerBbox { get; set; }
+    // A map id sets the event's map, null clears it, absent leaves it unchanged.
+    public JsonElement TrackerMapId { get; set; }
+    // An array of theme ids replaces the enabled set whole; absent leaves it
+    // unchanged.
+    public JsonElement TrackerThemeIds { get; set; }
 }
 
 // POST /admin/events/{id}/status.
@@ -72,6 +84,9 @@ public sealed class CloneEventCopy
     public bool Sponsors { get; set; }
     public bool Route { get; set; }
     public bool RouteMapConfig { get; set; }
+    // The source's map and enabled theme set; without it they follow the
+    // create rule. The box always copies.
+    public bool Tracker { get; set; }
 }
 
 // POST /admin/events/{id}/messages: `body` and `notify`; any other field

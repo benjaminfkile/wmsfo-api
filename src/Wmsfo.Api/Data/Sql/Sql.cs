@@ -751,6 +751,7 @@ with refs as (
   select unnest(media_ids) as id from content_version
   union select logo_media_id from sponsor where logo_media_id is not null
   union select (icon->>'id')::uuid from cookie_type where icon->>'source' = 'media'
+  union select thumbnail_media_id from tracker_theme where thumbnail_media_id is not null
   union select (icon->>'id')::uuid from page where icon->>'source' = 'media'
   union select m.id from media_asset m where exists (
     select 1 from section s

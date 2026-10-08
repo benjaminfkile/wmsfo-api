@@ -1,4 +1,5 @@
 using Wmsfo.Api.Objects;
+using Wmsfo.Api.Themes;
 
 namespace Wmsfo.Api.Contracts;
 
@@ -19,6 +20,11 @@ public static class FixtureExport
         yield return ("place",            CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlace()));
         yield return ("place-pin",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlacePin()));
         yield return ("delete-impact",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildDeleteImpact()));
+        // The eight seeded tracker theme style bodies in their canonical form.
+        var themesRoot = ThemeStyles.ResolveRoot(AppContext.BaseDirectory, Directory.GetCurrentDirectory())
+            ?? throw new FileNotFoundException("tracker theme styles not found: " + ThemeStyles.RelativePath);
+        foreach (var body in ThemeStyles.Load(themesRoot).Bodies)
+            yield return ("themes/" + body.Key, body.Bytes);
     }
 
     public static void WriteAll(string outputDir)
@@ -26,7 +32,9 @@ public static class FixtureExport
         Directory.CreateDirectory(outputDir);
         foreach (var (name, bytes) in BuildAll())
         {
-            File.WriteAllBytes(Path.Combine(outputDir, name + ".json"), bytes);
+            var path = Path.Combine(outputDir, name + ".json");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, bytes);
         }
     }
 }
