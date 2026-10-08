@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Wmsfo.Api.Contracts.Dtos;
 
 namespace Wmsfo.Api.Objects;
 
@@ -49,6 +50,9 @@ public sealed class Snapshot
     [JsonPropertyOrder(6)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
     // Keys in ascending string order (contracts 1.3).
     [JsonPropertyOrder(7)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
+    // The current event's enabled themes, both renderers, in `sortOrder`, `id`
+    // order (contracts 1.3); empty when no event is current. The last key.
+    [JsonPropertyOrder(8), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
 }
 
 // One resolved QR code inside `qrCodes` (contracts 1.3, 4.5a).
@@ -76,6 +80,43 @@ public sealed class SnapshotEvent
     // has none.
     [JsonPropertyOrder(10)] public RouteMapConfig? RouteMapConfig { get; set; }
     [JsonPropertyOrder(11)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    // The event's bounding box (contracts 1.3); both tracker renderers lock to it.
+    [JsonPropertyOrder(12), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
+    // The event's ready tile package (contracts 1.3); null when the event has
+    // no map. The last key of `event`.
+    [JsonPropertyOrder(13), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
+}
+
+// event.trackerMap (contracts 1.3): the tile package with its absolute CDN URLs.
+public sealed class SnapshotTrackerMap
+{
+    [JsonPropertyOrder(0)] public long Id { get; set; }
+    [JsonPropertyOrder(1)] public string Name { get; set; } = "";
+    [JsonPropertyOrder(2)] public Bbox Bbox { get; set; } = new();
+    [JsonPropertyOrder(3)] public int MinZoom { get; set; }
+    [JsonPropertyOrder(4)] public int MaxZoom { get; set; }
+    // Null together with terrainUrl when the package has no terrain archive.
+    [JsonPropertyOrder(5)] public int? TerrainMaxZoom { get; set; }
+    [JsonPropertyOrder(6)] public string TilesUrl { get; set; } = "";
+    [JsonPropertyOrder(7)] public string? TerrainUrl { get; set; }
+}
+
+// One entry of trackerThemes (contracts 1.3).
+public sealed class SnapshotTrackerTheme
+{
+    [JsonPropertyOrder(0)] public long Id { get; set; }
+    [JsonPropertyOrder(1)] public string Renderer { get; set; } = "";
+    [JsonPropertyOrder(2)] public string Key { get; set; } = "";
+    [JsonPropertyOrder(3)] public string Name { get; set; } = "";
+    [JsonPropertyOrder(4)] public string StyleUrl { get; set; } = "";
+    // The MapLibre sprite base (no extension); null without a sprite set.
+    [JsonPropertyOrder(5)] public string? SpriteUrl { get; set; }
+    // A media asset id resolved through the snapshot's `media`; null when none.
+    [JsonPropertyOrder(6)] public string? ThumbnailMediaId { get; set; }
+    [JsonPropertyOrder(7)] public Chrome Chrome { get; set; } = new();
+    [JsonPropertyOrder(8)] public Overlay Overlay { get; set; } = new();
+    [JsonPropertyOrder(9)] public bool DefaultLightMode { get; set; }
+    [JsonPropertyOrder(10)] public bool DefaultDarkMode { get; set; }
 }
 
 public sealed class SnapshotFlightHistory

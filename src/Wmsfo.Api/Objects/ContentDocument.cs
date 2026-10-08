@@ -40,6 +40,10 @@ public sealed class SiteSettings
     // kept as written and validated by the schema; absent when null, and a
     // reader treats absent as each map's default.
     [JsonPropertyOrder(16), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? Places { get; set; }
+    // The tracker's defaults (`{ defaultBbox }`, the box a new event takes),
+    // kept as written and validated by the schema and the box rules; absent
+    // when null, and a reader treats absent as the built-in valley box.
+    [JsonPropertyOrder(17), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? Tracker { get; set; }
 }
 
 public sealed class SiteTheme

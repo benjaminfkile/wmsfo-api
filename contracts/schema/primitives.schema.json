@@ -135,6 +135,17 @@
       },
       "additionalProperties": false
     },
+    "Bbox": {
+      "type": "object",
+      "properties": {
+        "west": { "type": "number" },
+        "south": { "type": "number" },
+        "east": { "type": "number" },
+        "north": { "type": "number" }
+      },
+      "required": ["west", "south", "east", "north"],
+      "additionalProperties": false
+    },
     "Landmark": {
       "type": "object",
       "properties": {

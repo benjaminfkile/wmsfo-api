@@ -162,8 +162,6 @@
       "hasItems": false,
       "allowedRoles": ["live"],
       "defaults": {
-        "themes": ["standard", "expedition", "blizzard", "charcoal", "night", "nebula"],
-        "defaultTheme": "night",
         "defaultCenter": { "lat": 46.87, "lng": -114.0 },
         "defaultZoom": 11,
         "controls": {

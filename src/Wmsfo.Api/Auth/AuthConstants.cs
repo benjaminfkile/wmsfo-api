@@ -65,6 +65,8 @@ public static class ApiKeyCapabilities
 {
     public const string Events = "events";
     public const string Routes = "routes";
+    public const string Maps = "maps";
+    public const string Themes = "themes";
     public const string Beacons = "beacons";
     public const string Sponsors = "sponsors";
     public const string CookieTypes = "cookie_types";
@@ -85,7 +87,7 @@ public static class ApiKeyCapabilities
 
     public static readonly IReadOnlyList<string> All = new[]
     {
-        Events, Routes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
+        Events, Routes, Maps, Themes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
         Content, Media, Icons, Settings, ContactMessages, Subscribers, People,
         Diagnostics, Audit, Qr, Help,
     };

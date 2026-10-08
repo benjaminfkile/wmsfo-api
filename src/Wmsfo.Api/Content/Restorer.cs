@@ -20,11 +20,13 @@ namespace Wmsfo.Api.Content;
 public sealed class Restorer
 {
     private readonly WmsfoConnectionStrings _connections;
+    private readonly KindRegistry _registry;
     private readonly ILogger<Restorer> _logger;
 
-    public Restorer(WmsfoConnectionStrings connections, ILogger<Restorer> logger)
+    public Restorer(WmsfoConnectionStrings connections, KindRegistry registry, ILogger<Restorer> logger)
     {
         _connections = connections;
+        _registry = registry;
         _logger = logger;
     }
 
@@ -73,6 +75,13 @@ public sealed class Restorer
             throw new ApiException(StatusCodes.Status500InternalServerError,
                 ApiErrorCodes.InternalError, "stored version document is not readable");
         }
+
+        // A section keeps only the data keys its kind's current schema lists,
+        // so a restore never reinstates a key the next publish would refuse.
+        var stripped = StripUnknownSectionKeys(document);
+        _logger.LogInformation(
+            "restore stripped {Count} section data keys the current schemas do not allow; versionId={VersionId}",
+            stripped, versionId);
 
         // Places and printed codes point at pages by id, and the pages are about
         // to get new ids. Remember each link by the page's slug so it can be put
@@ -199,6 +208,34 @@ update site_setting_draft set data = $1::jsonb, updated_by = $2, updated_at = no
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return info;
+    }
+
+    // Removes, from every section's data, each key the kind's schema does not
+    // list under `properties` when that schema has `additionalProperties:
+    // false`. A kind the registry does not know is left as stored. Returns the
+    // number of keys removed.
+    private int StripUnknownSectionKeys(ContentDocument document)
+    {
+        var removed = 0;
+        foreach (var page in document.Pages)
+        {
+            foreach (var section in page.Sections)
+            {
+                if (section.Data is not JsonObject data) continue;
+                if (!_registry.ByName.TryGetValue(section.Kind, out var info)) continue;
+                if (info.SchemaNode is not JsonObject schema) continue;
+                if (schema["additionalProperties"] is not JsonValue additional
+                    || additional.GetValueKind() != JsonValueKind.False) continue;
+                var allowed = schema["properties"] as JsonObject;
+                foreach (var key in data.Select(kv => kv.Key).ToList())
+                {
+                    if (allowed is not null && allowed.ContainsKey(key)) continue;
+                    data.Remove(key);
+                    removed++;
+                }
+            }
+        }
+        return removed;
     }
 
     // The rows of one table that open a page, as (row id, page slug).

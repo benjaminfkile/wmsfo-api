@@ -102,8 +102,19 @@ public sealed class SchemaValidator
     public IReadOnlyList<ProblemDto> ValidateSiteSettings(JsonNode? data, ValidationLevel level)
     {
         var schema = level == ValidationLevel.Draft ? _draftSiteSettings : _registry.SiteSettings;
-        return Evaluate(schema, data);
+        var problems = Evaluate(schema, data);
+        // The tracker's default box keeps the writer's limits at both levels.
+        if (data is JsonObject settings && settings["tracker"] is JsonObject tracker
+            && BboxRules.Problem(tracker["defaultBbox"]) is string message)
+        {
+            return problems.Append(new ProblemDto { Path = DefaultBboxPath, Message = message }).ToList();
+        }
+        return problems;
     }
+
+    // Site settings problem paths are relative to the settings object; publish
+    // reports this one at `/settings/tracker/defaultBbox`.
+    public const string DefaultBboxPath = "/tracker/defaultBbox";
 
     public IReadOnlyList<ProblemDto> ValidatePresentation(JsonNode? data, ValidationLevel level)
     {

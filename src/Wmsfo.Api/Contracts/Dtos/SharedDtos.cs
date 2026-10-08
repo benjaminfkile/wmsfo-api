@@ -608,3 +608,38 @@ public sealed class ImpactGroupDto
     public int Count { get; set; }
     public IList<string> Names { get; set; } = new List<string>();
 }
+
+// A bounding box in degrees (contracts 1.3, `$defs/Bbox`), keys in this order.
+public sealed class Bbox
+{
+    [JsonPropertyOrder(0)] public double West { get; set; }
+    [JsonPropertyOrder(1)] public double South { get; set; }
+    [JsonPropertyOrder(2)] public double East { get; set; }
+    [JsonPropertyOrder(3)] public double North { get; set; }
+}
+
+// A tracker theme's colours for everything on the tracker screen that is not
+// the map (contracts 1.3), each `#rrggbb` or `#rrggbbaa`, keys in this order.
+public sealed class Chrome
+{
+    [JsonPropertyOrder(0)] public string Bg { get; set; } = "";
+    [JsonPropertyOrder(1)] public string Fg { get; set; } = "";
+    [JsonPropertyOrder(2)] public string Text { get; set; } = "";
+    [JsonPropertyOrder(3)] public string Tile { get; set; } = "";
+    [JsonPropertyOrder(4)] public string TileFg { get; set; } = "";
+    [JsonPropertyOrder(5)] public string Panel { get; set; } = "";
+    [JsonPropertyOrder(6)] public string Accent { get; set; } = "";
+}
+
+// What the site draws over a tracker theme's map (contracts 1.3), keys in
+// this order; opacities 0 to 1.
+public sealed class Overlay
+{
+    [JsonPropertyOrder(0)] public string RouteColor { get; set; } = "";
+    [JsonPropertyOrder(1)] public double RouteOpacity { get; set; }
+    [JsonPropertyOrder(2)] public string ArrowColor { get; set; } = "";
+    [JsonPropertyOrder(3)] public string TimeLabelBg { get; set; } = "";
+    [JsonPropertyOrder(4)] public string TimeLabelFg { get; set; } = "";
+    [JsonPropertyOrder(5)] public double TimeLabelOpacity { get; set; }
+    [JsonPropertyOrder(6)] public string UserColor { get; set; } = "";
+}

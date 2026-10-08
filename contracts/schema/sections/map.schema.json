@@ -5,14 +5,6 @@
   "description": "Full-viewport live map (contracts 1.3a). Allowed only on the page with role `live` (reference-checker rule).",
   "type": "object",
   "properties": {
-    "themes": {
-      "type": "array",
-      "items": { "enum": ["standard", "expedition", "blizzard", "charcoal", "night", "nebula"] },
-      "minItems": 1,
-      "maxItems": 10,
-      "uniqueItems": true
-    },
-    "defaultTheme": { "enum": ["standard", "expedition", "blizzard", "charcoal", "night", "nebula"] },
     "defaultCenter": {
       "type": "object",
       "properties": {
@@ -55,6 +47,6 @@
       "additionalProperties": false
     }
   },
-  "required": ["themes", "defaultTheme", "defaultCenter", "defaultZoom", "controls", "flightHistoryDefault", "overlays"],
+  "required": ["defaultCenter", "defaultZoom", "controls", "flightHistoryDefault", "overlays"],
   "additionalProperties": false
 }
