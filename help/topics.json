@@ -1,0 +1,1155 @@
+[
+  {
+    "key": "dashboard",
+    "page": "Dashboard",
+    "label": "Dashboard overview",
+    "title": "What the dashboard shows",
+    "body": "The dashboard is the first page after sign-in and the quickest way to see whether the site is healthy right now. It holds six cards: Current event, Active beacon, Published state, Snapshot, Live object, and Email quota.\n\nThe cards refresh on their own while the tab is open, so you can leave it up during a flight and watch the numbers move. Nothing on this page is a draft: it reads the live data the public site reads.\n\nTwo cards carry actions. The Current event card can change the event status, and the Published state card can force the live object to be rewritten. Everything else is read only. To change what the site says, go to Events, Pages, or Site settings instead.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Pages", "to": "/pages" },
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "dashboard.current-event",
+    "page": "Dashboard",
+    "label": "Current event card",
+    "title": "The current event at a glance",
+    "body": "This card shows the event flagged as current: its name and year, a status chip, the scheduled, liftoff, and ended times in your own time zone, the funds percent, and the linked flight recording or no route.\n\nThe Change status menu lists every other status, Postponed included. Picking one opens the same status dialog the event page uses, so a status change from here behaves exactly as it does there. Open event jumps to the event page.\n\nWhen no event is flagged current the card says so and links to Events, where Set current picks one. The current event is what the public site shows and what the tracker follows, so this card is the one to check before a flight.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "dashboard.active-beacon",
+    "page": "Dashboard",
+    "label": "Active beacon card",
+    "title": "Which beacon is publishing",
+    "body": "This card shows the beacon marked active: the one whose location updates the public site publishes. It lists the name, a Healthy or Unhealthy chip, the key prefix, how long ago the last heartbeat and the last location arrived, when it went stale if it has, and the stale threshold in seconds. Open beacon goes to the beacon page.\n\nThe card is informational only. Activating a different beacon, rotating a key, or revoking happens on the Beacons page.\n\nWhen no beacon is active the card says No active beacon. That text turns red while an event is live, because nothing is being published to the tracker. A healthy active beacon is also required before an event can be set Live.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "dashboard.published-state",
+    "page": "Dashboard",
+    "label": "Published state card",
+    "title": "Is the CDN copy current",
+    "body": "The public site reads a small live object from the CDN. This card compares that copy with what the API last wrote and reports one of four states. CDN current, in green, with who wrote it and how long ago. CDN behind, in red, with the fields that differ. Write error, in red, when the last write failed. CDN unreachable, in amber, when the copy could not be fetched.\n\nBehind is only shown after two polls in a row disagree, so a single moment of lag during a flight does not alarm anyone. A few seconds of difference while a beacon streams is normal.\n\nBelow the state are the last write time, sequence, version, and node, plus which API node answered and whether it is the leader. The Republish button, behind a confirmation, forces the live object to be rewritten from the API's own state. Use it when the card stays red.",
+    "links": []
+  },
+  {
+    "key": "dashboard.snapshot",
+    "page": "Dashboard",
+    "label": "Snapshot card",
+    "title": "The site's data snapshot",
+    "body": "The snapshot is the file the public site loads for everything that does not change second by second: the published pages, site settings, sponsors, cookie types, the flight history, and the event details. The API rebuilds it on its own whenever one of those changes.\n\nThis card shows the snapshot's version, when it was built, its storage key, and a link to open it. Rebuild snapshot asks the API to build a fresh one right away, with no confirmation. The site picks the new file up on its next poll.\n\nYou rarely need the button. Reach for it when the site seems to show stale content after a save and the version here has not moved. Publishing pages and site settings also produces a new snapshot without any action here.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "dashboard.live-object",
+    "page": "Dashboard",
+    "label": "Live object card",
+    "title": "The live object field by field",
+    "body": "This card shows the live object exactly as the CDN serves it to visitors: the event id and status, the sequence number, the latest position with speed, altitude, heading, and accuracy, when the fix was recorded and received, when the object was published and how old that is, the poll interval, and a link to the snapshot the site should load.\n\nThe cookie tally lists how many cookies of each type visitors have left, with names filled in from Cookie types. This is the only place the panel shows cookie counts.\n\nWhen the fetch returns nothing the card reads CDN object unavailable. Below the field grid sit two raw JSON views, described under the next topic. Everything here is read only.",
+    "links": [
+      { "label": "Cookie types", "to": "/cookie-types" }
+    ]
+  },
+  {
+    "key": "dashboard.live-object-cdn",
+    "page": "Dashboard",
+    "label": "CDN and API JSON",
+    "title": "Comparing the two JSON views",
+    "body": "Under the live object fields are two raw JSON blocks. The first is the object as fetched from the CDN, which is what every visitor's browser receives. The second is the API node's own copy of the same object, so you can read the two side by side.\n\nThey will not always match to the second. While a beacon streams, the API writes several times a second and the two fetches land at different instants. That is expected. The Published state card above does the real freshness check and is what to trust.\n\nOn a phone both blocks start collapsed to one level and scroll sideways inside their box. Expand a node to read it. Nothing here can be edited.",
+    "links": []
+  },
+  {
+    "key": "dashboard.email-quota",
+    "page": "Dashboard",
+    "label": "Email quota card",
+    "title": "Room left to email subscribers",
+    "body": "Event alerts go out by email to every verified subscriber. The sending service allows a limited number of emails per day, and this card shows where that stands: sent in the last 24 hours against the daily limit, how many are queued, how many verified subscribers there are, and the maximum send rate per second. No limit appears when the service reports none.\n\nA warning line, One alert to every subscriber would not fit, means the next status alert would be cut short. Not checked (dry run) means email is switched off in this environment. Could not be checked means the answer was unavailable.\n\nThe same check appears as a notice inside the notify dialogs on the event page. It never blocks a send; it tells you so you can decide. Subscribers are managed on the Subscribers page.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Subscribers", "to": "/subscribers" }
+    ]
+  },
+  {
+    "key": "events",
+    "page": "Events",
+    "label": "Events list",
+    "title": "Every flight, past and planned",
+    "body": "An event is one flight: a year, a name, a schedule, a status, and optionally a flight recording. This page lists them all with the year, the name, the status chip, a Current chip on the one the site follows, the scheduled time, the linked recording, and the funds percent.\n\nThe pencil opens the event page. The row menu holds Set current, Clone, and Delete. Delete is disabled while the event is live or while it is the current event, and the tooltip says why. The Audit icon at the end of the row opens the change history.\n\nNew event opens the create dialog. On a phone each row is a card with the same information and buttons. Only one event can be current, and only the current event can go Live.",
+    "links": []
+  },
+  {
+    "key": "events.create",
+    "page": "Events",
+    "label": "New event dialog",
+    "title": "Creating an event",
+    "body": "New event asks for the year, which defaults to this year, a name, an optional scheduled time, and the funds percent, which starts at zero.\n\nThen a route choice with three options. Inherit the most recent route links the recording of the latest earlier event that has one, and the dialog shows which recording and event that would be, or says no earlier event has a route. Choose a route lets you pick any recording from Flight recordings. No route leaves the event without one; you can link one later from its Flight history card.\n\nCreate saves the event as Planned and opens its page. The new event is not current until you set it, so the public site does not change.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" }
+    ]
+  },
+  {
+    "key": "events.clone",
+    "page": "Events",
+    "label": "Clone event",
+    "title": "Copying last year's event",
+    "body": "Clone, in the row menu, makes a new event from an existing one. The year defaults to the source year plus one and the name to the source name with the year replaced; both can be edited.\n\nThree checkboxes, all on by default, choose what comes along. Sponsors for the year copies the source year's sponsor rows to the new year. Flight history links the same recording. Route map settings copies how the route map is drawn.\n\nClone creates the event as Planned and opens its page. If an event with that year already exists the year field shows the error and nothing is created. The new event is not current and nothing is published; messages, status history, and recorded locations are never copied.",
+    "links": [
+      { "label": "Sponsors", "to": "/sponsors" }
+    ]
+  },
+  {
+    "key": "events.set-current",
+    "page": "Events",
+    "label": "Set current",
+    "title": "Making an event the current one",
+    "body": "The current event is the one the public site shows and the tracker follows. Only one event is current at a time. Set current, in the row menu or on the event page, moves that flag to the chosen event. It is hidden on the event that already holds it.\n\nA confirmation reads Make this event the current event? The public site switches to it on its next poll. Confirming changes what every visitor sees within seconds, so do it deliberately.\n\nThe current event also gates other actions. Only the current event can be set Live, and the current event cannot be deleted until another one is made current. The dashboard's Current event card always shows the event this flag points to.",
+    "links": [
+      { "label": "Dashboard", "to": "/" }
+    ]
+  },
+  {
+    "key": "events.delete",
+    "page": "Events",
+    "label": "Delete event",
+    "title": "Deleting an event safely",
+    "body": "Delete, in the row menu or on the event page, opens a dialog that first fetches what the delete would take with it: the messages, status history, recorded locations, and anything else tied to the event, listed by group, or Nothing else is affected. The Delete button stays disabled until that preview has loaded.\n\nTwo conditions block it. A live event cannot be deleted; end it first. The current event cannot be deleted; make another event current first. The dialog shows the blocking sentence alone, and the list and the page disable the button with the same text.\n\nA linked flight recording is not deleted; it only loses the link. The deleted event is still readable afterwards on the Audit page, and nowhere else.",
+    "links": [
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "events.detail",
+    "page": "Events",
+    "label": "Event page",
+    "title": "Everything about one event",
+    "body": "The event page is where a flight is run. The header shows the name, the status chip, and a Current event chip when the site follows this event.\n\nBelow it are cards. Details holds the editable fields and the Save, Set current, and Delete buttons. Status shows who has been told, offers the status buttons, and lists the status history. Messages holds the posts visitors see on the site. Seed cookies appears only while the event is live. Flight history links a recording. Route map sets how the site draws that recording. Locations shows the raw fixes beacons sent and lets you download or clear them.\n\nOn a phone the cards stack. Each card is explained in its own topic.",
+    "links": []
+  },
+  {
+    "key": "events.detail.details",
+    "page": "Events",
+    "label": "Details card",
+    "title": "Editing the event fields",
+    "body": "The Details card holds the name, year, scheduled time, Went live at (Liftoff), Ended at (Wheels down), and funds percent. Save is enabled only once a field differs from what is stored, and it sends only the changed fields.\n\nEach of the three times has a Clear button beside it. Clearing saves an empty value, so every flight time the site shows can be removed per event. The Clear button on the scheduled time is disabled while the event is Scheduled, because that status requires a time.\n\nThe liftoff and wheels down times are usually set by the status changes to Live and Ended, but you can correct them here afterwards. The buttons row also carries Set current and Delete with their confirmations.",
+    "links": []
+  },
+  {
+    "key": "events.detail.status",
+    "page": "Events",
+    "label": "Status card",
+    "title": "Changing the event status",
+    "body": "The Status card shows the current status and whether subscribers know about it. If nobody was told, a warning line and a Notify subscribers button appear.\n\nUnder that is one button per other status. Some are gated, with a tooltip explaining why. Scheduled needs a scheduled time. Live needs this event to be current, no other event live, and a healthy active beacon. Planned, Ended, Cancelled, and Postponed have no gate. Clicking opens the status dialog, where you choose whether to notify.\n\nThe history below lists every change, newest first, with who, when, and whether subscribers were notified and how many emails went out. While an alert is still sending, the sent count climbs on its own.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "events.detail.status-dialog",
+    "page": "Events",
+    "label": "Status dialog",
+    "title": "Confirming a status change",
+    "body": "The dialog names the change, for example Scheduled to Live. A Message field, optional and up to 1000 characters, shows the stock paragraph for the new status as its placeholder. Leave it empty and that stock paragraph is used; type your own and it replaces it. Either way the message is posted on the site as the event's latest message and shows in the Messages card at once.\n\nTwo buttons. Change and notify changes the status and emails every verified subscriber; the count is shown. Change without notifying asks once more, then changes the status and posts the message without emailing. You can notify later from the Status card.\n\nFor Live the dialog also shows the active beacon and its health, and both buttons are disabled when the gate fails. A quota notice warns when the alert would not fit, but never blocks the send.",
+    "links": []
+  },
+  {
+    "key": "events.detail.notify",
+    "page": "Events",
+    "label": "Notify subscribers",
+    "title": "Telling subscribers afterwards",
+    "body": "When the status was changed without notifying, the Status card shows Nobody was notified in a warning colour and a Notify subscribers button. It opens a dialog with the number of verified subscribers who will be emailed and an optional message of up to 1000 characters.\n\nThe stock paragraph for the current status is the placeholder. While the field is empty the dialog shows the exact default text that will go out. If you type a message it replaces the stock paragraph in the email and is also posted on the site as the event's latest message.\n\nSend now emails everyone and marks the status as notified. The history row gains the sent count, which fills in over the next moments. The email quota notice above the buttons warns when the alert would not fit but does not stop you.",
+    "links": [
+      { "label": "Subscribers", "to": "/subscribers" }
+    ]
+  },
+  {
+    "key": "events.detail.messages",
+    "page": "Events",
+    "label": "Messages card",
+    "title": "Posting updates during the flight",
+    "body": "Messages are the short updates visitors read on the site for this event. The card lists them newest first, with who posted and when. Messages that came from a status change or a notify appear here too, since those post the typed or stock text as the latest message.\n\nType in the Body field and press Post. Tick Notify first and the message is also emailed to every verified subscriber; the card shows how many. A notified message gains a Notified line with the sent count.\n\nEach message has a pencil to edit its text, with no re-send, and a delete icon with a confirmation. A message's time is simply when it was posted and cannot be changed. The public site shows the new message on its next poll.",
+    "links": []
+  },
+  {
+    "key": "events.detail.seed-cookies",
+    "page": "Events",
+    "label": "Seed cookies card",
+    "title": "Adding cookies to the tally",
+    "body": "Cookies are a hidden feature: visitors can leave a cookie of each type during the flight and the site shows the running tally. This card lets you add to that tally by hand. It appears only while the event is Live and disappears in every other status.\n\nThere is one row per active cookie type with a number field from 0 to 100 and plus and minus buttons. The Seed button, disabled at zero, asks you to confirm the total; the seeded cookies count like visitors' cookies and are never shown as anyone's. They cannot be taken back.\n\nSeeding is recorded in the audit log as cookies_seeded. The tally shows on the dashboard's Live object card on its next poll. Cookie types themselves are managed on the Cookie types page.",
+    "links": [
+      { "label": "Cookie types", "to": "/cookie-types" },
+      { "label": "Audit", "to": "/audit" },
+      { "label": "Dashboard", "to": "/" }
+    ]
+  },
+  {
+    "key": "events.detail.flight-history",
+    "page": "Events",
+    "label": "Flight history card",
+    "title": "Linking a flight recording",
+    "body": "A flight recording is a saved list of positions from a past flight. When one is linked here, visitors can turn it on in the tracker menu to see the projected route, and the site draws the route map from it. Change it any time; the site picks the change up on the next snapshot.\n\nThe card shows the current recording with its point count, who uploaded it, and a CDN link, or No recording linked. Shared with lists other events using the same recording.\n\nUpload adds a new file and links it in one step. Record from this event builds a recording from the fixes beacons sent during this event. Unlink removes the link but keeps the file. Choose existing picks any recording already on the Flight recordings page.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" }
+    ]
+  },
+  {
+    "key": "events.detail.route-map",
+    "page": "Events",
+    "label": "Route map card",
+    "title": "How the route map is drawn",
+    "body": "The route map is the site's drawing of this event's flight recording. This card summarises its settings: either Every setting is at its default, or a chip for each setting that differs, such as Time labels: Every 10 minutes or Route line: Thick.\n\nConfigure route map opens the dialog where the settings are changed with a live preview. When no recording is linked a caption says the preview stays empty until one is; the settings can still be saved.\n\nThe places and viewpoints the map labels are not set here. They are sitewide, under Site settings, and apply to every event's map. The settings here are stored on the event and are part of the snapshot, so the site shows a change on its next snapshot.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "events.detail.route-map-dialog",
+    "page": "Events",
+    "label": "Route map dialog",
+    "title": "Adjusting the route map",
+    "body": "The dialog shows a live preview of the route map on the left, with a Light and Dark toggle, and the controls on the right. Every change redraws the preview at once; nothing is stored until Save.\n\nCopy from another event loads that event's settings into the draft so you can reuse last year's look. Display holds Time labels, Arrows, Arrow size, Route line, and Label size; each shows its built-in default until picked, and a Default button beside a picked value puts it back. Arrow size is disabled while arrows are off. Controls has two switches for the fullscreen button and the terrain toggle visitors see on the map.\n\nSave stores the draft. Cancel drops it. Clear all, after a confirmation, removes every setting. The preview labels the places chosen under Site settings.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "events.detail.locations",
+    "page": "Events",
+    "label": "Locations card",
+    "title": "The raw fixes beacons sent",
+    "body": "Every position a beacon posts during this event is stored as a row. This card previews them in a table: sequence, beacon, whether it was published, the time it was recorded, and the latitude and longitude. It shows one page of 100 rows and keeps a table even on a phone, scrolling sideways when needed.\n\nTwo filters narrow it: a beacon select, Any beacon by default, and a Published only switch. Download CSV saves every row that matches the filters as a file named after the event year, for analysis elsewhere.\n\nClear recording, beside the download, deletes rows and has its own topic. Record from this event on the Flight history card builds a flight recording from these rows, so clear them only once you have what you need.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "events.detail.clear-recording",
+    "page": "Events",
+    "label": "Clear recording",
+    "title": "Deleting recorded fixes",
+    "body": "Clear recording removes the location rows stored for this event, for example after a test run on the day before the flight. The dialog first fetches what would go: one line per beacon with its name and row count.\n\nA Beacon select chooses All beacons or just one, so a simulator's test fixes can be cleared while the real phone's stay. Confirming deletes the rows and refreshes the Locations card. The toast reads Recording cleared.\n\nThe delete is blocked while the event is live; end it first. The flight recordings on the Flight recordings page are separate files and are not touched, so a recording already built from this event survives. Downloading the CSV first is the only way to keep the raw rows.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" }
+    ]
+  },
+  {
+    "key": "routes",
+    "page": "Flight recordings",
+    "label": "Flight recordings list",
+    "title": "Saved recordings of past flights",
+    "body": "A flight recording is a named list of positions in flight order. The one linked to an event is its flight history on the tracker and the path the route map and posters draw. This page lists every recording, newest first, with the point count, when it was created, who uploaded it, a CDN link, and Used by, the events linked to it.\n\nTwo buttons add recordings: Upload recording takes a JSON file, and Build from event turns the fixes recorded during an ended event into a recording. Each has its own topic.\n\nThe row menu holds Delete, which previews what would be affected; events using the recording lose the link but are otherwise untouched. Linking a recording to an event happens on the event page's Flight history card.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Poster studio", "to": "/posters" }
+    ]
+  },
+  {
+    "key": "routes.upload",
+    "page": "Flight recordings",
+    "label": "Upload recording",
+    "title": "Uploading a recording file",
+    "body": "The upload dialog accepts one JSON file with exactly two keys: a name of 1 to 200 characters and a points list of 2 to 50,000 entries in flight order. Each point has lat, lng, and recordedAt, which is a full timestamp or null. No other keys are allowed and the file must be under 5 MB. The dialog shows this exact shape, with a Copy button and a Download example link.\n\nThe file is checked in the browser as soon as it is chosen. Problems are listed with their paths, up to twenty. A good file shows a summary with the point count, the bounding box, and the first and last times, and enables Upload. The Name field is prefilled from the file and can be edited.\n\nA route file downloaded from the CDN carries an extra schemaVersion key; remove it before uploading. From an event page the upload also links the recording to that event.",
+    "links": []
+  },
+  {
+    "key": "routes.build-from-event",
+    "page": "Flight recordings",
+    "label": "Build from event",
+    "title": "Recording from an ended event",
+    "body": "Build from event makes a recording out of the positions beacons actually sent during a flight. The dialog lists the ended events; pick one and give the recording a name, which defaults to the event name followed by route.\n\nThe API reads that event's stored location rows and saves them as a new recording on this page. The event itself is not changed and not linked; link it from the event page's Flight history card if you want it as that event's flight history. The same action on the event page, Record from this event, builds and links in one go.\n\nBecause it reads the Locations rows, clear a test run before building, or the test fixes end up in the recording.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "beacons",
+    "page": "Beacons",
+    "label": "Beacons list",
+    "title": "The keys that post locations",
+    "body": "A beacon is a key. Anything that holds it, usually the phone on the sleigh, can post locations, heartbeats, and logs. This list refreshes on its own and shows each beacon's name, key prefix, an Active chip on the one being published, a Healthy or Unhealthy chip, the hub state, and warning chips such as Battery low or Stale.\n\nThe lines show when it was last seen, its last heartbeat, and its last location as ages, plus three counters: Stored, Carried, and Rate limited.\n\nThe row menu holds Activate or Deactivate, Rotate, Revoke, and Open. New beacon creates one and reveals its key once. Revoked beacons sit in a collapsed accordion under the list. Exactly one beacon should be active during a flight; it is what the tracker follows.",
+    "links": []
+  },
+  {
+    "key": "beacons.create",
+    "page": "Beacons",
+    "label": "New beacon",
+    "title": "Creating a beacon",
+    "body": "New beacon asks only for a name and optional notes. The dialog reminds you that a beacon is a key: anything that holds it can post locations, heartbeats, and logs, and what runs behind it is up to you, whether a phone app or a test script.\n\nCreate saves the beacon and immediately opens the key reveal dialog with the new key and an enrollment QR code. That is the one time the key is shown, so have the phone ready or a safe place to store it.\n\nA new beacon starts inactive. Activate it from the row menu or its page once the phone is enrolled and sending heartbeats. Only the active beacon's updates reach the public site.",
+    "links": []
+  },
+  {
+    "key": "beacons.key-reveal",
+    "page": "Beacons",
+    "label": "Key reveal dialog",
+    "title": "Storing a key shown once",
+    "body": "After a beacon is created or its key rotated, this dialog shows the full key in a read-only field with a Copy button, an enrollment QR code, the enrollment address with its own Copy button, and a countdown such as QR valid for 14:32.\n\nThe key is shown once and never again; the panel keeps only a prefix. Store it before closing. The QR code expires when the countdown reaches zero, but the key itself keeps working when typed by hand; rotate to mint a fresh QR if you need to scan again.\n\nThe dialog cannot be dismissed by clicking outside or pressing Escape. Its only button is I have stored the key. The same dialog, without the QR block, reveals a new API key.",
+    "links": []
+  },
+  {
+    "key": "beacons.revoked",
+    "page": "Beacons",
+    "label": "Revoked beacons",
+    "title": "What revoking does",
+    "body": "Revoke, in the row menu or on the beacon page, permanently disables a beacon's key. The confirmation reads Revoke this beacon? This is permanent. When the beacon is active and an event is live it adds that location fan-out stops until another beacon is activated, because the tracker would have nothing to publish.\n\nRevoked beacons leave the main list and sit in a Revoked accordion under it, collapsed by default and greyed. They keep their name, notes, counters, telemetry, and logs for reference, and their page still opens, but they have no actions and no warning chips.\n\nA revoked beacon cannot be brought back. To keep using the same phone, create a new beacon and enrol it with the new key. If you only want a fresh key, use Rotate instead.",
+    "links": []
+  },
+  {
+    "key": "beacons.detail",
+    "page": "Beacons",
+    "label": "Beacon page",
+    "title": "One beacon in full",
+    "body": "The beacon page reads the same polled data as the list, so it updates on its own. The header shows the name, the key prefix, an Active or Revoked chip, the Healthy chip, and any warning chips; a revoked beacon shows a banner with the revocation time.\n\nThe Details card has an Edit button that unlocks the name, the notes, and Min interval in milliseconds. Min interval is the least time between two accepted fixes from this beacon, 0 to 60000; leave it blank to use the sitewide default from Settings. Save sends only what changed.\n\nThe other cards are Actions, Ages, Fixes, Telemetry, and Logs, each with its own topic. The card also notes who created the beacon and when.",
+    "links": [
+      { "label": "Settings", "to": "/settings" }
+    ]
+  },
+  {
+    "key": "beacons.detail.actions",
+    "page": "Beacons",
+    "label": "Actions card",
+    "title": "Activate, rotate, revoke, hub",
+    "body": "Activate makes this the beacon whose updates are published; the confirmation notes that only its updates go out, starting with its next one. Deactivate stops that, and while an event is live it warns that location fan-out stops until another beacon is activated.\n\nRotate key mints a new key and shows it once in the key reveal dialog. The old key stops working immediately and the phone must be re-enrolled, so during a live event the tracker goes quiet until that happens or another beacon is activated. Revoke is permanent.\n\nThe Hub allowed switch applies at once. On, the phone may use the hub's live socket; off, labelled Hub off (HTTP only), it posts over plain requests, and the panel stops treating a missing socket as a problem. A revoked beacon has no actions.",
+    "links": []
+  },
+  {
+    "key": "beacons.detail.ages",
+    "page": "Beacons",
+    "label": "Ages card",
+    "title": "How recently it was heard",
+    "body": "The Ages card shows four times, each as an age such as 12 s ago with the exact time in your zone beside it: last seen, last heartbeat, last location, and stale since. The ages tick once a second without a fetch.\n\nA beacon sends a heartbeat regularly even when it has no new position. When neither a heartbeat nor a location arrives for longer than the stale threshold, the API flags the beacon stale and the chip appears. The threshold is the beacon_stale_after_s setting, 45 seconds by default.\n\nThe heartbeat and stale lines turn red while they are over the threshold. A stale or unhealthy active beacon blocks setting an event Live, and the dashboard's Active beacon card shows the same ages.",
+    "links": [
+      { "label": "Settings", "to": "/settings" }
+    ]
+  },
+  {
+    "key": "beacons.detail.fixes",
+    "page": "Beacons",
+    "label": "Fixes card",
+    "title": "The three fix counters",
+    "body": "Fixes are the positions a beacon posts. The card shows three counters that only ever go up and are never reset.\n\n- Stored: fixes that produced a stored location row for the event. These are what the Locations card and Record from this event use.\n- Carried: fixes that were accepted and published live but not stored, because they moved less than the minimum distance from the last stored one, or repeated a position already stored.\n- Rate limited: fixes refused because they arrived sooner than the beacon's minimum interval after the previous one.\n\nA high Rate limited count means the phone sends faster than the interval allows; raise the beacon's Min interval or the location_min_interval_ms setting if that is intended. A high Carried count usually means the beacon was standing still.",
+    "links": [
+      { "label": "Settings", "to": "/settings" }
+    ]
+  },
+  {
+    "key": "beacons.detail.telemetry",
+    "page": "Beacons",
+    "label": "Telemetry card",
+    "title": "What the phone reports",
+    "body": "Each heartbeat can carry telemetry, and this card shows the latest. No heartbeat received means none has arrived yet.\n\nThe Health block shows when the heartbeat was sent and its age, the hub state (connected, polling, unknown, or off when the hub is not allowed), and three values the beacon may report: battery percent, the age of its last GPS fix, and its socket state. A missing value reads not reported. Battery under 20 percent, a fix older than 30 seconds, or a socket that is down turns the matching value red and raises a warning chip.\n\nThe Debug block is a collapsible JSON tree of whatever else the beacon chose to send, with a search box and a copy button. The panel does not interpret it; it shows the phone's own data as sent.",
+    "links": []
+  },
+  {
+    "key": "beacons.detail.logs",
+    "page": "Beacons",
+    "label": "Logs card",
+    "title": "Log files from the beacon",
+    "body": "A beacon can upload its own log files, and this card lists them newest first with the time received, the app version that sent it, and the size. No logs uploaded means there are none yet.\n\nView fetches the log and shows its text in a box under the list, scrolling sideways for long lines. Download saves it as a text file named after the beacon and the log, and Close hides it again.\n\nLogs are for diagnosing a phone that misbehaved during a flight. Nothing here changes the beacon, and uploading is up to the device; the panel only reads. The card appears on every beacon, revoked ones included.",
+    "links": []
+  },
+  {
+    "key": "qr-codes",
+    "page": "QR codes",
+    "label": "QR codes list",
+    "title": "Codes posted around town",
+    "body": "A QR code is a printed sticker or sign that opens the site when scanned. Each has a tag such as qr-012. This list, sorted by tag, shows where each code is attached as a place path, or an Unattached chip, plus what it opens, how many people scanned it, the last scan, and which printed batch it came from. Disabled codes are greyed.\n\nGenerate makes a batch of new codes, 1 to 100 at a time, ready to print. Print sheet lays a batch out for printing. The row menu holds Attach, Detach, Disable or Enable, and Delete for admins. The pencil opens the code's page.\n\nThe page is open to admins, editors, and canvassers. Places are managed on the Places page and the Scan page attaches codes from a phone.",
+    "links": [
+      { "label": "Places", "to": "/places" },
+      { "label": "Scan", "to": "/scan" }
+    ]
+  },
+  {
+    "key": "qr-codes.attach",
+    "page": "QR codes",
+    "label": "Attach to a place",
+    "title": "Attaching a code to a place",
+    "body": "Attaching records where a code is physically posted. The Attach dialog is a search box over every place path; start typing and pick the place. Move to another place, on the code's page, uses the same dialog, and Detach removes the link.\n\nAn attached code opens whatever its place opens unless the code has its own target. Its scans count toward that place on the Places page and the places map. The history of every stay is kept, so a code that moved still shows where it used to be.\n\nCanvassers usually attach from the Scan page on a phone, which can also create the place and pin its location in one go. Use this dialog from a desk when you already know the place.",
+    "links": [
+      { "label": "Places", "to": "/places" },
+      { "label": "Scan", "to": "/scan" }
+    ]
+  },
+  {
+    "key": "qr-codes.print-sheet",
+    "page": "QR codes",
+    "label": "Print sheet",
+    "title": "Printing a batch of codes",
+    "body": "Print sheet prints a whole batch at once. Choose the batch, newest by default, and a size: 50 mm at six per row, 100 mm at three per row, 200 mm at one per row, or 300 mm at one per page. The note reminds you that a phone reads a code from about ten times its width, so a 50 mm code scans from half a metre and a 300 mm sign from three metres.\n\nPrint renders every code in the batch at that size with its tag underneath and opens the browser's print dialog. Codes never split across pages.\n\nThe code's own page offers single SVG and PNG downloads at any size in millimetres for a poster or a sign maker. Codes are generated with the Generate button on the list.",
+    "links": []
+  },
+  {
+    "key": "qr-codes.detail",
+    "page": "QR codes",
+    "label": "QR code page",
+    "title": "One code in full",
+    "body": "The code page shows the code itself on the left with its tag and the address it encodes, a size field in millimetres, and SVG and PNG buttons that download it at that size; the PNG is rendered at 300 dpi for printing. The settings paper sits beside it on desktop and under it on a phone.\n\nBelow are Where it has been, the history of every place the code was attached to, and three statistics: people over all attachments, flagged hits, and people per day over the last 14 days with a bar chart.\n\nPeople means scans that were not flagged as suspicious. Each part has its own topic. Changes in the settings paper take effect on Save.",
+    "links": []
+  },
+  {
+    "key": "qr-codes.detail.settings",
+    "page": "QR codes",
+    "label": "Code settings",
+    "title": "Where it is, what it opens",
+    "body": "The settings paper shows the place the code is attached to, with Detach and Move to another place, or Unattached with an Attach button.\n\nOpens decides what a visitor sees after scanning. Same as the place follows the place's own setting. A site page sends them to one of the site's pages, chosen from the pages that are not hidden. A forward URL sends them to any web address. The list shows which one is in effect as from place, own, or default.\n\nNote holds up to 500 characters of your own text. The Active switch disables the code without deleting it; a disabled code is greyed in the list. Printed is read only and records the batch. Save stores the note, target, and switch together.",
+    "links": [
+      { "label": "Pages", "to": "/pages" }
+    ]
+  },
+  {
+    "key": "qr-codes.detail.where",
+    "page": "QR codes",
+    "label": "Where it has been",
+    "title": "The code's attachment history",
+    "body": "Where it has been lists every place this code has been attached to, with the place path as the title and the from and to times and the number of people who scanned it during that stay. The current stay has no end.\n\nA place that was deleted since shows as a place since deleted; the stay and its counts are kept. When scans arrived in the hour before the code was attached, the row says how many, so a canvasser who scanned a sticker to test it before attaching it does not lose those hits.\n\nThe history is read only. Detaching, moving, or deleting a place adds to it; nothing removes from it.",
+    "links": [
+      { "label": "Places", "to": "/places" }
+    ]
+  },
+  {
+    "key": "qr-codes.detail.daily",
+    "page": "QR codes",
+    "label": "Scan statistics",
+    "title": "Reading the scan counts",
+    "body": "Three small papers and a chart summarise scans. People over all attachments counts every scan that was not flagged, across every place the code has been. Flagged hits counts scans the API marked as suspicious, such as repeats from the same source, which are kept out of the people counts. People per day over the last 14 days is the recent total, and the bar chart below it shows each of those days.\n\nThe counts update as scans arrive; reload the page to refresh. They feed the people column on the QR codes list, the subtree counts on the Places page, and the circles on the places map.\n\nThe chart has no settings. For a longer view, open the places map and choose a window.",
+    "links": [
+      { "label": "Places map", "to": "/places/map" }
+    ]
+  },
+  {
+    "key": "places",
+    "page": "Places",
+    "label": "Places tree",
+    "title": "Where codes are posted",
+    "body": "A place is a spot where QR codes are posted: a shop, a park, a window. Places nest, so a town can hold streets and a street can hold shops. The list is a tree with a caret per row that has children, expanded by default.\n\nEach row shows the name, description, a location chip, the codes attached now, and the people who scanned anything in its subtree. The chip reads Pinned when the place has its own map pin, Uses an ancestor when it inherits one, No pin, or Not pinned yet as a warning when codes there have scans and nothing resolves.\n\nNew place and Map sit in the toolbar. The row menu holds New place inside, Move, and Delete for admins. Deleting removes everything under the place; its codes become unattached and keep their history.",
+    "links": [
+      { "label": "Places map", "to": "/places/map" },
+      { "label": "QR codes", "to": "/qr-codes" }
+    ]
+  },
+  {
+    "key": "places.dialog",
+    "page": "Places",
+    "label": "Place dialog",
+    "title": "Creating or moving a place",
+    "body": "The same dialog serves New place, New place inside, and Move. It has a parent picker, a search over every place path with top level as the first choice; a name of 1 to 120 characters; a description of up to 500; and Opens, which decides what a visitor sees after scanning a code attached here.\n\nOpens is inherit, which follows the parent, a site page, or a forward URL. A code can override it with its own target on the QR code page.\n\nMove changes only the parent; the picker leaves out the place's own subtree so a place cannot be moved under itself. Moving carries every child and attached code along. The pin is set separately on the place page, or from a phone on the Scan page.",
+    "links": [
+      { "label": "Scan", "to": "/scan" }
+    ]
+  },
+  {
+    "key": "places.detail",
+    "page": "Places",
+    "label": "Place page",
+    "title": "One place in full",
+    "body": "The place page has three parts. Details holds the name, description, parent, and Opens with a Save button; Save sends only what changed. Beside it on desktop, and under it on a phone, the location card shows the pin on a map and the ways to set it. Below both, Codes attached here lists the codes and lets you attach or detach.\n\nOpens picks what a scanned code here leads to: inherit the parent's choice, a site page, or a forward address.\n\nChanges on this page do not touch the public site's content; places and codes are the canvassing side of the panel. The people counts on the list and the map come from the codes attached here and in the places below.",
+    "links": []
+  },
+  {
+    "key": "places.detail.location",
+    "page": "Places",
+    "label": "Location card",
+    "title": "Pinning a place on the map",
+    "body": "The location card shows a chip reading Own pin, Uses the parent's pin, or No pin, with where the pin came from and who set it. A pin puts the place on the places map, so scans there can be seen geographically.\n\nThree ways to set it. Use my location takes the phone's or laptop's position and shows its accuracy; a fix worse than 500 metres is refused with a hint to search or drag instead. The search box finds an address or business. The pin on the map can be dragged when the place has its own pin.\n\nUse the parent's pin removes this place's own pin so it inherits the parent's; it is enabled only when there is a parent and an own pin. Every write records its source as phone, search, or drag.",
+    "links": [
+      { "label": "Places map", "to": "/places/map" }
+    ]
+  },
+  {
+    "key": "places.detail.codes",
+    "page": "Places",
+    "label": "Codes attached here",
+    "title": "Attaching codes to this place",
+    "body": "Codes attached here shows one chip per QR code attached to this place. The chip's delete icon detaches that code; it becomes unattached and keeps its history.\n\nUnder the chips, the Unattached code search lists every code that is not attached anywhere. Pick one and press Attach here. A code already attached elsewhere is moved from the QR codes page or the code's own page instead.\n\nAttaching is what makes a scan count for this place. The people counts on the Places list and the circles on the places map add up the scans of the codes attached here and in the places below. Nothing here is a draft; it takes effect at once.",
+    "links": [
+      { "label": "QR codes", "to": "/qr-codes" }
+    ]
+  },
+  {
+    "key": "places.map",
+    "page": "Places",
+    "label": "Places map",
+    "title": "Scans on a map",
+    "body": "The places map draws one circle per pinned place that had scans in the chosen window, sized by its people count with the number inside, centred on all the pins. Hover or tap a circle for the codes under it with their counts.\n\nTwo selects at the top choose which scans count: an event, defaulting to the current one, or All events, and a time window. They have their own topic.\n\nThe side card, under the map on a phone, lists every place with scans in the window with its path, people, and codes, and then counts what the map cannot show: places with scans but no pin, and codes with scans that are attached nowhere. Pin those places or attach those codes and they appear.",
+    "links": [
+      { "label": "Places", "to": "/places" },
+      { "label": "QR codes", "to": "/qr-codes" }
+    ]
+  },
+  {
+    "key": "places.map.window",
+    "page": "Places",
+    "label": "Map window selects",
+    "title": "Choosing which scans count",
+    "body": "The event select picks the event whose scans are shown and defaults to the current event; All events includes every scan ever recorded. The window select narrows the time: this event, the last 14 days, or all time.\n\nTogether they answer different questions. The current event with this event shows where this year's campaign is reaching. All events with all time shows the strongest locations across years. The last 14 days shows what is moving right now.\n\nChanging a select reloads the pins and the side card. The counts are people, meaning scans not flagged as suspicious, the same number the QR codes list and the Places tree show. On a phone the two selects wrap onto their own lines.",
+    "links": []
+  },
+  {
+    "key": "scan",
+    "page": "Scan",
+    "label": "Scan page",
+    "title": "Scanning codes in the field",
+    "body": "Scan is built for a phone and is the landing page for canvassers. The camera card reads a QR code through the rear camera inside a framing rectangle. If the camera will not cooperate, type the tag such as qr-012, or the full address from the sticker, into the field below and press Open. The Site card shows the address pattern codes carry and how many codes exist.\n\nA tag that is attached shows a card with where it is and offers Move or Done. A tag that is unattached slides up the attach sheet, which has its own topic.\n\nEverything is placed within thumb reach. The page is open to admins, editors, and canvassers; the full code and place lists live on their own pages.",
+    "links": [
+      { "label": "QR codes", "to": "/qr-codes" },
+      { "label": "Places", "to": "/places" }
+    ]
+  },
+  {
+    "key": "scan.attach",
+    "page": "Scan",
+    "label": "Attach sheet",
+    "title": "Attaching from the phone",
+    "body": "When a scanned code is not attached anywhere, a sheet slides up from the bottom. First pick the place: search the existing places, or choose New place and type a name; the new place's parent defaults to the place you had selected.\n\nThen the pin step. Use my location takes the phone's position, shows its accuracy, and offers Pin here. Or search for the address. Or Skip, which leaves the place without a pin for now; a place with scans and no pin shows a warning on the Places list until someone pins it.\n\nAttach then pin are two calls, so the attachment is saved even if the pin step fails. Move on an attached code opens the same sheet with the current place preselected.",
+    "links": [
+      { "label": "Places", "to": "/places" }
+    ]
+  },
+  {
+    "key": "pages",
+    "page": "Pages",
+    "label": "Pages list",
+    "title": "The site's pages as drafts",
+    "body": "Pages holds every page of the public site. Changes here are drafts until you publish: editing never changes what visitors see until Publish is pressed, on the Publish page or with the Publish button in the top bar.\n\nThere are two tables. Status pages are the seven pages the site shows for each event status. Pages are the extra pages you create, in menu order, with up and down arrows to reorder them. Each row shows the title, the menu icon when set, the section count, and a red problems chip when something blocks publishing.\n\nThe pencil opens the editor. New page creates one. Preview site opens the whole site with every draft applied, starting at the home page, so you can click around before publishing.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "pages.status-pages",
+    "page": "Pages",
+    "label": "Status pages",
+    "title": "One page per event status",
+    "body": "The site's home page changes with the current event's status. Seven status pages cover it: No event, Planned, Scheduled, Live, Ended, Cancelled, and Postponed. The site shows the one matching the current event, or No event when none is flagged current.\n\nEach row shows its role chip, title, section count, and problem count, with the pencil opening the editor. These pages cannot be deleted, reordered, or hidden, and they have no settings icon on the list; their title and menu icon are edited through Page settings inside the editor.\n\nSome section kinds are only allowed on certain roles. The Live page, for example, is where the tracker map belongs. Changing an event's status on the Events page is what switches between them.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "pages.create",
+    "page": "Pages",
+    "label": "New page dialog",
+    "title": "Creating a page",
+    "body": "New page asks for a title, a slug, Show in navigation, and a menu icon. The slug is the page's address on the site and is derived from the title as you type until you edit it yourself.\n\nShow in navigation puts the page in the site's menu; a nav label field appears so the menu can say something shorter than the title. The Menu icon, optional, is shown beside the page in the site's mobile menu and is chosen with the icon picker.\n\nCreate saves the page as an empty draft and opens the editor so you can add sections. The page reaches visitors only after a publish. It is placed last in menu order; the arrows on the list move it.",
+    "links": []
+  },
+  {
+    "key": "pages.settings",
+    "page": "Pages",
+    "label": "Page settings",
+    "title": "Slug, title, menu, hidden",
+    "body": "Page settings, from the gear icon on the list or the button in the editor, edits the page's slug, title, nav label behind a Show in navigation checkbox, menu icon, and Hidden switch. The nav label defaults to the title when the checkbox is ticked.\n\nHidden keeps the page out of the site entirely while it stays in the draft, handy for a page prepared ahead of time. The menu icon shows beside the page in the mobile menu; Clear removes it.\n\nSave applies at once to the draft; the public site changes on the next publish. Status pages reach the same dialog only from inside the editor. Deleting a page is in the row menu on the list and previews what goes with it.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "pages.editor",
+    "page": "Pages",
+    "label": "Page editor",
+    "title": "Building a page from sections",
+    "body": "The editor is the panel's main surface. The header shows the title and slug and a chip reading No problems in green or a count in red. Three buttons: Preview shows the page as the site will draw it, Page settings opens the settings dialog, and Publish goes to the Publish page.\n\nA page is a stack of sections, one card each, in the order the site shows them. Expand all and Collapse all open and close every card. Add section at the bottom opens the palette of section kinds.\n\nEdits save on their own as you type; there is no page-level Save. Every change is a draft until published. A problem is something incomplete that blocks publishing, and each card lists its own.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "pages.editor.sections",
+    "page": "Pages",
+    "label": "Section cards",
+    "title": "Working with a section",
+    "body": "Each section is a card. Its header shows the position and kind, a one-line summary of the content, a Live chip for kinds that show live data, a Hidden chip, the problems badge, and the save state: Saving, Saved, or Not saved. Click the header to expand or collapse.\n\nThe header also carries a Hidden switch, which keeps the section in the draft but off the site, up and down arrows to reorder, and a menu with Duplicate, Move to page, and Delete.\n\nExpanded, the card has two tabs. Content holds the kind's own fields; kinds with items show a sortable list of item cards, each with its own Hidden switch and remove icon. Presentation controls the card, width, spacing, background, and icons. Under the tabs sit the section's problems and a Save now button.",
+    "links": []
+  },
+  {
+    "key": "pages.editor.palette",
+    "page": "Pages",
+    "label": "Section palette",
+    "title": "Adding a section",
+    "body": "Add section opens the palette: one full-width button per section kind with its title and a short description of what it draws, such as a hero, rich text, a map, sponsors, or a route preview.\n\nSome kinds are allowed only on certain pages. The map belongs to the Live status page, for example. A kind not allowed on this page is greyed with a tooltip saying so.\n\nChoosing a kind adds a new section with default content at the end of the stack, expanded and ready to edit. Move it with the arrows. It is part of the draft at once and reaches the site on the next publish. On a phone the palette fills the screen.",
+    "links": []
+  },
+  {
+    "key": "pages.editor.preview",
+    "page": "Pages",
+    "label": "Editor preview",
+    "title": "Seeing the page as you edit",
+    "body": "Preview shows the real public site with your draft applied. On a wide screen it opens as a column beside the editor, with the editor on the left and the site on the right, each scrolling on its own; the panel remembers whether you left it open. On a narrower screen it opens as a full-screen dialog.\n\nIt starts on the page being edited and reloads on its own about a second and a half after each save, so the latest change shows without any clicking. You can follow links inside it and every page shows the draft.\n\nThe toolbar has a device width select, a Light, Dark, or Site default theme toggle, a token countdown, and a Share menu that opens the preview in a new window or copies a link that lasts up to 24 hours, for a second monitor or a colleague. Nothing in the preview is public.",
+    "links": []
+  },
+  {
+    "key": "pages.editor.move",
+    "page": "Pages",
+    "label": "Move to page",
+    "title": "Moving a section elsewhere",
+    "body": "Move to page, in a section card's menu, moves the whole section, its content, items, and presentation, to another page. The dialog lists every other page; pages whose role does not allow this section kind are greyed as not allowed on this page. Pick one and press Move.\n\nThe section disappears from this page and appears at the end of the target page's stack. Nothing is copied or lost, and the move is part of the draft until published. Use Duplicate first if you want the section on both pages.\n\nWhen there are no other pages the dialog says so. Reordering within a page uses the arrows on the card instead.",
+    "links": []
+  },
+  {
+    "key": "pages.editor.autosave",
+    "page": "Pages",
+    "label": "Automatic saving",
+    "title": "How edits are saved",
+    "body": "The editor saves without a Save button. Content fields save when you leave a field and about a second after you stop typing. Presentation choices save the same way. Items, the Hidden switches, reordering, adding, duplicating, moving, and deleting save at once.\n\nThe card header shows the state: Saving while a request is out, Saved when it landed, Not saved when the last save failed. Save now forces a save of that card, for example before closing the laptop. Leaving the page flushes pending saves.\n\nA value the API refuses, such as text that is too long, shows the error under that field. Something merely incomplete does not stop the save; it becomes a publish problem instead. Saved means saved to the draft; visitors see it after the next publish.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "media",
+    "page": "Media",
+    "label": "Media library",
+    "title": "Images for the site",
+    "body": "The media library holds every image the site can use: hero pictures, section photos, sponsor logos, icons, and generated posters. An upload drop zone sits at the top and the grid of assets below, with a search box and kind and state filters.\n\nEach card shows a thumbnail, the filename, dimensions, size, a kind chip, and chips for a deep zoom version, a dark version, or inverting in dark mode. A state chip reads pending while an upload is unfinished or orphaned with an expiry when it never completed.\n\nClick a card or its pencil to open the detail drawer, where alt text, title, credit, and the dark and small screen versions are edited and the asset can be deleted. Uploading here does not place an image anywhere; pick it from a page, a sponsor, or a cookie type afterwards.",
+    "links": []
+  },
+  {
+    "key": "media.uploader",
+    "page": "Media",
+    "label": "Upload drop zone",
+    "title": "Uploading images",
+    "body": "Drop files on the zone or choose them. PNG, JPEG, WebP, GIF, and SVG are accepted; the type is read from the file's bytes, not its name. Raster images may be up to 20 MB and SVGs up to 1 MB. A file that fails those checks is refused before anything is sent.\n\nAlt text and a title typed before the upload starts go with it. Each file shows its progress: Checking file, Queued, Uploading with a percentage, Confirming, Ready, or the reason it failed with a Retry button. Up to three files upload at once. Clear completed removes the finished rows.\n\nFilenames are tidied to letters, digits, dots, dashes, and underscores. The API makes resized variants on its own once the upload is confirmed, and a ready asset can be picked from any image field in the panel.",
+    "links": []
+  },
+  {
+    "key": "media.detail",
+    "page": "Media",
+    "label": "Media detail drawer",
+    "title": "Editing one asset",
+    "body": "The drawer shows the original with its kind, state, and dimensions, then Alt, Title, and Credit, saved together with one Save. Alt is what screen readers hear and is the default wherever the image is used. Credit, up to 200 characters, is shown under the photo on the site.\n\nDark mode version picks another asset the site draws when a visitor uses the dark theme, and Invert in dark mode flips the colours of a one-colour image instead. Small screen version is drawn in this image's place on screens under 760 px wide. Each of these saves the moment it changes.\n\nUnder them are links to the original, every variant, and the deep zoom descriptor, then Used in, listing the draft pages, sponsors, cookie types, and site settings that reference the asset. Delete previews those links; the asset is removed and they are unlinked, never refused.",
+    "links": []
+  },
+  {
+    "key": "posters",
+    "page": "Poster studio",
+    "label": "Poster list",
+    "title": "Posters made from a route",
+    "body": "A poster is a printable image of a flight's route over a map, with your own overlays such as the logo and a QR code. Posters are documents of their own, never tied to an event, and are meant for distribution off the site: a flyer, a social post, a sign.\n\nThe list shows each poster's name, the flight recording its map is drawn from, and when it was last updated. Create poster asks for a name and opens the editor. The row menu holds Open, Duplicate, which copies the whole design under a new name, and Delete.\n\nThe studio is an admin entry only. Recordings come from the Flight recordings page, and a generated image lands in the media library.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" },
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "posters.editor",
+    "page": "Poster studio",
+    "label": "Poster editor",
+    "title": "Designing a poster",
+    "body": "The editor has the Name field and a Flight recording select under the title. Until a recording is chosen the workspace shows a hint instead of a map. Back to posters returns to the list and Save stores the design.\n\nThe workspace is a large preview on the left and a rail of controls on the right, stacked on a phone. From top to bottom the rail holds Theme, Orientation, Size, Terrain, Map details, Route styling, Overlays, the output file name, and Generate. Each group has its own topic.\n\nThe preview is laid out at the real output size and scaled down, so line widths, arrows, and labels are exactly what the export will show. Save stores the whole design on the poster, and opening it later restores every choice.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" }
+    ]
+  },
+  {
+    "key": "posters.editor.size",
+    "page": "Poster studio",
+    "label": "Theme, orientation, size",
+    "title": "Choosing the output format",
+    "body": "Theme is Light or Dark and sets the map's look and the default route colour. Orientation is Portrait or Landscape, the default. Size picks a preset: Facebook post at 2048 by 1536, Flyer at letter size and 300 dpi, 2550 by 3300, or Poster at 11 by 17 inches and 300 dpi, 3300 by 5100. Orientation swaps the pair, and each option shows its pixel size for the current orientation.\n\nThe rail shows the file name the export will carry, built from the poster name, theme, and size.\n\nA Terrain checkbox appears under the sizes once the hillshade data is found and draws relief under the map. Changing size or orientation resizes the preview and refits the route; overlays keep their relative positions because they are stored as fractions of the poster.",
+    "links": []
+  },
+  {
+    "key": "posters.editor.map-details",
+    "page": "Poster studio",
+    "label": "Map details",
+    "title": "What the base map labels",
+    "body": "Map details has three switches, all on by default. Landmarks shows the names of points of interest. Town names shows city, town, village, and neighbourhood names. Road labels shows road names.\n\nTurning one off removes that group of labels from the map, which can make a busy poster cleaner and leave room for overlays. The preview changes at once, and the export draws the same map because both are built from the same style.\n\nThe switches are saved with the poster's design. They affect only this poster, not the site's maps; the places and viewpoints the site labels are chosen under Site settings.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "posters.editor.route-styling",
+    "page": "Poster studio",
+    "label": "Route styling",
+    "title": "Colour, arrows, time labels",
+    "body": "Route styling controls how the flight line is drawn. The colour picker and hex field default to the theme's route colour and follow the theme until you pick one; Reset returns to it. Arrows draws direction arrowheads along the line, and Arrow size, enabled only while arrows are on, offers Small to Extra large, with Large the default because it reads well in print.\n\nTime labels places a time along the route every 5, 10, 15, or 30 minutes, or Off. What the label says depends on Start time and Label format. With no start time the labels show elapsed time such as 45m or 1h 15m. Enter the flight's start as a wall time, pick its Timezone, and Wall clock shows times such as 6:15 PM in that zone.\n\nEvery change redraws the preview and is saved with the design.",
+    "links": []
+  },
+  {
+    "key": "posters.editor.overlays",
+    "page": "Poster studio",
+    "label": "Overlays group",
+    "title": "Placing images and codes",
+    "body": "Overlays are elements laid over the map. Add image picks any still image from the media library; animated GIFs are refused. Add logo places the site logo from Site settings and appears only when one is set. Add QR code picks a code from the QR codes list and draws it as a white card with black modules so it scans in print over any map.\n\nA new element lands at the centre, selected. Drag to move it, pull a corner to scale with the aspect kept, and rotate with the handle; edges and centre snap to the poster's edges and centre with a guide line. Forward and Back change stacking, Delete removes the selected element, and Clear overlays removes all.\n\nAn element whose image cannot load shows as a dashed placeholder with a warning, and Generate refuses until it is fixed or removed.",
+    "links": [
+      { "label": "Media", "to": "/media" },
+      { "label": "QR codes", "to": "/qr-codes" },
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "posters.editor.generate",
+    "page": "Poster studio",
+    "label": "Generate button",
+    "title": "Rendering the final image",
+    "body": "Generate draws the poster at the exact chosen pixel size, whatever your screen, with the map, the overlays, and a small OpenStreetMap attribution chip in the bottom corner. The result is a JPEG uploaded to the media library and named after the poster, theme, and size, and the design is saved at the same time.\n\nThe rail shows the stages: Rendering the map, Uploading with progress, Processing the upload, then a ready block with the image, its size, and an Open in the media library link.\n\nA map that cannot render, an overlay that cannot be drawn, or an image over the 20 MB limit shows an error, and Generate reads Try again; for the size limit pick a smaller preset or the other theme. Leaving the page abandons a run. The image stays in the library for download or sharing.",
+    "links": [
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "site-settings",
+    "page": "Site settings",
+    "label": "Site settings form",
+    "title": "Sitewide words, looks, and links",
+    "body": "Site settings holds everything about the public site that does not belong to one page: the name and tagline, the logo and tab icon, the theme toggles, the menu, header, and footer links, the contact and donate details, the viewpoints, and the places the maps label.\n\nIt is one form. Save is enabled once something changed and sends the whole document. Settings are drafts until you publish, so nothing reaches visitors until Publish is pressed. Problems that would block publishing are listed above the form.\n\nPreview site opens the real site with every draft applied, starting at the home page. Each group of fields has its own topic. Every field shows a one-line help text under it.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "site-settings.identity",
+    "page": "Site settings",
+    "label": "Name and logo",
+    "title": "Naming and branding the site",
+    "body": "Site name is the site's name, shown in the header and the browser tab. Tagline is a short line under it. Label for the home link in the menu is what the menu calls the home page.\n\nLogo and Browser tab icon are picked from the icon library or your uploaded images. Site logo is a switch that, when on, takes an image from the media library: upload an SVG or a transparent PNG. It is shown in the header and in any hero section set to show the site logo instead of its icon.\n\nShow the site name next to the logo is on until you turn it off, and is disabled until a site logo is set. Changes are drafts until published.",
+    "links": [
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "site-settings.theme",
+    "page": "Site settings",
+    "label": "Theme switches",
+    "title": "Snow, lights, and ornaments",
+    "body": "Three switches set the site's festive defaults: Snow on by default, Lights on by default, and Ornaments in the background. Visitors can turn snow and lights off for themselves on the site; these choose how it starts. Colours and fonts are part of the site design and are not set here; visitors pick light or dark themselves.\n\nCard opacity has a Light and a Dark number from 0 to 100. Sections are drawn as cards over the backdrop, and 100 is a solid card while a lower value lets the backdrop show through. An empty field means 100. A section can override these two numbers in its own Presentation tab.\n\nLike the rest of the form, the switches are drafts until published.",
+    "links": [
+      { "label": "Pages", "to": "/pages" }
+    ]
+  },
+  {
+    "key": "site-settings.links",
+    "page": "Site settings",
+    "label": "Menu and footer links",
+    "title": "Links around the site",
+    "body": "Extra menu links are added to the site's menu after the pages that show in navigation. Header links, up to three, are the prominent links drawn in the header on every page, such as the Facebook page. Footer links sit in the footer, and Footer text is the paragraph shown there.\n\nEvery link has the same four parts: Link text, Web address, an optional Icon from the icon picker, and Open in new tab. Add link appends one, the arrows reorder, and the remove icon deletes. A hint beside Add shows how many are allowed.\n\nLinks to the site's own pages use the page's slug as the address. Which pages show in the menu is set per page under Page settings, not here. Changes are drafts until published.",
+    "links": [
+      { "label": "Pages", "to": "/pages" }
+    ]
+  },
+  {
+    "key": "site-settings.contact",
+    "page": "Site settings",
+    "label": "Contact and analytics",
+    "title": "Contact email, donate, analytics",
+    "body": "Contact email is the address the site shows for reaching the organisers. Donate page address is the web address the site's donate links lead to; leave it empty when there is no donation page. Count visits (analytics) is a switch that turns the site's visit counting on or off.\n\nThese three are plain values the site reads from the snapshot; they are drafts until published like the rest of the form. Messages visitors send through the site's contact form do not come to this address inside the panel; they appear on the Contact messages page, which lists the sender's name, email, and message.\n\nA publish problem appears above the form if an address is not a valid web address.",
+    "links": [
+      { "label": "Contact messages", "to": "/contact-messages" },
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "site-settings.viewpoints",
+    "page": "Site settings",
+    "label": "Viewpoints list",
+    "title": "Good spots to watch from",
+    "body": "Viewpoints are good spots to watch Santa fly over. They are drawn as dots on the route preview and the live tracker, with the name beside each dot and the description shown when a visitor taps it. The list is sitewide, so it applies to every event.\n\nEach row shows the icon, name, and coordinates with Move up, Move down, Edit, and Delete. Add viewpoint opens a dialog: click the map where the viewpoint is, or type the latitude and longitude, then name it in up to 80 characters, optionally pick an icon, and optionally describe it in up to 300 characters. Save needs a name and a pin.\n\nUp to 50 viewpoints are allowed. Visitors can hide them with the Viewpoints toggle on the map section, when that control is enabled. The list is a draft until published.",
+    "links": [
+      { "label": "Pages", "to": "/pages" }
+    ]
+  },
+  {
+    "key": "site-settings.places",
+    "page": "Site settings",
+    "label": "Places on the maps",
+    "title": "Which places the maps label",
+    "body": "Places on the maps chooses the kinds of real-world places each map labels, such as parks, schools, or churches. There are two groups because the two maps draw places differently. Live tracker covers the tracker map; Default shows the places its map style draws, and Custom shows only the kinds you check. Route map covers the route drawing; Default shows no places, and Custom labels only the kinds you check.\n\nEach group is a Default or Custom choice with a checkbox per category. Custom with nothing checked means the map shows no places, and the group says so.\n\nThis is not the same as viewpoints, which are your own named spots. The event page's route map dialog previews the route map places chosen here. The choice is a draft until published.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "publish",
+    "page": "Publish",
+    "label": "Publish page",
+    "title": "Taking the draft live",
+    "body": "Every change to pages and site settings is a draft. Publishing turns the current draft into a numbered version and makes it the one the public site shows; the site updates within its next poll.\n\nThe page has a status card at the top saying what is published and whether the draft is ready, a list of problems when something blocks publishing, and the list of past versions below with View, Restore, and Restore and publish.\n\nThe Publish button is enabled only when the draft has changes and no problems. It asks for an optional label, up to 100 characters, to describe the version. The Publish button in the top bar does the same thing from any page. Events, beacons, sponsors, and settings are not drafts and do not go through this page.",
+    "links": [
+      { "label": "Pages", "to": "/pages" },
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "publish.status",
+    "page": "Publish",
+    "label": "Status card",
+    "title": "Reading the publish status",
+    "body": "The status card has three lines. The first names the published version with its label, who published it, and how long ago, or Nothing published yet. The second says when the draft last changed. The third is the verdict: No unpublished changes, Ready to publish in green, or a red count of problems that block publishing.\n\nThe Publish button is enabled only on Ready to publish. It opens a small dialog for an optional label and reminds you that the public site updates within its next poll. Success toasts the new version number and the list below gains a row.\n\nIf nothing changed since the last publish the API answers Nothing to publish. If problems appeared since the page loaded, the status refreshes and the problems list shows them.",
+    "links": []
+  },
+  {
+    "key": "publish.problems",
+    "page": "Publish",
+    "label": "Problems list",
+    "title": "What blocks publishing",
+    "body": "A problem is something in the draft that is incomplete or invalid: a required field left empty, a hero without a title, a link without an address, a page needed by a status with no sections. The editor lets you save such things so you can work in any order, and they surface here instead.\n\nEach row names the problem and links to where it lives: the section in its page editor, the page, or the site settings form. Fix it there; saves land in the draft at once. Come back and the status card refreshes to Ready to publish once the list is empty.\n\nThe same counts appear as red chips on the Pages list and in each editor's header, and the top bar's Publish button shows the count as a badge.",
+    "links": [
+      { "label": "Pages", "to": "/pages" },
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "publish.versions",
+    "page": "Publish",
+    "label": "Versions list",
+    "title": "Past published versions",
+    "body": "Every publish creates a version, and the list shows the newest 50 with the id and label, a Published chip on the one the site shows now, who published it and when, and its page and section counts.\n\nView opens a dialog with an Overview tab, listing the site settings and each page with its section kinds, and a Raw JSON tab with the whole document, for checking what a version contained.\n\nRestore copies a version back into the draft, and Restore and publish does that and publishes in one go; both have their own topic. Versions are never deleted from here, so any earlier state of the site can be brought back. The Audit icon on a row shows who did what to it.",
+    "links": []
+  },
+  {
+    "key": "publish.restore",
+    "page": "Publish",
+    "label": "Restore a version",
+    "title": "Going back to a version",
+    "body": "Restore replaces the current draft with the chosen version. The confirmation reads Replace the current draft with this version? Unpublished changes are lost. Nothing is published until you publish. After it, the editors show that version's content, and the status card reports it as a change ready to publish.\n\nRestore and publish does the restore and then publishes with the label Restored from version followed by its id, after the same confirmation plus the line that the public site updates within its next poll. Use it to roll the site back in one step.\n\nEither way the version itself is untouched and the version you were on remains in the list, so a restore can itself be undone by restoring again.",
+    "links": []
+  },
+  {
+    "key": "sponsors",
+    "page": "Sponsors",
+    "label": "Sponsors list",
+    "title": "The businesses that donate",
+    "body": "A sponsor is a business or person who donates, with one row per year they took part. The list shows the logo, the name, the latest year and how many years, and the website. The pencil opens the sponsor page; there is no row menu, and deleting lives on that page.\n\nNew sponsor asks for the name and optional contact details and opens the page so you can add the logo and the year. Import from year copies last year's sponsors into the new year in one go.\n\nSponsors appear on the site in the sponsor carousel and sponsor sections, in the order set on the Sponsor order page. A sponsor with no row for the current event's year is not shown this year.",
+    "links": [
+      { "label": "Sponsor order", "to": "/sponsors/order" }
+    ]
+  },
+  {
+    "key": "sponsors.import",
+    "page": "Sponsors",
+    "label": "Import from year",
+    "title": "Carrying sponsors into a new year",
+    "body": "Import from year adds a year row to many sponsors at once. Pick the from year from the years any sponsor has, newest first, and the to year, which defaults to the current event's year.\n\nThe dialog then lists every sponsor that has the from year and not yet the to year, with logo, name, and that year's amount, all ticked. Untick any that are not returning and press Import. Each ticked sponsor gets a new row for the to year copied from the old one. The result reads Imported and skipped counts.\n\nAmounts and flags come along, so open each sponsor afterwards to update what they gave this year. A sponsor that already has the to year is not listed and not changed.",
+    "links": []
+  },
+  {
+    "key": "sponsors.detail",
+    "page": "Sponsors",
+    "label": "Sponsor page",
+    "title": "One sponsor in full",
+    "body": "The sponsor page holds three cards. Details has the name, contact person, email, phone, address, website, Facebook, and Instagram; Save sends what changed, an emptied field is cleared, and No changes shows when nothing differs. The contact fields are for your records and are not shown on the site; the website is linked from the logo.\n\nThe Logo card picks the image the site shows. The Years card lists each year the sponsor took part with what they gave and how they appear.\n\nDelete sponsor in the header previews what goes with it, every year row included, before confirming. The deleted sponsor is still readable on the Audit page.",
+    "links": [
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "sponsors.detail.logo",
+    "page": "Sponsors",
+    "label": "Logo card",
+    "title": "Setting the sponsor logo",
+    "body": "The Logo card shows the current logo with its filename and dimensions, or No logo. Choose logo opens the media picker with a Library tab of ready images and an Upload tab that uploads a new file on the spot and picks it the moment it is ready. Remove clears it.\n\nBoth save at once. The logo is what the site draws for the sponsor in the carousel and sponsor sections, and what the Sponsors list shows. A sponsor without a logo shows its name.\n\nIf an upload never finished the API refuses it as not ready and the picker reopens with a warning; wait for Ready and choose again. The image stays in the media library and can be reused.",
+    "links": [
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "sponsors.detail.years",
+    "page": "Sponsors",
+    "label": "Years card",
+    "title": "What they gave each year",
+    "body": "Each row is one year: the amount donated, chips for Active, Can advertise, and Anonymous, the tracker time in seconds with override when set, the pinned position, and when it was registered. Only a row that is active, may advertise, and is not anonymous appears on the site for that year.\n\nAdd year opens the year dialog; Add year from copies an existing year's row to a target year, then opens it for editing. The dialog has the year, the amount, the three switches, Tracker time override in seconds from 0 to 600, and Pinned position from 1 to 1000. The helper under the override shows the time the amount would earn under the current Settings rates.\n\nA pinned position already taken for that year is refused; rearrange on the Sponsor order page instead. Deleting a year row asks once and cannot be undone.",
+    "links": [
+      { "label": "Sponsor order", "to": "/sponsors/order" },
+      { "label": "Settings", "to": "/settings" }
+    ]
+  },
+  {
+    "key": "sponsors.order",
+    "page": "Sponsors",
+    "label": "Sponsor order",
+    "title": "The carousel order and timing",
+    "body": "This page shows the sponsors for one year in the exact order the site's carousel will show them. Pick the year; it defaults to the current event's year. The rule is largest gift first unless pinned.\n\nPinned sponsors sit at the top and can be dragged into any order. A row's pin icon moves it to the bottom of the pinned block; unpin drops it back among the by-amount rows. Every drag, pin, or unpin saves at once.\n\nTracker time is how long each sponsor stays on screen: the gift times the per-dollar rate from Settings, floored at the minimum, unless the Time field on the row overrides it; that field saves when you leave it. A sponsor greyed as Not on the site is inactive, anonymous, or may not advertise for that year and cannot be pinned or timed.",
+    "links": [
+      { "label": "Settings", "to": "/settings" },
+      { "label": "Sponsors", "to": "/sponsors" }
+    ]
+  },
+  {
+    "key": "cookie-types",
+    "page": "Cookie types",
+    "label": "Cookie types list",
+    "title": "The kinds of cookie",
+    "body": "Cookies are a hidden feature of the site: during a flight a visitor can leave a cookie, and the site keeps a tally per type. This page defines the types. Each row shows the icon, the name, an Active chip, the sort position, and how many cookies of that type have been left.\n\nNew type and the pencil open the same dialog. The row menu holds Delete, which previews the cookies that would go with the type. Turning Active off removes the type from the site without deleting it or its count.\n\nThe tally shows on the dashboard's Live object card, and the event page's Seed cookies card can add cookies by hand while an event is live. While an event is live the types are locked; see the next topic.",
+    "links": [
+      { "label": "Dashboard", "to": "/" },
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "cookie-types.locked",
+    "page": "Cookie types",
+    "label": "Locked while live",
+    "title": "Why the page is locked",
+    "body": "While any event is live, cookie types cannot be created or edited. A warning banner at the top names the live event and says the types can be created, edited, and deactivated again after the event ends. New type and every pencil are disabled.\n\nThe lock exists because visitors are leaving cookies against these types in real time; changing a type mid-flight would muddle the tally the site is showing. The API enforces the same rule, so a change attempted from a stale page is refused and the banner appears.\n\nThe lock lifts on its own once the event's status leaves Live, which is done on the event page. Seeding cookies during the flight is still possible from there.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "cookie-types.dialog",
+    "page": "Cookie types",
+    "label": "Cookie type dialog",
+    "title": "Editing a cookie type",
+    "body": "The dialog has the name, the sort number, which orders the types on the site from low to high, an Active switch, on by default for a new type, and an icon row with Choose and Clear.\n\nChoose opens the icon picker used across the panel: a Library tab with a search box over the built-in icons, a Media library tab over every ready image, and an Upload tab that uploads a new image and picks it as soon as it is ready. The icon is what the site draws for the cookie and what the Seed cookies card shows.\n\nSave applies at once; cookie types are not drafts and do not need a publish. The site picks the change up on its next snapshot.",
+    "links": [
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "subscribers",
+    "page": "Subscribers",
+    "label": "Subscribers list",
+    "title": "Who gets event alerts",
+    "body": "Subscribers signed up on the site to be told when the event's status changes. The header counts them as verified, pending, and unsubscribed, and the filter shows one group or all. Each row shows the email, the address and channel, when it was verified or unsubscribed, and when it was created.\n\nOnly verified subscribers are emailed. The verified count is the number the status and notify dialogs on the event page show, and the Email quota card on the dashboard checks whether one alert to all of them fits in the daily limit.\n\nThe delete icon removes a subscriber after a preview. Export CSV walks the whole list for the chosen filter and saves a file named after the filter and the date. Nothing here is a draft.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Dashboard", "to": "/" }
+    ]
+  },
+  {
+    "key": "people",
+    "page": "People",
+    "label": "People list",
+    "title": "Visitors who signed in",
+    "body": "People are visitors who created an account on the public site, which is what lets them leave cookies and subscribe. Each row shows the email, how many cookies they have left, when the account was created, and when they were last seen. The list loads in pages with a Load more button.\n\nThe delete icon opens a dialog that first shows what goes with the person, such as their cookies and subscription, then removes them. The deleted row stays readable on the Audit page.\n\nThere is nothing to edit; accounts are the visitor's own. Subscriptions are listed on the Subscribers page and the cookie tally per type on the Cookie types page.",
+    "links": [
+      { "label": "Subscribers", "to": "/subscribers" },
+      { "label": "Cookie types", "to": "/cookie-types" },
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "contact-messages",
+    "page": "Contact messages",
+    "label": "Contact messages",
+    "title": "Messages sent from the site",
+    "body": "Contact messages are what visitors send through the public site's contact form. Each row shows the sender's name, their email as a link that opens your mail program, when it arrived, the address it came from, and the message text in full. The list loads in pages with Load more.\n\nThere is no reply from the panel; answer from your own email. The delete icon removes a message after a preview, and the deleted row remains readable on the Audit page.\n\nThe contact email the site displays is set under Site settings and is separate from this list. Admins and editors see this page; canvassers do not.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" },
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "settings",
+    "page": "Settings",
+    "label": "Settings list",
+    "title": "Numbers that tune the system",
+    "body": "Settings are the handful of sitewide numbers and switches that tune how the site, the beacons, and the sponsor carousel behave. Each row shows the key, a plain description with its unit, who changed it last and when, or default when it was never changed, and the control: a number field with its allowed range and a Save button, or for an on-off key a switch that saves the moment it is flipped.\n\nA value outside the range is refused before it is sent. Every save rebuilds the snapshot and rewrites the live object, so a change reaches the public site within its next poll. There is no draft and no publish step.\n\nEach key has its own topic. Change these deliberately and during a flight only when you must; the Audit icon on each row shows its history.",
+    "links": [
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "settings.poll-interval-ms",
+    "page": "Settings",
+    "label": "Poll interval",
+    "title": "How often the site polls",
+    "body": "poll_interval_ms is how often each visitor's browser asks the CDN for the live object, in milliseconds. The range is 1000 to 60000 and the default is 5000, five seconds. Browsers on the hub's live socket get updates pushed and use the poll as a fallback.\n\nThe value is written into the live object itself, so a new interval reaches every visitor within one more poll at the old rate. A shorter interval makes the tracker feel more immediate and multiplies CDN requests; a longer one eases load on a busy night.\n\nThe dashboard's Live object card shows the interval currently published. The hub_enabled switch decides whether visitors use the socket at all.",
+    "links": [
+      { "label": "Dashboard", "to": "/" }
+    ]
+  },
+  {
+    "key": "settings.cookie-limit-per-person",
+    "page": "Settings",
+    "label": "Cookie limit",
+    "title": "Cookies allowed per person",
+    "body": "cookie_limit_per_person is how many cookies one signed-in visitor may leave during one event, across every type. The range is 0 to 1000 and the default is 10. Cookies left for a type that was later deactivated still count toward the limit.\n\nThe site checks the limit as each cookie is left and tells the visitor when they have reached it. Zero stops visitors leaving cookies at all without removing the feature's tally.\n\nThe limit applies per person per event; it does not cap the total tally, and cookies seeded by an admin on the event page are not counted against anyone. Cookie types are defined on the Cookie types page.",
+    "links": [
+      { "label": "Cookie types", "to": "/cookie-types" },
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "settings.sponsor-linger-ms-per-dollar",
+    "page": "Settings",
+    "label": "Sponsor time per dollar",
+    "title": "Carousel time per dollar",
+    "body": "sponsor_linger_ms_per_dollar is how many milliseconds a sponsor stays on screen in the site's carousel for each dollar they gave. The range is 0 to 100000 and the default is 40, so a 100 dollar gift earns four seconds.\n\nThe site computes each sponsor's time as the amount times this rate, never less than sponsor_linger_min_ms, unless the sponsor's year row carries a Tracker time override. The Sponsor order page shows the resulting time per sponsor, and the year dialog's helper previews it.\n\nSaving rebuilds the snapshot, so the carousel timing changes on the site's next snapshot. Pinned order is separate and set on the Sponsor order page.",
+    "links": [
+      { "label": "Sponsor order", "to": "/sponsors/order" }
+    ]
+  },
+  {
+    "key": "settings.sponsor-linger-min-ms",
+    "page": "Settings",
+    "label": "Minimum sponsor time",
+    "title": "The floor on carousel time",
+    "body": "sponsor_linger_min_ms is the least time, in milliseconds, any sponsor stays on screen in the carousel, whatever they gave. The range is 0 to 600000 and the default is 2000, two seconds.\n\nIt works with sponsor_linger_ms_per_dollar: the sponsor's time is the amount times the per-dollar rate, raised to this minimum when the product is smaller. A sponsor with no amount recorded gets the minimum. A Tracker time override on the sponsor's year row replaces both.\n\nRaise it so small donors are readable; lower it when many sponsors must fit in a short cycle. The Sponsor order page shows the time each sponsor ends up with. The change reaches the site on its next snapshot.",
+    "links": [
+      { "label": "Sponsor order", "to": "/sponsors/order" }
+    ]
+  },
+  {
+    "key": "settings.beacon-stale-after-s",
+    "page": "Settings",
+    "label": "Beacon stale threshold",
+    "title": "When a beacon counts as stale",
+    "body": "beacon_stale_after_s is how many seconds a beacon may go without a heartbeat or a location before the API flags it stale. The range is 15 to 3600 and the default is 45.\n\nA stale beacon shows a Stale chip on the Beacons page and the dashboard, its heartbeat age turns red, and it is no longer healthy. An event cannot be set Live without a healthy active beacon, and the status dialog repeats the check at the moment you confirm.\n\nSet it to a little more than the phone's heartbeat interval. Too low and a brief signal drop looks like a failure; too high and a dead phone goes unnoticed. The value is returned with the beacons so the panel colours ages consistently.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "settings.flight-history-max-points",
+    "page": "Settings",
+    "label": "Flight history points",
+    "title": "Thinning the flight history",
+    "body": "flight_history_max_points is the most points of an event's flight recording carried in the snapshot for the tracker's flight history. The range is 100 to 50000 and the default is 2000. A longer recording is thinned evenly to fit: a 7,200 point flight at 2,000 keeps every fourth point.\n\nMore points draw a smoother history but make the snapshot every visitor downloads larger; the default is about 110 KB. Fewer points keep the site light.\n\nThis thinning is separate from the route map's own simplification, which the route_map keys control. It applies to the recording linked on the event page's Flight history card, and a change takes effect on the next snapshot.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" }
+    ]
+  },
+  {
+    "key": "settings.location-min-interval-ms",
+    "page": "Settings",
+    "label": "Minimum fix interval",
+    "title": "How fast fixes are accepted",
+    "body": "location_min_interval_ms is the least time, in milliseconds, between two fixes accepted from one beacon. The range is 0 to 60000 and the default is 250. A fix that arrives sooner than this after the previous accepted one is refused and counted as Rate limited on the beacon.\n\nZero disables the limit. A beacon can carry its own Min interval on its page, which overrides this sitewide value for that beacon alone; blank there uses this.\n\nUse it to protect the system from a phone that posts far faster than the tracker can show. The accepted fixes are then subject to location_min_distance_m, which decides whether each is stored or only shown live.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "settings.location-min-distance-m",
+    "page": "Settings",
+    "label": "Minimum fix distance",
+    "title": "Which fixes get recorded",
+    "body": "location_min_distance_m decides which accepted fixes are stored as location rows. A fix that moved less than this many metres from the beacon's last recorded fix on the event is still published live to the tracker but is not recorded, and is counted as Carried on the beacon. The range is 0 to 10000, decimals allowed, and the default is 0.\n\nAt 0 every new position is recorded, but a position already recorded for the event, an exact repeat of latitude and longitude, is never recorded twice. A few metres keeps a parked sleigh from filling the event's Locations with identical rows.\n\nOnly recorded rows appear in the Locations card, the CSV, and a recording built from the event, so set this before the flight, not after.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "settings.hub-enabled",
+    "page": "Settings",
+    "label": "Hub enabled",
+    "title": "Live socket on or off",
+    "body": "hub_enabled is a switch, on by default. On, visitors' browsers connect to the hub, a live socket that pushes each new position the moment it arrives, with the poll as a fallback. Off, every visitor stops using the hub and relies on polling the CDN at the poll interval; the change takes every visitor onto the poll within one poll.\n\nThe switch saves the moment it is flipped. Turn it off if the hub misbehaves on the night; the tracker keeps working at the poll rate.\n\nThe switch covers visitors only. Whether a beacon may use the hub is its own Hub allowed switch on the beacon page, and the hub state chip there shows whether it is connected or polling.",
+    "links": [
+      { "label": "Beacons", "to": "/beacons" }
+    ]
+  },
+  {
+    "key": "settings.route-map-simplify-tolerance-m",
+    "page": "Settings",
+    "label": "Route map tolerance",
+    "title": "Simplifying the route line",
+    "body": "route_map_simplify_tolerance_m is the tolerance, in metres, used to simplify a flight recording's path before the route map is smoothed and drawn. The range is 1 to 500 and the default is 30. Points that deviate from the straight line between their neighbours by less than this are dropped.\n\nA larger tolerance gives a cleaner, lighter line and loses small wiggles; a smaller one keeps detail and more points. It applies to the route map in the snapshot, to the preview in the event page's route map dialog, and to posters, so all three draw the same line.\n\nIt is separate from flight_history_max_points, which thins the tracker's flight history. A change shows on the site's next snapshot.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Poster studio", "to": "/posters" }
+    ]
+  },
+  {
+    "key": "settings.route-map-max-points",
+    "page": "Settings",
+    "label": "Route map max points",
+    "title": "Capping the route map path",
+    "body": "route_map_max_points is the most vertices the route map path may have after simplification. The range is 100 to 10000 and the default is 1200. When the simplified path still has more, it is thinned evenly, always keeping the first and last vertex.\n\nThe cap bounds how much path data the snapshot carries and how much work each browser does to draw it. It applies to the snapshot's route map, the event page's route map preview, and posters alike.\n\nRaise it for a long flight whose line looks angular after simplification; lower it to keep the snapshot small. Tune route_map_simplify_tolerance_m first, since it decides how many points survive before this cap is applied. A change shows on the next snapshot.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "settings.route-map-default-duration-minutes",
+    "page": "Settings",
+    "label": "Default route duration",
+    "title": "Timing an untimed recording",
+    "body": "route_map_default_duration_minutes is the flight length assumed for a recording that has no usable times, meaning fewer than two timed points. The range is 10 to 720 and the default is 120. The duration is spread along the path by distance, so time labels and the route map's timeline can still be drawn.\n\nA recording uploaded from a file with recordedAt set to null on its points, or built from a source without timestamps, falls into this case. A recording with real times ignores this value.\n\nIt affects the time labels in the event page's route map dialog and on posters, and the snapshot's route map. Set it close to the real flight length so the labels read sensibly. A change shows on the next snapshot.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" },
+      { "label": "Poster studio", "to": "/posters" }
+    ]
+  },
+  {
+    "key": "api-keys",
+    "page": "API keys",
+    "label": "API keys list",
+    "title": "Keys for scripts and agents",
+    "body": "An API key lets a script or an agent configure the site through the API without signing in. This page, for admins only, lists every key with its name, prefix, a status chip of Active, Expired, or Revoked, chips for what it may do, the expiry, when it was last used, and who created it.\n\nNew key opens the create dialog. The key itself is shown once, in the same reveal dialog beacons use, and never again. The row menu holds Revoke, which asks for confirmation and stops anything using the key immediately.\n\nKeys are hashed at rest, cannot create or revoke other keys, and skip the sign-in's second factor, so revoking is the only lasting control. The Agents page walks through using one for a session.",
+    "links": [
+      { "label": "Agents", "to": "/agents" }
+    ]
+  },
+  {
+    "key": "api-keys.create",
+    "page": "API keys",
+    "label": "New key dialog",
+    "title": "Creating an API key",
+    "body": "The dialog asks for a name of 1 to 100 characters, unique among keys. All capabilities is on by default and gives the key everything; turn it off to tick individual capabilities, at least one, from the list in the next topic.\n\nNever expires is also on by default. Turn it off to set an expiry, which must be at least an hour ahead; an expired key stops working on its own and shows red in the list.\n\nCreate reveals the key once in a dialog that cannot be dismissed until you press I have stored the key. Copy it into the script or agent's configuration then and there. Prefer a short expiry and the fewest capabilities the job needs; revoke it when the job is done.",
+    "links": []
+  },
+  {
+    "key": "api-keys.capabilities",
+    "page": "API keys",
+    "label": "Capability list",
+    "title": "What a key may touch",
+    "body": "Capabilities are the areas of the API a key may reach, one per area of the panel: Events, Flight recordings, Beacons, Sponsors, Cookie types, Pages, Sections, Site settings, Publish and versions, Media, Icons, Settings, Contact messages, Subscribers, People, Diagnostics, Audit, and QR codes and places.\n\nA key with QR codes and places reaches the canvasser routes, including the deletes. No key can list, create, or revoke API keys or read the email quota; those need a signed-in admin.\n\nPick the smallest set that does the job: a content agent needs Pages, Sections, Media, Icons, and Publish and versions, not Events or Beacons. Capabilities are fixed at creation; to change them, revoke the key and create another.",
+    "links": [
+      { "label": "Agents", "to": "/agents" }
+    ]
+  },
+  {
+    "key": "agents",
+    "page": "Agents",
+    "label": "Agents page",
+    "title": "Running an agent for a session",
+    "body": "This admin-only page is the recipe for letting an agent, such as a coding assistant, or any script work on the site for one session. Four steps: mint a key with only the capabilities the job needs, hand the agent the key and the prompt, let it work, then revoke the key. Revocation is the only lasting control, because keys cannot mint or revoke keys and skip the sign-in's second factor.\n\nThe API keys list is mounted right here so minting and revoking happen in place.\n\nBelow it is the Agent prompt: a long plain-text guide to the API with a Copy button, covering authentication, conventions, every capability and its routes, the content model, delete safety, the media pipeline, the event lifecycle, common workflows, and the rules an agent must follow, such as never changing a status, publishing, or deleting unless asked.",
+    "links": [
+      { "label": "API keys", "to": "/api-keys" }
+    ]
+  },
+  {
+    "key": "audit",
+    "page": "Audit",
+    "label": "Audit log",
+    "title": "Who changed what, when",
+    "body": "The audit log records every write made through the panel or the API: creates, edits, deletes, status changes, publishes, seeded cookies, and more. Each row shows the time, who did it and the action, the entity and its id, and a summary of the fields that changed. Expand a row for the raw before and after.\n\nThe entity id links to the row's page for events, beacons, sponsors, pages, and QR codes, unless the entry is a delete. Deleted rows are readable here and nowhere else, so this is where to find what a deleted event or sponsor contained.\n\nThe list is newest first and loads more on demand. The same history is reachable per row through the Audit icon at the end of every list in the panel. Admins and editors can open this page.",
+    "links": []
+  },
+  {
+    "key": "audit.filters",
+    "page": "Audit",
+    "label": "Audit filters",
+    "title": "Narrowing the audit log",
+    "body": "The filter paper has four controls. Entity picks the kind of thing, such as event, page, or setting, from the kinds the API has recorded. Action picks the verb, such as create, update, delete, or cookies_seeded. Actor filters by who made the change, an email or a key name. The Deletes chip is a shortcut that sets the action to delete.\n\nChanging a filter reloads the list from the newest match. Combine them to answer a question such as which settings this person changed last week, or what was deleted this month.\n\nThe filters do not persist; opening the page again shows everything. On a phone the controls wrap onto their own lines.",
+    "links": []
+  },
+  {
+    "key": "bar.publish",
+    "page": "Navigation",
+    "label": "Publish button",
+    "title": "The Publish button in the bar",
+    "body": "The Publish button in the top bar appears only while the draft has changes that are not yet published, and only for admins and editors. When nothing is unpublished it is not there at all. On a phone it is an icon.\n\nWith no problems, a click opens the same label dialog as the Publish page: an optional label, and the reminder that the public site updates within its next poll. Confirming publishes from wherever you are, toasts the new version number, and the button disappears.\n\nWhen the draft has problems the button carries a badge with the count, and a click opens the Publish page instead, where each problem links to the place to fix it. The panel checks the status every 30 seconds while the tab is visible.",
+    "links": [
+      { "label": "Publish", "to": "/publish" }
+    ]
+  },
+  {
+    "key": "bar.env-badge",
+    "page": "Navigation",
+    "label": "Environment badge",
+    "title": "Which site you are editing",
+    "body": "The badge in the top bar names the environment: PROD in red, DEV in green, or LOCAL in blue. PROD is the real public site and everything you do there is visible to visitors once published or, for events, beacons, and settings, at once. DEV is the development copy for trying things out.\n\nHovering the badge shows which API this panel talks to. On DEV and LOCAL the browser tab's title is also prefixed with the environment name, so a glance at the tab tells them apart.\n\nThe badge also appears on the sign-in and setup pages. Check it before changing an event status, seeding cookies, or revoking anything.",
+    "links": []
+  },
+  {
+    "key": "drawer",
+    "page": "Navigation",
+    "label": "Navigation drawer",
+    "title": "The left menu and roles",
+    "body": "The drawer on the left lists every page your role can open, in one flat list; the current page is highlighted. On a phone it hides behind the menu button in the bar.\n\nWhat you see depends on your role. An admin sees everything: Dashboard, Events, Flight recordings, Beacons, QR codes, Places, Scan, Pages, Media, Poster studio, Site settings, Publish, Sponsors, Sponsor order, Cookie types, Subscribers, People, Contact messages, Settings, API keys, Agents, and Audit. An editor sees Pages, Media, Site settings, Publish, Sponsors, Sponsor order, QR codes, Places, Scan, and Audit. A canvasser sees QR codes, Places, and Scan, and lands on Scan.\n\nRoles are assigned on the sign-in side, not in the panel. The bar also holds the environment badge, the Publish button, a light or dark theme toggle, and sign out.",
+    "links": [
+      { "label": "Help", "to": "/help" }
+    ]
+  }
+]
