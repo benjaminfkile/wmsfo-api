@@ -347,6 +347,8 @@ PlaceEndpoints.MapAll(app);
 AdminPosterEndpoints.MapAll(app);
 // Help topics: the admin panel's help popover texts (contracts 4.5 Help).
 AdminHelpEndpoints.MapAll(app);
+// Tracker themes (contracts 4.5 Themes, api.md 11a.10).
+AdminThemeEndpoints.MapAll(app);
 // A36: `GET /admin/<resource>/{id}/impact` previews for every deletable
 // resource (contracts 4.5 Delete impact, api.md 5b).
 AdminImpactEndpoints.MapAll(app);
@@ -373,7 +375,8 @@ EndpointStubs.MapAll(app,
     includeQrPlacesStubs: false,
     includeAdminImpactStubs: false,
     includeAdminPostersStubs: false,
-    includeAdminHelpStubs: false);
+    includeAdminHelpStubs: false,
+    includeAdminThemesStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,

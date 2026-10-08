@@ -3,8 +3,8 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A tiny IObjectStore used by the A16 orphan-collector tests and the theme
-// style boot step. It records tag calls and every PUT (bytes and headers,
+// A tiny IObjectStore used by the A16 orphan-collector tests, the theme
+// style boot step, and the theme endpoints. It records tag calls and every PUT (bytes and headers,
 // which HEAD and GET answer from), and can be configured to throw so the "S3
 // call fails" case is covered without hitting a real bucket.
 public sealed class InMemoryObjectStore : IObjectStore
@@ -77,7 +77,8 @@ public sealed class InMemoryObjectStore : IObjectStore
             ? new ObjectContent(o.Bytes, o.ContentType)
             : null);
 
-    public string PresignPut(string key, string contentType, string tag) => "https://example/local-upload";
+    // The URL names the key so a test can read which object a ticket signs.
+    public string PresignPut(string key, string contentType, string tag) => "https://example/local-upload/" + key;
 
     public void SeedObject(string key, string? initialTag = null) => _tags[key] = initialTag;
 }
