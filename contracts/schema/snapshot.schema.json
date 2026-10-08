@@ -219,8 +219,84 @@
             }
           },
           "additionalProperties": false
+        },
+        "trackerBbox": {
+          "type": "object",
+          "properties": {
+            "west": {
+              "type": "number"
+            },
+            "south": {
+              "type": "number"
+            },
+            "east": {
+              "type": "number"
+            },
+            "north": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "trackerMap": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "bbox": {
+              "type": "object",
+              "properties": {
+                "west": {
+                  "type": "number"
+                },
+                "south": {
+                  "type": "number"
+                },
+                "east": {
+                  "type": "number"
+                },
+                "north": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false
+            },
+            "minZoom": {
+              "type": "integer"
+            },
+            "maxZoom": {
+              "type": "integer"
+            },
+            "terrainMaxZoom": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tilesUrl": {
+              "type": "string"
+            },
+            "terrainUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
         }
       },
+      "required": [
+        "trackerBbox",
+        "trackerMap"
+      ],
       "additionalProperties": false
     },
     "qrCodes": {
@@ -443,7 +519,106 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "trackerThemes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "renderer": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "styleUrl": {
+            "type": "string"
+          },
+          "spriteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thumbnailMediaId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chrome": {
+            "type": "object",
+            "properties": {
+              "bg": {
+                "type": "string"
+              },
+              "fg": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "tile": {
+                "type": "string"
+              },
+              "tileFg": {
+                "type": "string"
+              },
+              "panel": {
+                "type": "string"
+              },
+              "accent": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "overlay": {
+            "type": "object",
+            "properties": {
+              "routeColor": {
+                "type": "string"
+              },
+              "routeOpacity": {
+                "type": "number"
+              },
+              "arrowColor": {
+                "type": "string"
+              },
+              "timeLabelBg": {
+                "type": "string"
+              },
+              "timeLabelFg": {
+                "type": "string"
+              },
+              "timeLabelOpacity": {
+                "type": "number"
+              },
+              "userColor": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "defaultLightMode": {
+            "type": "boolean"
+          },
+          "defaultDarkMode": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
+  "required": [
+    "trackerThemes"
+  ],
   "additionalProperties": false
 }

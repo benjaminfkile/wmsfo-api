@@ -27,6 +27,7 @@ public class KeyOrderTests
         var expected = new[]
         {
             "schemaVersion", "event", "qrCodes", "sponsors", "cookieTypes", "content", "media", "icons",
+            "trackerThemes",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json"));
         Assert.Equal(expected, actual);
@@ -39,6 +40,22 @@ public class KeyOrderTests
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
             "fundsPercent", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
+            "trackerBbox", "trackerMap",
+        };
+        var expectedBbox = new[] { "west", "south", "east", "north" };
+        var expectedTrackerMap = new[]
+        {
+            "id", "name", "bbox", "minZoom", "maxZoom", "terrainMaxZoom", "tilesUrl", "terrainUrl",
+        };
+        var expectedTrackerTheme = new[]
+        {
+            "id", "renderer", "key", "name", "styleUrl", "spriteUrl", "thumbnailMediaId", "chrome", "overlay",
+            "defaultLightMode", "defaultDarkMode",
+        };
+        var expectedChrome = new[] { "bg", "fg", "text", "tile", "tileFg", "panel", "accent" };
+        var expectedOverlay = new[]
+        {
+            "routeColor", "routeOpacity", "arrowColor", "timeLabelBg", "timeLabelFg", "timeLabelOpacity", "userColor",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };
@@ -70,6 +87,16 @@ public class KeyOrderTests
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));
+        Assert.Equal(expectedBbox, KeysOf(root.GetProperty("event").GetProperty("trackerBbox")));
+        var trackerMap = root.GetProperty("event").GetProperty("trackerMap");
+        Assert.Equal(expectedTrackerMap, KeysOf(trackerMap));
+        Assert.Equal(expectedBbox, KeysOf(trackerMap.GetProperty("bbox")));
+        foreach (var theme in root.GetProperty("trackerThemes").EnumerateArray())
+        {
+            Assert.Equal(expectedTrackerTheme, KeysOf(theme));
+            Assert.Equal(expectedChrome, KeysOf(theme.GetProperty("chrome")));
+            Assert.Equal(expectedOverlay, KeysOf(theme.GetProperty("overlay")));
+        }
     }
 
     [Fact]

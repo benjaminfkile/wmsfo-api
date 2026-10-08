@@ -76,7 +76,8 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
         using var doc = await ReadSnapshotAsync();
         var ev = doc.RootElement.GetProperty("event");
         Assert.False(ev.TryGetProperty("messages", out _));
-        Assert.Equal("latestMessage", ev.EnumerateObject().Last().Name);
+        Assert.Equal(new[] { "latestMessage", "trackerBbox", "trackerMap" },
+            ev.EnumerateObject().Select(p => p.Name).TakeLast(3).ToArray());
         var latest = ev.GetProperty("latestMessage");
         Assert.Equal(MessageKeys, latest.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(newest, latest.GetProperty("id").GetInt64());

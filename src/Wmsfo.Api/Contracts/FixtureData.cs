@@ -17,6 +17,9 @@ public static class FixtureData
     public const string HangarMediaId      = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
     public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
     public const string HangarDarkMediaId  = "9d4b2e6f-3c8a-4f1d-8e7b-1a5c0f9d2b55";
+    public const string StandardStyleSha    = "7cf1ed24d4964827d29f251a64b726e2ce5f3b4ba6213d9f50eb668936576b98";
+    public const string RouteLightStyleSha  = "d0f9469220138ba2bb80afdefb1c33681596bd01c9e57ce5fbe3a1959273a5c6";
+    public const string RouteLightSpriteSha = "ee5500000000000000000000000000000000000000000000000000000000ffff";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
     public static string RouteUrl    => $"{CdnBase}/routes/{RouteSha}.json";
@@ -148,6 +151,18 @@ public static class FixtureData
                     Body = "Santa is airborne over the valley.",
                     CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
                 },
+                TrackerBbox = new Bbox { West = -114.30, South = 46.75, East = -113.80, North = 47.05 },
+                TrackerMap = new SnapshotTrackerMap
+                {
+                    Id = 3,
+                    Name = "Missoula valley",
+                    Bbox = new Bbox { West = -114.75, South = 46.35, East = -113.30, North = 47.25 },
+                    MinZoom = 0,
+                    MaxZoom = 15,
+                    TerrainMaxZoom = 13,
+                    TilesUrl = $"{CdnBase}/basemap/tiles.pmtiles",
+                    TerrainUrl = $"{CdnBase}/basemap/terrain.pmtiles",
+                },
             },
             Sponsors = new List<SnapshotSponsor>
             {
@@ -172,6 +187,39 @@ public static class FixtureData
             Content = content,
             Media = media,
             Icons = icons,
+            // The two example themes; neither has a thumbnail, so `media` holds
+            // only the entries above.
+            TrackerThemes = new List<SnapshotTrackerTheme>
+            {
+                new()
+                {
+                    Id = 1,
+                    Renderer = "google",
+                    Key = "standard",
+                    Name = "Standard",
+                    StyleUrl = $"{CdnBase}/themes/{StandardStyleSha}.json",
+                    SpriteUrl = null,
+                    ThumbnailMediaId = null,
+                    Chrome = new Chrome { Bg = "#ffffff", Fg = "#5f6368", Text = "#202124", Tile = "#e8f0fe", TileFg = "#1a56c4", Panel = "#ffffffe6", Accent = "#1a56c4" },
+                    Overlay = new Overlay { RouteColor = "#1a56c4", RouteOpacity = 0.9, ArrowColor = "#ffffff", TimeLabelBg = "#1c1c1e", TimeLabelFg = "#ffffff", TimeLabelOpacity = 0.8, UserColor = "#c62828" },
+                    DefaultLightMode = true,
+                    DefaultDarkMode = false,
+                },
+                new()
+                {
+                    Id = 7,
+                    Renderer = "maplibre",
+                    Key = "route-light",
+                    Name = "Route light",
+                    StyleUrl = $"{CdnBase}/themes/{RouteLightStyleSha}.json",
+                    SpriteUrl = $"{CdnBase}/themes/7/sprites/{RouteLightSpriteSha}/sprite",
+                    ThumbnailMediaId = null,
+                    Chrome = new Chrome { Bg = "#fbfaf7", Fg = "#5c5a55", Text = "#1e1d1a", Tile = "#e8efe6", TileFg = "#1f5f3a", Panel = "#fbfaf7e6", Accent = "#1f5f3a" },
+                    Overlay = new Overlay { RouteColor = "#c62828", RouteOpacity = 0.9, ArrowColor = "#ffffff", TimeLabelBg = "#1e1d1a", TimeLabelFg = "#ffffff", TimeLabelOpacity = 0.8, UserColor = "#1a56c4" },
+                    DefaultLightMode = true,
+                    DefaultDarkMode = false,
+                },
+            },
             QrCodes = new SortedDictionary<string, SnapshotQrCode>(StringComparer.Ordinal)
             {
                 // The example code resolves through an ancestor place that opens

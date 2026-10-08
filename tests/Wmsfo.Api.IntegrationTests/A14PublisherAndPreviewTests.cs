@@ -834,6 +834,259 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.True(await HasUnpublishedChangesAsync());
     }
 
+    // settings.tracker publishes, the snapshot's content carries it, and a later
+    // change counts as unpublished. A box outside the limits is refused by the
+    // draft write and by publish at /settings/tracker/defaultBbox.
+    [Fact]
+    public async Task Tracker_publish_and_the_snapshot_carries_it_and_a_change_counts_as_unpublished()
+    {
+        await BootstrapFirstBootAsync();
+        var (_, starter) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(starter))
+        {
+            Assert.False(version.RootElement.GetProperty("settings").TryGetProperty("tracker", out _));
+        }
+
+        var wide = await PutSiteSettingsAsync(data => data["tracker"] = TrackerSetting(-120, 40, -95, 45));
+        Assert.Equal(HttpStatusCode.BadRequest, wide.StatusCode);
+        using (var doc = JsonDocument.Parse(await wide.Content.ReadAsStringAsync()))
+        {
+            Assert.True(doc.RootElement.GetProperty("details").GetProperty("fields")
+                .TryGetProperty("/tracker/defaultBbox", out _));
+        }
+
+        var put = await PutSiteSettingsAsync(data => data["tracker"] = TrackerSetting(-114.30, 46.75, -113.80, 47.05));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.True(await HasUnpublishedChangesAsync());
+
+        await PublishAsync();
+        Assert.False(await HasUnpublishedChangesAsync());
+
+        var expected = JsonNode.Parse("""{"west":-114.3,"south":46.75,"east":-113.8,"north":47.05}""");
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            var box = version.RootElement.GetProperty("settings").GetProperty("tracker").GetProperty("defaultBbox");
+            Assert.True(JsonNode.DeepEquals(expected, JsonNode.Parse(box.GetRawText())));
+        }
+
+        var snapshotBytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(snapshotBytes);
+        using (var snap = JsonDocument.Parse(snapshotBytes!))
+        {
+            var box = snap.RootElement.GetProperty("content").GetProperty("settings")
+                .GetProperty("tracker").GetProperty("defaultBbox");
+            Assert.True(JsonNode.DeepEquals(expected, JsonNode.Parse(box.GetRawText())));
+        }
+
+        var again = await PutSiteSettingsAsync(data => data["tracker"] = TrackerSetting(-114.75, 46.35, -113.30, 47.25));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.True(await HasUnpublishedChangesAsync());
+
+        // A draft box with west > east written behind the API fails publish.
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(@"
+update site_setting_draft
+set data = jsonb_set(data, '{tracker,defaultBbox}', '{""west"":-113.3,""south"":46.35,""east"":-114.75,""north"":47.25}'::jsonb)
+where id = 1;", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        using var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish");
+        req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        using (var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync()))
+        {
+            var paths = doc.RootElement.GetProperty("details").GetProperty("problems").EnumerateArray()
+                .Select(p => p.GetProperty("path").GetString()).ToArray();
+            Assert.Contains("/settings/tracker/defaultBbox", paths);
+        }
+    }
+
+    private static JsonObject TrackerSetting(double west, double south, double east, double north) => new()
+    {
+        ["defaultBbox"] = new JsonObject { ["west"] = west, ["south"] = south, ["east"] = east, ["north"] = north },
+    };
+
+    // After the A92 seed, the current event's snapshot carries the valley map
+    // with both archive URLs, the eight seeded themes in sort_order, id order
+    // with styleUrl from the style hash and no sprite, and the event's box.
+    [Fact]
+    public async Task Snapshot_after_the_tracker_seed_carries_the_valley_map_the_eight_themes_and_the_box()
+    {
+        await BootstrapFirstBootAsync();
+        await SeedCurrentEventAsync(2026);
+        await RunTrackerSeedAsync();
+        await _host!.GetService<SnapshotBuilder>().RebuildAsync(default);
+
+        var cdn = _host.Options.CdnBaseUrl.TrimEnd('/');
+        string eventBbox;
+        var expectedThemes = new List<(long Id, string Key, string StyleSha)>();
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using (var cmd = new NpgsqlCommand("select tracker_bbox::text from event where is_current;", conn))
+                eventBbox = (string)(await cmd.ExecuteScalarAsync())!;
+            await using (var cmd = new NpgsqlCommand(
+                "select id, key, style_sha256 from tracker_theme order by sort_order, id;", conn))
+            await using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                    expectedThemes.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+            }
+        }
+        Assert.Equal(8, expectedThemes.Count);
+        Assert.Equal(
+            new[] { "route-light", "standard", "route-dark", "expedition", "blizzard", "charcoal", "night", "nebula" },
+            expectedThemes.Select(t => t.Key).ToArray());
+
+        var bytes = await GetLatestSnapshotBytesAsync();
+        Assert.NotNull(bytes);
+        using var snap = JsonDocument.Parse(bytes!);
+        var ev = snap.RootElement.GetProperty("event");
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse(eventBbox), JsonNode.Parse(ev.GetProperty("trackerBbox").GetRawText())));
+
+        var map = ev.GetProperty("trackerMap");
+        Assert.Equal("Missoula valley", map.GetProperty("name").GetString());
+        Assert.Equal(13, map.GetProperty("terrainMaxZoom").GetInt32());
+        Assert.Equal(cdn + "/basemap/tiles.pmtiles", map.GetProperty("tilesUrl").GetString());
+        Assert.Equal(cdn + "/basemap/terrain.pmtiles", map.GetProperty("terrainUrl").GetString());
+
+        var themes = snap.RootElement.GetProperty("trackerThemes").EnumerateArray().ToArray();
+        Assert.Equal(expectedThemes.Count, themes.Length);
+        for (var i = 0; i < themes.Length; i++)
+        {
+            Assert.Equal(expectedThemes[i].Id, themes[i].GetProperty("id").GetInt64());
+            Assert.Equal(expectedThemes[i].Key, themes[i].GetProperty("key").GetString());
+            Assert.Equal(cdn + "/themes/" + expectedThemes[i].StyleSha + ".json", themes[i].GetProperty("styleUrl").GetString());
+            Assert.Equal(JsonValueKind.Null, themes[i].GetProperty("spriteUrl").ValueKind);
+            Assert.Equal(JsonValueKind.Null, themes[i].GetProperty("thumbnailMediaId").ValueKind);
+        }
+
+        // A pending map leaves trackerMap null; a terrain-less ready map has no terrainUrl.
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update tracker_map set terrain_max_zoom = null where prefix = 'basemap';", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            await _host.GetService<SnapshotBuilder>().RebuildAsync(default);
+            using var noTerrain = JsonDocument.Parse((await GetLatestSnapshotBytesAsync())!);
+            var m = noTerrain.RootElement.GetProperty("event").GetProperty("trackerMap");
+            Assert.Equal(JsonValueKind.Null, m.GetProperty("terrainMaxZoom").ValueKind);
+            Assert.Equal(JsonValueKind.Null, m.GetProperty("terrainUrl").ValueKind);
+        }
+        finally
+        {
+            await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update tracker_map set terrain_max_zoom = 13 where prefix = 'basemap';", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    // An enabled theme's thumbnail rides in the snapshot's media map.
+    [Fact]
+    public async Task A_theme_thumbnail_lands_in_the_snapshot_media_map()
+    {
+        await BootstrapFirstBootAsync();
+        var thumb = await UploadAndConfirmRasterAsync("theme-thumb.png", 800, 600);
+        await SeedCurrentEventAsync(2026);
+        await RunTrackerSeedAsync();
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update tracker_theme set thumbnail_media_id = $1 where renderer = 'google' and key = 'standard';", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(thumb) });
+            await cmd.ExecuteNonQueryAsync();
+        }
+        try
+        {
+            await _host!.GetService<SnapshotBuilder>().RebuildAsync(default);
+            using var snap = JsonDocument.Parse((await GetLatestSnapshotBytesAsync())!);
+            Assert.True(snap.RootElement.GetProperty("media").TryGetProperty(thumb, out _));
+            var standard = snap.RootElement.GetProperty("trackerThemes").EnumerateArray()
+                .Single(t => t.GetProperty("key").GetString() == "standard");
+            Assert.Equal(thumb, standard.GetProperty("thumbnailMediaId").GetString());
+        }
+        finally
+        {
+            await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand("update tracker_theme set thumbnail_media_id = null;", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    // Restoring a version whose map section carries `themes` and
+    // `defaultTheme` leaves the section without them, and the next publish
+    // succeeds.
+    [Fact]
+    public async Task Restore_strips_the_map_theme_keys_and_the_next_publish_succeeds()
+    {
+        await BootstrapFirstBootAsync();
+        var versionId = await ReadNewestVersionIdAsync();
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var upd = new NpgsqlCommand(@"
+update content_version
+set sha256 = repeat('a', 64),
+    document = jsonb_set(document, '{pages}',
+  (select jsonb_agg(
+     jsonb_set(p, '{sections}',
+       (select coalesce(jsonb_agg(
+          case when s->>'kind' = 'map'
+               then jsonb_set(s, '{data}', (s->'data') || '{""themes"":[""standard"",""night""],""defaultTheme"":""night""}'::jsonb)
+               else s end order by sord), '[]'::jsonb)
+        from jsonb_array_elements(p->'sections') with ordinality as x(s, sord)))
+     order by ord)
+   from jsonb_array_elements(document->'pages') with ordinality as e(p, ord)))
+where id = $1;", conn);
+            upd.Parameters.AddWithValue(versionId);
+            await upd.ExecuteNonQueryAsync();
+            await using var check = new NpgsqlCommand(@"
+select count(*) from content_version, jsonb_array_elements(document->'pages') p, jsonb_array_elements(p->'sections') s
+where id = $1 and s->>'kind' = 'map' and s->'data' ? 'themes';", conn);
+            check.Parameters.AddWithValue(versionId);
+            Assert.True(Convert.ToInt64(await check.ExecuteScalarAsync()) > 0);
+        }
+
+        using var req = _host!.EditorRequest(HttpMethod.Post, $"/admin/content/versions/{versionId}/restore");
+        var response = await _host.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var q = new NpgsqlCommand(
+                "select count(*), count(*) filter (where data ? 'themes' or data ? 'defaultTheme') from section where kind = 'map';", conn);
+            await using var reader = await q.ExecuteReaderAsync();
+            await reader.ReadAsync();
+            Assert.True(reader.GetInt64(0) > 0);
+            Assert.Equal(0L, reader.GetInt64(1));
+        }
+
+        await PublishAsync();
+    }
+
+    // The A92 seed: points every event without a map at the valley map and
+    // enables every theme on every event.
+    private async Task RunTrackerSeedAsync()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(Wmsfo.Api.Data.Migrations.A92TrackerMapsThemes.SeedSql(), conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
     private async Task<bool> HasUnpublishedChangesAsync()
     {
         using var req = _host!.EditorRequest(HttpMethod.Get, "/admin/content/status");

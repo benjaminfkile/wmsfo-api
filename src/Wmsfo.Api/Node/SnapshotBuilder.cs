@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
@@ -6,6 +7,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
+using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
@@ -158,7 +160,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
         // 2. current event (nullable).
         await using (var cmd = new NpgsqlCommand(@"
 select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.route_id, e.route_map_config
+       e.funds_percent, e.route_id, e.route_map_config, e.tracker_bbox
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -179,6 +181,8 @@ where e.is_current;", conn, tx))
                     RouteMap = null,
                     RouteMapConfig = reader.IsDBNull(9) ? null : RouteMapConfigRules.FromStored(reader.GetString(9)),
                     LatestMessage = null,
+                    TrackerBbox = ReadJson<Bbox>(reader.GetString(10)),
+                    TrackerMap = null,
                 };
                 currentYear = currentEvent.Year;
                 currentRouteId = reader.IsDBNull(8) ? null : reader.GetInt64(8);
@@ -206,6 +210,71 @@ limit 1;", conn, tx);
                 };
             }
         }
+
+        // 3a. the current event's ready map and its enabled themes (sql.md 7).
+        var trackerThemes = new List<SnapshotTrackerTheme>();
+        if (currentEvent is not null)
+        {
+            var cdn = _options.CdnBaseUrl.TrimEnd('/');
+            await using (var cmd = new NpgsqlCommand(@"
+select m.id, m.name, m.prefix, m.bbox, m.min_zoom, m.max_zoom, m.terrain_max_zoom
+from event e
+join tracker_map m on m.id = e.tracker_map_id and m.state = 'ready'
+where e.id = $1;", conn, tx))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = currentEvent.Id });
+                await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    var prefix = reader.GetString(2);
+                    int? terrainMaxZoom = reader.IsDBNull(6) ? null : reader.GetInt16(6);
+                    currentEvent.TrackerMap = new SnapshotTrackerMap
+                    {
+                        Id = reader.GetInt64(0),
+                        Name = reader.GetString(1),
+                        Bbox = ReadJson<Bbox>(reader.GetString(3)),
+                        MinZoom = reader.GetInt16(4),
+                        MaxZoom = reader.GetInt16(5),
+                        TerrainMaxZoom = terrainMaxZoom,
+                        TilesUrl = cdn + "/" + prefix + "/tiles.pmtiles",
+                        TerrainUrl = terrainMaxZoom is null ? null : cdn + "/" + prefix + "/terrain.pmtiles",
+                    };
+                }
+            }
+
+            await using (var cmd = new NpgsqlCommand(@"
+select t.id, t.renderer, t.key, t.name, t.style_sha256, t.sprite_sha256, t.thumbnail_media_id, t.chrome, t.overlay,
+       t.default_light_mode, t.default_dark_mode
+from event_tracker_theme et
+join tracker_theme t on t.id = et.theme_id
+where et.event_id = $1
+order by t.sort_order, t.id;", conn, tx))
+            {
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = currentEvent.Id });
+                await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    var themeId = reader.GetInt64(0);
+                    trackerThemes.Add(new SnapshotTrackerTheme
+                    {
+                        Id = themeId,
+                        Renderer = reader.GetString(1),
+                        Key = reader.GetString(2),
+                        Name = reader.GetString(3),
+                        StyleUrl = cdn + "/themes/" + reader.GetString(4) + ".json",
+                        SpriteUrl = reader.IsDBNull(5)
+                            ? null
+                            : cdn + "/themes/" + themeId.ToString(CultureInfo.InvariantCulture) + "/sprites/" + reader.GetString(5) + "/sprite",
+                        ThumbnailMediaId = reader.IsDBNull(6) ? null : reader.GetGuid(6).ToString(),
+                        Chrome = ReadJson<Chrome>(reader.GetString(7)),
+                        Overlay = ReadJson<Overlay>(reader.GetString(8)),
+                        DefaultLightMode = reader.GetBoolean(9),
+                        DefaultDarkMode = reader.GetBoolean(10),
+                    });
+                }
+            }
+        }
+        snap.TrackerThemes = trackerThemes;
 
         // 4. flight history and route map: when the current event links a
         // route (route_id), read the route row's `name` and `s3_key`, then read
@@ -417,7 +486,7 @@ select id, document, media_ids from content_version order by id desc limit 1;", 
         snap.Content = content;
 
         // 8. media map: content media ids + sponsor logos + cookie type media
-        // icons (contracts 1.3).
+        // icons + the enabled themes' thumbnails (contracts 1.3).
         var mediaIds = new HashSet<Guid>();
         foreach (var id in contentMediaIds) mediaIds.Add(id);
         foreach (var id in await CollectSnapshotLevelMediaIdsAsync(conn, tx, ct).ConfigureAwait(false))
@@ -455,7 +524,8 @@ order by m.id;", conn, tx);
 
     // The media ids the snapshot carries beyond the content document: logos of
     // the sponsors the snapshot lists (the current event's year, active, not
-    // anonymous, can advertise) and media icons of active cookie types. The
+    // anonymous, can advertise), media icons of active cookie types, and the
+    // thumbnails of the current event's enabled tracker themes. The
     // snapshot media map, the preview document, and the draft response all add
     // this set to the document's referenced media.
     public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
@@ -483,8 +553,22 @@ where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is no
                 if (icon is { Source: "media" } && Guid.TryParse(icon.Id, out var mediaId)) ids.Add(mediaId);
             }
         }
+        await using (var cmd = new NpgsqlCommand(@"
+select t.thumbnail_media_id
+from event_tracker_theme et
+join event e on e.id = et.event_id and e.is_current
+join tracker_theme t on t.id = et.theme_id
+where t.thumbnail_media_id is not null;", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(reader.GetGuid(0));
+        }
         return ids.ToArray();
     }
+
+    // A jsonb column of a fixed contract shape (a box, a theme's chrome or overlay).
+    private static T ReadJson<T>(string json) where T : new() =>
+        JsonSerializer.Deserialize<T>(json, ContentReadOptions) ?? new T();
 
     // contracts 4.5a: walk the place chain from placeId up to at most 32 levels,
     // returning the first ancestor's opens_page_id or forward_url that is set;

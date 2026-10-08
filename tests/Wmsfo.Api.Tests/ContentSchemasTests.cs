@@ -11,7 +11,7 @@ namespace Wmsfo.Api.Tests;
 //  - every `defaults`/`itemDefaults` is draft-valid
 //  - the starter content and the content-document fixture validate at the publish level
 //  - the draft derivation strips exactly required, minLength, minItems, minimum
-//  - a `map` section's schema rejects an unknown theme key
+//  - a `map` section's schema rejects a `themes` key
 public class ContentSchemasTests
 {
     private static readonly KindRegistry Registry = KindRegistry.Load(ContractsPaths.ContractsDir);
@@ -272,16 +272,16 @@ public class ContentSchemasTests
     }
 
     [Fact]
-    public void Map_section_rejects_an_unknown_theme_key()
+    public void Map_section_rejects_a_themes_key()
     {
         var mapInfo = Registry.ByName["map"];
         var badData = (JsonObject)mapInfo.Defaults.DeepClone();
         badData["themes"] = new JsonArray("standard", "quantum");
         var problems = Validator.ValidateSectionData("map", badData, ValidationLevel.Publish);
-        Assert.True(problems.Count > 0, "map schema accepted an unknown theme key");
+        Assert.True(problems.Count > 0, "map schema accepted a themes key");
 
         var draftProblems = Validator.ValidateSectionData("map", badData, ValidationLevel.Draft);
-        Assert.True(draftProblems.Count > 0, "draft-level map schema accepted an unknown theme key");
+        Assert.True(draftProblems.Count > 0, "draft-level map schema accepted a themes key");
     }
 
     // route_preview data is heading, disclaimer, and emptyText: `style` is

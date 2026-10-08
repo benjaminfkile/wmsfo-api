@@ -359,8 +359,6 @@ public static class StarterContentBuilder
         Presentation = new Presentation { Width = "full", Align = "center", Background = Presentation.BackgroundNone(), Spacing = "normal", IconBefore = null, IconAfter = null, Anchor = null },
         Data = new JsonObject
         {
-            ["themes"] = new JsonArray { "standard", "expedition", "blizzard", "charcoal", "night", "nebula" },
-            ["defaultTheme"] = "night",
             ["defaultCenter"] = new JsonObject { ["lat"] = 46.87, ["lng"] = -114.0 },
             ["defaultZoom"] = 11,
             ["controls"] = new JsonObject
