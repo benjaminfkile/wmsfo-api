@@ -3160,6 +3160,25 @@
         }
       }
     },
+    "/admin/themes/{id}/impact": {
+      "get": {
+        "tags": [
+          "AdminImpact"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteImpactDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/posters": {
       "get": {
         "tags": [
@@ -3322,6 +3341,207 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HelpTopicDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/themes": {
+      "get": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfTrackerThemeDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrackerThemeRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrackerThemeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerThemeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/themes/{id}": {
+      "patch": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTrackerThemeRequest"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTrackerThemeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerThemeDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteTrackerThemeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/admin/themes/{id}/sprite": {
+      "post": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpriteTicketsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpriteTicketsDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpriteTicketsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/themes/{id}/sprite/confirm": {
+      "post": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpriteConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerThemeDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/themes/{id}/default": {
+      "post": {
+        "tags": [
+          "AdminThemes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetThemeDefaultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerThemeDto"
                 }
               }
             }
@@ -4100,6 +4320,32 @@
           }
         }
       },
+      "Chrome": {
+        "type": "object",
+        "properties": {
+          "bg": {
+            "type": "string"
+          },
+          "fg": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "tile": {
+            "type": "string"
+          },
+          "tileFg": {
+            "type": "string"
+          },
+          "panel": {
+            "type": "string"
+          },
+          "accent": {
+            "type": "string"
+          }
+        }
+      },
       "CloneEventCopy": {
         "type": "object",
         "properties": {
@@ -4871,6 +5117,42 @@
           }
         }
       },
+      "CreateTrackerThemeRequest": {
+        "type": "object",
+        "properties": {
+          "renderer": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "style": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "chrome": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "overlay": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "thumbnailMediaId": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "additionalProperties": false
+      },
       "DeleteImpactDto": {
         "type": "object",
         "properties": {
@@ -4899,6 +5181,21 @@
             }
           }
         }
+      },
+      "DeleteTrackerThemeRequest": {
+        "type": "object",
+        "properties": {
+          "replacementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "EmailQuota": {
         "type": "object",
@@ -5699,6 +5996,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SubscriptionDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfTrackerThemeDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackerThemeDto"
             }
           }
         }
@@ -6822,6 +7130,42 @@
           }
         }
       },
+      "Overlay": {
+        "type": "object",
+        "properties": {
+          "routeColor": {
+            "type": "string"
+          },
+          "routeOpacity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "arrowColor": {
+            "type": "string"
+          },
+          "timeLabelBg": {
+            "type": "string"
+          },
+          "timeLabelFg": {
+            "type": "string"
+          },
+          "timeLabelOpacity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "userColor": {
+            "type": "string"
+          }
+        }
+      },
       "PageAdminDto": {
         "type": "object",
         "properties": {
@@ -7508,6 +7852,45 @@
             ]
           }
         }
+      },
+      "PatchTrackerThemeRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sortOrder": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "style": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "chrome": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "overlay": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "thumbnailMediaId": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "additionalProperties": false
       },
       "PersonDto": {
         "type": "object",
@@ -9052,6 +9435,24 @@
           }
         }
       },
+      "SetThemeDefaultRequest": {
+        "type": "object",
+        "properties": {
+          "light": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "dark": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "SettingDto": {
         "type": "object",
         "properties": {
@@ -9422,6 +9823,62 @@
           }
         }
       },
+      "SpriteConfirmRequest": {
+        "type": "object",
+        "properties": {
+          "indexSha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SpriteTicketsDto": {
+        "type": "object",
+        "properties": {
+          "indexSha256": {
+            "type": "string"
+          },
+          "uploads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpriteUploadDto"
+            }
+          }
+        }
+      },
+      "SpriteTicketsRequest": {
+        "type": "object",
+        "properties": {
+          "indexSha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SpriteUploadDto": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "uploadUrl": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "StatusHistoryDto": {
         "type": "object",
         "properties": {
@@ -9642,6 +10099,112 @@
           }
         }
       },
+      "TrackerThemeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "renderer": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sortOrder": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "styleUrl": {
+            "type": "string"
+          },
+          "styleSha256": {
+            "type": "string"
+          },
+          "styleBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "spriteSha256": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "spriteUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "chrome": {
+            "$ref": "#/components/schemas/Chrome"
+          },
+          "overlay": {
+            "$ref": "#/components/schemas/Overlay"
+          },
+          "thumbnailMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultLightMode": {
+            "type": "boolean"
+          },
+          "defaultDarkMode": {
+            "type": "boolean"
+          },
+          "eventCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
+          }
+        }
+      },
       "UploadRouteRequest": {
         "type": "object",
         "properties": {
@@ -9792,6 +10355,9 @@
     },
     {
       "name": "AdminHelp"
+    },
+    {
+      "name": "AdminThemes"
     },
     {
       "name": "AdminDiagnostics"

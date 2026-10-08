@@ -36,7 +36,8 @@ public static class EndpointStubs
         includeQrPlacesStubs: true,
         includeAdminImpactStubs: true,
         includeAdminPostersStubs: true,
-        includeAdminHelpStubs: true);
+        includeAdminHelpStubs: true,
+        includeAdminThemesStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -64,7 +65,8 @@ public static class EndpointStubs
         bool includeQrPlacesStubs = true,
         bool includeAdminImpactStubs = true,
         bool includeAdminPostersStubs = true,
-        bool includeAdminHelpStubs = true)
+        bool includeAdminHelpStubs = true,
+        bool includeAdminThemesStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -93,6 +95,7 @@ public static class EndpointStubs
         if (includeAdminImpactStubs) MapAdminImpact(app);
         if (includeAdminPostersStubs) MapAdminPosters(app);
         if (includeAdminHelpStubs) MapAdminHelp(app);
+        if (includeAdminThemesStubs) MapAdminThemes(app);
     }
 
     // A36 / api.md 5b: `GET /admin/<resource>/{id}/impact` per deletable
@@ -123,6 +126,7 @@ public static class EndpointStubs
         MapLong(app, "/admin/people/{id:long}/impact");
         MapLong(app, "/admin/contact-messages/{id:long}/impact");
         MapLong(app, "/admin/posters/{id:long}/impact");
+        MapLong(app, "/admin/themes/{id:long}/impact");
     }
 
     // A33: QR codes, places, and the public scan beacon. Real handlers live in
@@ -768,6 +772,45 @@ public static class EndpointStubs
 
         app.MapDelete("/admin/posters/{id:long}", NotImplemented)
             .WithTags("AdminPosters")
+            .Produces(StatusCodes.Status204NoContent);
+    }
+
+    // contracts 4.5 Themes; the real handlers are AdminThemeEndpoints.
+    private static void MapAdminThemes(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/themes", NotImplemented)
+            .WithTags("AdminThemes")
+            .Produces<ItemsResponse<TrackerThemeDto>>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/themes", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<CreateTrackerThemeRequest>("application/json", "multipart/form-data")
+            .Produces<TrackerThemeDto>(StatusCodes.Status201Created);
+
+        app.MapPatch("/admin/themes/{id:long}", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<PatchTrackerThemeRequest>("application/json", "multipart/form-data")
+            .Produces<TrackerThemeDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/themes/{id:long}/sprite", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<SpriteTicketsRequest>("application/json")
+            .Produces<SpriteTicketsDto>(StatusCodes.Status201Created)
+            .Produces<SpriteTicketsDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/themes/{id:long}/sprite/confirm", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<SpriteConfirmRequest>("application/json")
+            .Produces<TrackerThemeDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/themes/{id:long}/default", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<SetThemeDefaultRequest>("application/json")
+            .Produces<TrackerThemeDto>(StatusCodes.Status200OK);
+
+        app.MapDelete("/admin/themes/{id:long}", NotImplemented)
+            .WithTags("AdminThemes")
+            .Accepts<DeleteTrackerThemeRequest>(isOptional: true, "application/json")
             .Produces(StatusCodes.Status204NoContent);
     }
 

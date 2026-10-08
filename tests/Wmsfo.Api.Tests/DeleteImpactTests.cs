@@ -13,6 +13,9 @@ public class DeleteImpactTests
     {
         Assert.Equal("This event is live. End it first.", ImpactHelpers.LiveEventBlocked);
         Assert.Equal("This is the current event. Make another event current first.", ImpactHelpers.CurrentEventBlocked);
+        Assert.Equal(
+            "This is the only Google theme enabled on Liftoff 2026. Enable another there first.",
+            string.Format(CultureInfo.InvariantCulture, ImpactHelpers.LastGoogleThemeBlocked, "Liftoff 2026"));
     }
 
     [Fact]
@@ -25,6 +28,9 @@ public class DeleteImpactTests
         Assert.Equal(
             "An event is live; its cookie tally drops by 42.",
             string.Format(CultureInfo.InvariantCulture, ImpactHelpers.CookieTallyWarning, 42));
+        Assert.Equal(
+            "The maplibre renderer loses its default dark theme.",
+            string.Format(CultureInfo.InvariantCulture, ImpactHelpers.ThemeDefaultWarning, "maplibre", "dark"));
     }
 
     [Fact]

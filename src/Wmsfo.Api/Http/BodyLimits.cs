@@ -17,6 +17,8 @@ public static class BodyLimits
     public const long Heartbeat = 32L * 1024;
     public const long BeaconLog = 2L * 1024 * 1024;
     public const long RouteUpload = 5L * 1024 * 1024;
+    // A theme create or patch: a style of up to 512 KB canonical plus the rest.
+    public const long ThemeWrite = 1L * 1024 * 1024;
 
     public static void Use(IApplicationBuilder app)
     {

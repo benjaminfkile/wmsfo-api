@@ -16,6 +16,9 @@ public static class ConstraintErrorMapping
     public const string BeaconOneActive = "beacon_one_active";
     public const string RouteS3KeyKey = "route_s3_key_key";
     public const string SubscriberChannelAddressKey = "subscriber_channel_address_key";
+    public const string TrackerThemeRendererKeyKey = "tracker_theme_renderer_key_key";
+    public const string TrackerThemeOneDefaultLight = "tracker_theme_one_default_light";
+    public const string TrackerThemeOneDefaultDark = "tracker_theme_one_default_dark";
 
     // Returns null when the exception is not one this table maps; the caller
     // (typically a catch block) then rethrows so a 500 is produced.
@@ -28,8 +31,15 @@ public static class ConstraintErrorMapping
             PageSlugKey => new ApiException(StatusCodes.Status409Conflict, "slug_taken", "slug already used"),
             EventOneLive => new ApiException(StatusCodes.Status409Conflict, "another_event_live", "another event is live"),
             SubscriberChannelAddressKey => new ApiException(StatusCodes.Status409Conflict, "address_taken", "address already subscribed"),
-            // event_one_current, beacon_one_active: retry-once territory; leave
-            // for the caller to handle. Others are not mapped and become 500.
+            TrackerThemeRendererKeyKey => new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed,
+                "key is taken on the renderer",
+                new ValidationDetails(new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["key"] = "another theme of the renderer has this key",
+                })),
+            // event_one_current, beacon_one_active, and the two theme default
+            // indexes: retry-once territory; leave for the caller to handle.
+            // Others are not mapped and become 500.
             _ => null,
         };
     }
