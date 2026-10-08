@@ -72,12 +72,15 @@ public static class AdminEventEndpoints
 
     // POST /admin/events [snapshot]. inheritRoute: true copies the greatest
     // year's route_id (or null); inheritRoute: false uses the supplied routeId.
-    // year unique, name 1..200, fundsPercent 0..100.
+    // year unique, name 1..200, fundsPercent 0..100. The tracker fields follow
+    // sql.md 8.7: a given trackerBbox is checked like settings.tracker.defaultBbox,
+    // an absent or null one is the published default; the map and the theme set
+    // come from the event with the greatest year.
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events",
             async (CreateEventRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   AuditRecorder audit, CancellationToken ct) =>
+                   AuditRecorder audit, SchemaValidator validator, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
@@ -86,6 +89,9 @@ public static class AdminEventEndpoints
                 if (body.InheritRoute && body.RouteId is not null) v.Field("routeId", "must be null when inheritRoute is true");
                 if (body.ScheduleTimeZone is not null && !IsKnownTimeZone(body.ScheduleTimeZone))
                     v.Field("scheduleTimeZone", "must be an IANA time zone id or null");
+                var givenBbox = body.TrackerBbox.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                    ? null
+                    : EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
                 v.ThrowIfInvalid();
 
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -109,10 +115,13 @@ select route_id from event where route_id is not null order by year desc limit 1
                             throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
                     }
 
+                    var trackerBbox = givenBbox ?? await EventTrackerRules.DefaultBboxAsync(conn, tx, token);
+                    var inherited = await EventTrackerRules.InheritAsync(conn, tx, trackerBbox, token);
+
                     long newId;
                     await using (var insert = new NpgsqlCommand(@"
-insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by, schedule_time_zone, updated_at)
-values ($1, $2, 1, $3, $4, $5, $6, $7, now())
+insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by, schedule_time_zone, updated_at, tracker_bbox, tracker_map_id)
+values ($1, $2, 1, $3, $4, $5, $6, $7, now(), $8, $9)
 returning id;", conn, tx))
                     {
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
@@ -122,8 +131,11 @@ returning id;", conn, tx))
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)routeId ?? DBNull.Value });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.ScheduleTimeZone ?? DBNull.Value });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(trackerBbox) });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)inherited.MapId ?? DBNull.Value });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
                     }
+                    await EventTrackerRules.CopyThemesAsync(conn, tx, newId, inherited.ThemesFromEventId, inherited.AllThemes, token);
                     var e = await ReadEventByIdAsync(conn, tx, newId, token);
                     if (e is null) throw NotFound();
                     var stamp = await audit.RecordAsync(conn, tx, "create", "event",
@@ -206,7 +218,9 @@ where e.id = $1;", conn))
     // PATCH /admin/events/{id} [snapshot]. Any of name, year, scheduledAt,
     // wentLiveAt, endedAt, fundsPercent, routeId, scheduleTimeZone (an IANA
     // id sets it, null clears it), routeMapConfig (a RouteMapConfig object
-    // sets it, null clears it).
+    // sets it, null clears it), trackerBbox (a Bbox sets it; null is 400),
+    // trackerMapId (a ready map containing the box sets it, null clears it),
+    // trackerThemeIds (replaces the enabled set whole).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
@@ -276,6 +290,61 @@ where e.id = $1;", conn))
                 var scheduledPatch = ReadInstant(body.ScheduledAt, "scheduledAt");
                 var wentLivePatch = ReadInstant(body.WentLiveAt, "wentLiveAt");
                 var endedPatch = ReadInstant(body.EndedAt, "endedAt");
+                Bbox? trackerBbox = null;
+                switch (body.TrackerBbox.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Null:
+                        v.Field("trackerBbox", "is required and cannot be null");
+                        break;
+                    default:
+                        trackerBbox = EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
+                        break;
+                }
+                bool setTrackerMap = false;
+                long? trackerMapId = null;
+                switch (body.TrackerMapId.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Null:
+                        setTrackerMap = true;
+                        break;
+                    case JsonValueKind.Number when body.TrackerMapId.TryGetInt64(out var mapId):
+                        setTrackerMap = true;
+                        trackerMapId = mapId;
+                        break;
+                    default:
+                        v.Field("trackerMapId", "must be a map id or null");
+                        break;
+                }
+                long[]? trackerThemeIds = null;
+                switch (body.TrackerThemeIds.ValueKind)
+                {
+                    case JsonValueKind.Undefined:
+                        break;
+                    case JsonValueKind.Array:
+                        List<long>? ids = new();
+                        foreach (var item in body.TrackerThemeIds.EnumerateArray())
+                        {
+                            if (item.ValueKind != JsonValueKind.Number || !item.TryGetInt64(out var themeId))
+                            {
+                                v.Field("trackerThemeIds", "must be an array of theme ids");
+                                ids = null;
+                                break;
+                            }
+                            ids.Add(themeId);
+                        }
+                        if (ids is not null && ids.Distinct().Count() != ids.Count)
+                            v.Field("trackerThemeIds", "must not repeat an id");
+                        else if (ids is not null)
+                            trackerThemeIds = ids.ToArray();
+                        break;
+                    default:
+                        v.Field("trackerThemeIds", "must be an array of theme ids");
+                        break;
+                }
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -283,14 +352,18 @@ where e.id = $1;", conn))
                 {
                     short currentStatus = 0;
                     DateTimeOffset? currentScheduled = null;
+                    Bbox currentBbox;
+                    long? currentMapId;
                     await using (var read = new NpgsqlCommand(
-                        "select status_id, scheduled_at from event where id = $1 for update;", conn, tx))
+                        "select status_id, scheduled_at, tracker_bbox::text, tracker_map_id from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(token);
                         if (!await reader.ReadAsync(token)) throw NotFound();
                         currentStatus = reader.GetInt16(0);
                         currentScheduled = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1);
+                        currentBbox = EventTrackerRules.ParseStored(reader.GetString(2));
+                        currentMapId = reader.IsDBNull(3) ? null : reader.GetInt64(3);
                     }
                     var before = await ReadEventByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
@@ -303,6 +376,25 @@ where e.id = $1;", conn))
                         var r = await check.ExecuteScalarAsync(token);
                         if (r is null || r is DBNull)
                             throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
+                    }
+
+                    // The tracker map and box after this write: a new map must be
+                    // ready and contain the box (at trackerMapId); a new box must
+                    // stay inside the map the event keeps (at trackerBbox).
+                    var effectiveBbox = trackerBbox ?? currentBbox;
+                    if (setTrackerMap && trackerMapId is long newMap)
+                    {
+                        await EventTrackerRules.CheckMapAsync(conn, tx, newMap, effectiveBbox, token);
+                    }
+                    else if (!setTrackerMap && trackerBbox is not null && currentMapId is long keptMap)
+                    {
+                        var package = await EventTrackerRules.MapBboxAsync(conn, tx, keptMap, token);
+                        if (package is not null && !EventTrackerRules.Contains(package, trackerBbox))
+                            RequestValidation.Throw("trackerBbox", "must lie inside the event's map package");
+                    }
+                    if (trackerThemeIds is not null)
+                    {
+                        await EventTrackerRules.ReplaceThemesAsync(conn, tx, id, trackerThemeIds, token);
                     }
 
                     // scheduled_at null while status = 2 → 409 scheduled_at_required.
@@ -332,6 +424,10 @@ where e.id = $1;", conn))
                         var stored = routeMapConfig is null ? null : RouteMapConfigRules.Serialize(routeMapConfig);
                         Set($"route_map_config = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)stored ?? DBNull.Value });
                     }
+                    if (trackerBbox is not null)
+                        Set($"tracker_bbox = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(trackerBbox) });
+                    if (setTrackerMap)
+                        Set($"tracker_map_id = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)trackerMapId ?? DBNull.Value });
 
                     sets.Add("updated_at = now()");
                     var setClause = string.Join(", ", sets);
@@ -911,7 +1007,9 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     // Creates a new event in status 1, not current, funds 0, no scheduled time;
     // copy.sponsors copies year's sponsor_year rows (with pinned/linger) to the
     // new year (skipping sponsors that already have it); copy.route links the
-    // source's routeId; copy.routeMapConfig copies the source's route map configuration. Not
+    // source's routeId; copy.routeMapConfig copies the source's route map configuration;
+    // the box always copies, and copy.tracker copies the source's map and theme set,
+    // which otherwise follow the create rule of sql.md 8.7. Not
     // snapshot-affecting (the new event is not current).
     private static void MapClone(IEndpointRouteBuilder app)
     {
@@ -929,6 +1027,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                 var copySponsors = body.Copy?.Sponsors ?? false;
                 var copyRoute = body.Copy?.Route ?? false;
                 var copyRouteMapConfig = body.Copy?.RouteMapConfig ?? false;
+                var copyTracker = body.Copy?.Tracker ?? false;
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
@@ -938,8 +1037,10 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                     int sourceYear;
                     long? sourceRouteId;
                     string? sourceRouteMapConfig;
+                    Bbox sourceBbox;
+                    long? sourceMapId;
                     await using (var read = new NpgsqlCommand(
-                        "select year, route_id, route_map_config from event where id = $1 for update;", conn, tx))
+                        "select year, route_id, route_map_config, tracker_bbox::text, tracker_map_id from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(ct);
@@ -947,25 +1048,34 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         sourceYear = reader.GetInt32(0);
                         sourceRouteId = reader.IsDBNull(1) ? null : reader.GetInt64(1);
                         sourceRouteMapConfig = reader.IsDBNull(2) ? null : reader.GetString(2);
+                        sourceBbox = EventTrackerRules.ParseStored(reader.GetString(3));
+                        sourceMapId = reader.IsDBNull(4) ? null : reader.GetInt64(4);
                     }
+
+                    var tracker = copyTracker
+                        ? new EventTrackerRules.Inherited(sourceMapId, id, AllThemes: false)
+                        : await EventTrackerRules.InheritAsync(conn, tx, sourceBbox, ct);
 
                     long newId;
                     try
                     {
                         await using var ins = new NpgsqlCommand(@"
-insert into event (year, name, status_id, is_current, funds_percent, route_id, created_by, updated_at, route_map_config)
-values ($1, $2, 1, false, 0, $3, $4, now(), $5) returning id;", conn, tx);
+insert into event (year, name, status_id, is_current, funds_percent, route_id, created_by, updated_at, route_map_config, tracker_bbox, tracker_map_id)
+values ($1, $2, 1, false, 0, $3, $4, now(), $5, $6, $7) returning id;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)(copyRoute ? sourceRouteId : null) ?? DBNull.Value });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)(copyRouteMapConfig ? sourceRouteMapConfig : null) ?? DBNull.Value });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(sourceBbox) });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)tracker.MapId ?? DBNull.Value });
                         newId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
                     }
                     catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.EventYearKey)
                     {
                         throw new ApiException(StatusCodes.Status409Conflict, "year_taken", "year already used");
                     }
+                    await EventTrackerRules.CopyThemesAsync(conn, tx, newId, tracker.ThemesFromEventId, tracker.AllThemes, ct);
 
                     if (copySponsors)
                     {
@@ -1661,7 +1771,10 @@ limit $" + limitIdx + ";";
     private const string EventSelectSql = @"
 select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_live_at, e.ended_at,
        e.funds_percent, e.route_id, r.url, e.created_by, e.created_at, e.updated_at,
-       e.status_notified_at, a.action, a.actor, a.at, e.schedule_time_zone, e.route_map_config
+       e.status_notified_at, a.action, a.actor, a.at, e.schedule_time_zone, e.route_map_config,
+       e.tracker_bbox::text, e.tracker_map_id,
+       array(select et.theme_id from event_tracker_theme et join tracker_theme t on t.id = et.theme_id
+             where et.event_id = e.id order by t.sort_order, t.id)
 from event e
 left join route r on r.id = e.route_id
 left join lateral (
@@ -1707,6 +1820,9 @@ left join lateral (
             StatusNotifiedAt = reader.IsDBNull(14) ? null : reader.GetFieldValue<DateTimeOffset>(14),
             ScheduleTimeZone = reader.IsDBNull(18) ? null : reader.GetString(18),
             RouteMapConfig = reader.IsDBNull(19) ? null : RouteMapConfigRules.FromStored(reader.GetString(19)),
+            TrackerBbox = EventTrackerRules.ParseStored(reader.GetString(20)),
+            TrackerMapId = reader.IsDBNull(21) ? null : reader.GetInt64(21),
+            TrackerThemeIds = reader.GetFieldValue<long[]>(22).ToList(),
         };
         if (!reader.IsDBNull(15))
         {

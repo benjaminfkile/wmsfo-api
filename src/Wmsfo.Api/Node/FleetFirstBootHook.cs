@@ -8,6 +8,7 @@ using Wmsfo.Api.Help;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
+using Wmsfo.Api.Themes;
 
 namespace Wmsfo.Api.Node;
 
@@ -15,6 +16,8 @@ namespace Wmsfo.Api.Node;
 //   1. Starter content - A14
 //   2. Icon library - A3 (IconLibrary.EnsureWrittenAsync); we skip when the library
 //      is unavailable (test hosts don't ship the icons folder)
+//   2b. Theme style objects (ThemeStyles.EnsureWrittenAsync); skipped when
+//       the bodies are not registered
 //   2a. Help topics (HelpTopics.EnsureWrittenAsync); skipped when the seed is
 //      not registered
 //   3. Content version 1 - A14 (SnapshotBootstrap uses a fixture stand-in)
@@ -62,10 +65,24 @@ public sealed class FleetFirstBootHook : IFirstBootHook
             }
         }
 
+        // 2b. Theme style objects: every tracker_theme row's themes/{sha}.json,
+        // the seeded bodies written when absent. A failure here fails the boot,
+        // which retries (sql.md 8.16).
+        var themeStyles = scope.ServiceProvider.GetService<ThemeStyles>();
+        var connections = scope.ServiceProvider.GetService<WmsfoConnectionStrings>();
+        if (themeStyles is not null && store is not null && connections is not null)
+        {
+            await using var conn = new NpgsqlConnection(connections.Migrate);
+            await conn.OpenAsync(ct).ConfigureAwait(false);
+            var result = await themeStyles.EnsureWrittenAsync(conn, store, _logger, ct).ConfigureAwait(false);
+            _logger.LogInformation(
+                "theme style objects ensured written={Written} present={Present} missing={Missing}",
+                result.Written, result.Present, result.Missing);
+        }
+
         // 2a. Help topics: bring help_topic in line with help/topics.json. A
         // failure here fails the boot, which retries (sql.md 8.16).
         var helpTopics = scope.ServiceProvider.GetService<HelpTopics>();
-        var connections = scope.ServiceProvider.GetService<WmsfoConnectionStrings>();
         if (helpTopics is not null && connections is not null)
         {
             await using var conn = new NpgsqlConnection(connections.Migrate);

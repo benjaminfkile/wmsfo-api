@@ -25,6 +25,13 @@ public sealed class EventDto
     public string? RouteUrl { get; set; }
     // The event's route map configuration (contracts 1.3); null when unset.
     public RouteMapConfig? RouteMapConfig { get; set; }
+    // The event's bounding box (contracts 1.3 event.trackerBbox), always set.
+    public Bbox TrackerBbox { get; set; } = new();
+    // The ready tracker map whose package contains the box; null means Google
+    // Maps for every viewer.
+    public long? TrackerMapId { get; set; }
+    // The enabled themes in sort_order, id order.
+    public IList<long> TrackerThemeIds { get; set; } = new List<long>();
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -503,6 +510,8 @@ public sealed class MediaUsageDto
     public int VersionCount { get; set; }
     public IList<MediaUsageSponsorRef> Sponsors { get; set; } = new List<MediaUsageSponsorRef>();
     public IList<MediaUsageCookieTypeRef> CookieTypes { get; set; } = new List<MediaUsageCookieTypeRef>();
+    // The tracker themes whose thumbnail it is.
+    public IList<MediaUsageThemeRef> Themes { get; set; } = new List<MediaUsageThemeRef>();
     public bool SiteSettings { get; set; }
     // The assets this one is the dark version of ("dark version of <filename>").
     public IList<MediaUsageMediaRef> DarkVersionOf { get; set; } = new List<MediaUsageMediaRef>();
@@ -511,6 +520,7 @@ public sealed class MediaUsageDto
 public sealed class MediaUsagePageRef { public long Id { get; set; } public string Slug { get; set; } = ""; public string Title { get; set; } = ""; }
 public sealed class MediaUsageSponsorRef { public long Id { get; set; } public string Name { get; set; } = ""; }
 public sealed class MediaUsageCookieTypeRef { public long Id { get; set; } public string Name { get; set; } = ""; }
+public sealed class MediaUsageThemeRef { public long Id { get; set; } public string Name { get; set; } = ""; }
 public sealed class MediaUsageMediaRef { public string Id { get; set; } = ""; public string Filename { get; set; } = ""; }
 
 public sealed class ContentVersionInfoDto

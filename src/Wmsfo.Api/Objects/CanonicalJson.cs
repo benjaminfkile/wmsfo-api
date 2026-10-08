@@ -44,13 +44,14 @@ public static class CanonicalJson
     // An opaque JSON document (one the API stores without a DTO, such as a
     // poster's layout) in canonical form: object properties in ascending
     // ordinal order at every depth (the last of duplicate names wins), no
-    // indentation, the default encoder, numbers written as they were read.
-    public static byte[] SerializeOpaqueToUtf8Bytes(JsonElement value)
+    // indentation, the default encoder unless the caller names another,
+    // numbers written as they were read.
+    public static byte[] SerializeOpaqueToUtf8Bytes(JsonElement value, JavaScriptEncoder? encoder = null)
     {
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
         {
-            Encoder = JavaScriptEncoder.Default,
+            Encoder = encoder ?? JavaScriptEncoder.Default,
             Indented = false,
         }))
         {

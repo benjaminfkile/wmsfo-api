@@ -3771,6 +3771,43 @@
           }
         }
       },
+      "Bbox": {
+        "type": "object",
+        "properties": {
+          "west": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "south": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "east": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "north": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "BeaconDto": {
         "type": "object",
         "properties": {
@@ -4073,6 +4110,9 @@
             "type": "boolean"
           },
           "routeMapConfig": {
+            "type": "boolean"
+          },
+          "tracker": {
             "type": "boolean"
           }
         }
@@ -4622,6 +4662,9 @@
               "null",
               "string"
             ]
+          },
+          "trackerBbox": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -5084,6 +5127,29 @@
                 "$ref": "#/components/schemas/RouteMapConfig"
               }
             ]
+          },
+          "trackerBbox": {
+            "$ref": "#/components/schemas/Bbox"
+          },
+          "trackerMapId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "trackerThemeIds": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
           },
           "createdBy": {
             "type": "string"
@@ -6383,6 +6449,12 @@
               "$ref": "#/components/schemas/MediaUsageCookieTypeRef"
             }
           },
+          "themes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaUsageThemeRef"
+            }
+          },
           "siteSettings": {
             "type": "boolean"
           },
@@ -6425,6 +6497,22 @@
         }
       },
       "MediaUsageSponsorRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MediaUsageThemeRef": {
         "type": "object",
         "properties": {
           "id": {
@@ -7149,6 +7237,15 @@
             "$ref": "#/components/schemas/JsonElement"
           },
           "routeMapConfig": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerBbox": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerMapId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerThemeIds": {
             "$ref": "#/components/schemas/JsonElement"
           }
         },

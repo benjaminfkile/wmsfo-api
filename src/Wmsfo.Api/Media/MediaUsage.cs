@@ -4,7 +4,7 @@ using Wmsfo.Api.Contracts.Dtos;
 
 namespace Wmsfo.Api.Media;
 
-// api.md 11.5 / sql.md 8.22: the six usage statements run in order to build
+// api.md 11.5 / sql.md 8.22: the seven usage statements run in order to build
 // the MediaUsage DTO for GET /admin/media/{id}/usage and the DELETE pre-check.
 // The text-match usage queries are exact because the id is a UUID that cannot
 // occur by accident; the working set is small enough for a scan.
@@ -89,6 +89,22 @@ order by id;", conn))
             }
         }
 
+        // 4a. Tracker themes: thumbnail reference.
+        await using (var cmd = new NpgsqlCommand(
+            "select id, name from tracker_theme where thumbnail_media_id = $1 order by id;", conn))
+        {
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                usage.Themes.Add(new MediaUsageThemeRef
+                {
+                    Id = reader.GetInt64(0),
+                    Name = reader.GetString(1),
+                });
+            }
+        }
+
         // 5. Site settings draft mentions the id.
         await using (var cmd = new NpgsqlCommand(
             "select data::text like '%' || $1 || '%' from site_setting_draft where id = 1;", conn))
@@ -122,6 +138,7 @@ order by id;", conn))
         || usage.VersionCount > 0
         || usage.Sponsors.Count > 0
         || usage.CookieTypes.Count > 0
+        || usage.Themes.Count > 0
         || usage.SiteSettings
         || usage.DarkVersionOf.Count > 0;
 }
