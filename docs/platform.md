@@ -25,7 +25,8 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | `<cognito-prefix>` | The hosted UI domain prefix; `<cognito-domain>` is `<cognito-prefix>.auth.<region>.amazoncognito.com`. |
 | `<asg-name>` | The gateway fleet's Auto Scaling group. |
 | `<distribution-arn>` | The CloudFront distribution's ARN, used by the bucket policy's origin access control condition. |
-| `<basemap-build-url>` | A published OpenStreetMap basemap build in PMTiles form, the source of the route basemap extract (1.8). |
+| `<basemap-build-url>` | A published OpenStreetMap basemap build in PMTiles form: the source of the seeded valley extract and of the glyph set (1.8). The tile CLI probes the newest daily build itself. |
+| `<elevation-tiles-url>` | The tile URL template of a public terrarium-encoded elevation tile set, the tile CLI's terrain source (1.8). |
 
 ### 0.2 What differs between dev and prod
 
@@ -70,7 +71,7 @@ One bucket per environment. Settings, identical in both:
 | Block Public Access | All four settings true. The bucket is private; CloudFront reads it through origin access control (1.3, 1.6). |
 | Versioning | Off. Every key except `live/location.json` is content-hashed and immutable; `live/location.json` is rewritten about once a second while live. |
 | Default encryption | SSE-S3 (`AES256`). |
-| Lifecycle rules | Two, both filtered by object tag and both expiring current versions: `wmsfo-media-pending` (tag `state=pending`, expire after 1 day) and `wmsfo-media-orphaned` (tag `state=orphaned`, expire after 7 days). Nothing untagged ever expires: the current snapshot may be months old, and every other object is deleted explicitly by the API (`DELETE /admin/routes/{id}`, `DELETE /admin/media/{id}`). |
+| Lifecycle rules | Three. Two are filtered by object tag and expire current versions: `wmsfo-media-pending` (tag `state=pending`, expire after 1 day) and `wmsfo-media-orphaned` (tag `state=orphaned`, expire after 7 days). The third, `wmsfo-abort-multipart`, is not filtered (every key) and only aborts incomplete multipart uploads after 1 day (`AbortIncompleteMultipartUpload`, `DaysAfterInitiation` 1): the map package uploads the tile CLI starts through the API (1.8) and abandons. Nothing untagged ever expires: the current snapshot may be months old, and every other object is deleted explicitly by the API (`DELETE /admin/routes/{id}`, `DELETE /admin/media/{id}`, `DELETE /admin/maps/{id}`, the theme and sprite deletes). |
 | Request metrics | One filter, id `live`, prefix `live/`, so `AllRequests`, `PutRequests`, `GetRequests`, `4xxErrors`, `5xxErrors` exist for the live object (section 10). |
 | Server access logging, event notifications, Object Lock, Transfer Acceleration, static website hosting | Off. |
 | CORS | One rule for the admin panel's presigned `PUT` uploads (1.4). Reads never hit the bucket directly; the distribution answers CORS for them (section 1.6.2). |
@@ -89,8 +90,12 @@ Every object is written with exactly these `PutObject` parameters. `{sha256}` is
 | `media/{mediaId}/w{width}.webp` | `image/webp` | `public, max-age=31536000, immutable` | API node at confirm (widths 480, 960, 1600 below the source width) | Never; tagged with its original |
 | `icons/{sha256}.svg` | `image/svg+xml` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per icon library change | Never |
 | `email/{sha256}.png` | `image/png` | `public, max-age=31536000, immutable` | The node that migrates on boot, once per email logo change (`templates/email/logo.png`; written when the key is absent) | Never |
+| `maps/{packageKey}/tiles.pmtiles`, `maps/{packageKey}/terrain.pmtiles` | `application/octet-stream` | `public, max-age=31536000, immutable` | The tile CLI from an operator's machine (1.8), through the multipart upload the API starts and signs part by part (contracts 4.5 Maps); the headers are fixed when the API starts the upload | Never; a package with another box or zoom range has another key |
+| `maps/{packageKey}/manifest.json` | `application/json; charset=utf-8` | `public, max-age=31536000, immutable` | API node at the map confirm | Never |
+| `themes/{sha256}.json` | `application/json; charset=utf-8` | `public, max-age=31536000, immutable` | API node on a theme create or style replace; the node that migrates on boot for the seeded themes (written when the key is absent) | Never (same content, same key) |
+| `themes/{themeId}/sprites/{sha256}/sprite.json`, `sprite.png`, `sprite@2x.json`, `sprite@2x.png` | `application/json; charset=utf-8`, `image/png` | `public, max-age=31536000, immutable` | The admin panel through a presigned `PUT` that the API signs, as for media (1.5); `{sha256}` is the hash of the canonical `sprite.json`, so a re-upload is a new prefix | Never; tagged `state=pending` until the API's sprite confirm; the previous prefix stays |
 
-No prefix other than `live/`, `snapshots/`, `routes/`, `media/`, `icons/`, and `email/` is written by the API; the operator uploads `basemap/` by hand (1.8) and nothing else writes, tags, or deletes under it. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
+No prefix other than `live/`, `snapshots/`, `routes/`, `media/`, `icons/`, `email/`, `maps/`, and `themes/` is written by the API, and `maps/` is written from outside the fleet only through the upload URLs the API signs; the operator uploads `basemap/` by hand (1.8) and nothing else writes, tags, or deletes under it. Every object is private to the bucket and public through the distribution. No `ACL` parameter is sent (ACLs are disabled). No `Expires` header. No object metadata beyond the two headers above; the only tags ever set are `state=pending` (by the presigned upload and the variant PUTs) and `state=orphaned` (by the orphan chore), and confirm removes the pending tag.
 
 `PutObject` call shape the API uses for every JSON object:
 
@@ -105,7 +110,7 @@ new PutObjectRequest
 }
 ```
 
-The live-object PUT uses a 3 s total timeout on the ingest path (the beacon's response never waits on it) and one attempt; the admin path retries three times one second apart (contracts 1.8). The snapshot and route PUTs inside an admin transaction, the variant PUTs at media confirm, and the icon PUTs at boot use one attempt with a 3 s timeout each (contracts 7.3, api.md 11.3 and 11a.7). A presigned upload URL is valid 15 minutes and fixes the key, the content type, and the pending tag.
+The live-object PUT uses a 3 s total timeout on the ingest path (the beacon's response never waits on it) and one attempt; the admin path retries three times one second apart (contracts 1.8). The snapshot and route PUTs inside an admin transaction, the variant PUTs at media confirm, and the icon PUTs at boot use one attempt with a 3 s timeout each (contracts 7.3, api.md 11.3 and 11a.7). A presigned upload URL is valid 15 minutes and fixes the key, the content type, and the pending tag. A presigned `UploadPart` URL for a map archive is valid 15 minutes and fixes the key, the upload id, and the part number; the content type and the cache header were fixed when the API started the upload. The manifest and style PUTs use one attempt with a 3 s timeout like the other JSON objects.
 
 ### 1.3 Bucket policy
 
@@ -145,7 +150,7 @@ One rule, for the admin panel's presigned uploads, which go to the bucket's S3 e
 ]
 ```
 
-The dev bucket lists `https://<admin-dev-domain>` and `http://localhost:5174` instead. Reads never reach the bucket from a browser; the distribution's response headers policy (1.6.2) adds `Access-Control-Allow-Origin: *` to every response, so `Origin` stays out of the cache key.
+The dev bucket lists `https://<admin-dev-domain>` and `http://localhost:5174` instead. The rule is unchanged by the tracker maps and themes: a theme's sprite files are uploaded by the panel with the same presigned `PUT`, the same `Content-Type` and `x-amz-tagging` headers, from the same origins, so they fit it as media does; the tile CLI is not a browser and sends no `Origin`. Reads never reach the bucket from a browser; the distribution's response headers policy (1.6.2) adds `Access-Control-Allow-Origin: *` to every response, so `Origin` stays out of the cache key.
 
 ### 1.5 How the API writes: instance role, no static keys
 
@@ -171,7 +176,7 @@ One distribution per environment in front of its bucket. Settings:
 | Origin | The bucket's S3 REST endpoint `<bucket>.s3.<region>.amazonaws.com` (not the website endpoint) with an origin access control of type S3, signing behaviour "always sign" (SigV4). The bucket policy in 1.3 names this distribution. Origin protocol: HTTPS only (implicit for S3 REST origins). |
 | Origin Shield | On, region `<region>` (the bucket's region). |
 | Origin connection attempts, timeout | 3, 10 s (defaults). |
-| Behaviour | The default behaviour only. Path pattern `*`. |
+| Behaviour | The default behaviour only. Path pattern `*`. No prefix has a behaviour of its own: HTTP range requests, which the PMTiles archives under `basemap/` and `maps/` are read with, are served by the default behaviour as it is (1.8 checks it). |
 | Viewer protocol policy | `https-only`. |
 | Allowed methods, cached methods | `GET, HEAD`; `GET, HEAD`. |
 | Cache policy | Custom `wmsfo-<env>-cache`, section 1.6.1. |
@@ -242,46 +247,63 @@ curl -si -X OPTIONS -H "Origin: https://<admin-domain>" -H "Access-Control-Reque
 
 # the lifecycle rules exist
 aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
-# expect: wmsfo-media-pending (Tag state=pending, Expiration Days 1), wmsfo-media-orphaned (Tag state=orphaned, Expiration Days 7)
+# expect: wmsfo-media-pending (Tag state=pending, Expiration Days 1), wmsfo-media-orphaned (Tag state=orphaned, Expiration Days 7),
+#         wmsfo-abort-multipart (no filter, AbortIncompleteMultipartUpload DaysAfterInitiation 1)
 ```
 
-### 1.8 Route basemap
+### 1.8 Tracker maps: the tile CLI and the glyphs
 
-The `map` style of the `route_preview` section (contracts 1.3a) and the admin panel's poster generator draw `event.routeMap` over a self-hosted OpenStreetMap basemap served from the CDN, so no third-party tile service is called. The site and the panel read the folder from `VITE_ROUTE_BASEMAP_URL` (contracts 8.3, 8.4): the tiles are one PMTiles archive at `<base>/tiles.pmtiles`, read with HTTP range requests, and the labels' glyphs are at `<base>/glyphs/{fontstack}/{range}.pbf`. The value is `https://<cdn-domain>/basemap` in each environment.
+The tracker and the route preview draw over a self-hosted OpenStreetMap basemap served from the CDN, so no third-party tile service is called: one tile package per bounding box, registered as a `tracker_map` row (contracts 4.5 Maps) and picked per event. The site reads the package from the snapshot (`event.trackerMap`, contracts 1.3): the vector archive at `<prefix>/tiles.pmtiles` and the optional terrain archive at `<prefix>/terrain.pmtiles` (raster-dem PMTiles in terrarium encoding, drawn as hillshade behind the terrain toggle), both read with HTTP range requests, and the labels' glyphs at `basemap/glyphs/{fontstack}/{range}.pbf`. The site has no basemap variable; the admin panel keeps `VITE_ROUTE_BASEMAP_URL` (contracts 8.4), `https://<cdn-domain>/basemap`, optional, for its theme preview and its bounding box editors.
 
-Build it once per region change, on the operator's machine, with the `pmtiles` CLI:
+**The tile CLI.** `wmsfo-api/tools/tiles` builds and uploads packages from an operator's machine; nothing heavy runs on the API hosts. It is a Node 22 script with its own `package.json` and `node --test` (the `lambdas/cognito-message` layout, section 9.1b) and one external dependency, the `pmtiles` binary (go-pmtiles) on `PATH`, which it checks for and prints the install line when missing. It talks to dev or prod by `WMSFO_API_BASE_URL` and an API key (`WMSFO_API_KEY`, a `wak_` key with the `maps` capability, contracts 3.6, the credential the Agents page documents), and reads the terrain tile source from `WMSFO_TILES_TERRAIN_URL` (`<elevation-tiles-url>`). The CLI task creates `.dockerignore` at the repository root (the file does not exist today; the Dockerfile copies the whole tree) listing `tools/tiles/node_modules` and `tools/tiles/out`, so neither reaches the API image.
 
 ```sh
-# a bounded extract of an OSM basemap build: the route region's bounding box, zoom 0 to 15
-pmtiles extract <basemap-build-url> tiles.pmtiles --bbox=<min-lng>,<min-lat>,<max-lng>,<max-lat> --maxzoom=15
-# the glyph set the basemap style names, laid out as glyphs/{fontstack}/{range}.pbf
-# (copied from the basemap build's font assets into ./glyphs)
+cd tools/tiles && npm ci
+export WMSFO_API_BASE_URL=https://<api-domain>  WMSFO_API_KEY=wak_...  WMSFO_TILES_TERRAIN_URL=<elevation-tiles-url>
 
-aws s3 cp tiles.pmtiles s3://<bucket>/basemap/tiles.pmtiles \
-  --content-type application/octet-stream --cache-control "public, max-age=86400"
+# build from an event's box (read through the API), from a file a panel box editor exported, or from a flag
+wmsfo-tiles build --event 41 [--no-terrain] [--max-zoom 15] [--terrain-max-zoom 13] [--build 20261001] [--dry-run]
+wmsfo-tiles build --bbox-file ./missoula.json --name "Missoula valley" ...
+wmsfo-tiles build --bbox -114.75,46.35,-113.30,47.25 --name "Missoula valley" ...
+
+# upload the package, confirm it, print the panel URL of the new map
+wmsfo-tiles upload ./out/<packageKey>
+
+# the maps the API knows
+wmsfo-tiles list
+```
+
+`build` runs these steps:
+
+1. Resolve the bounding box: from the event (`--event`, `GET /admin/events/{id}`, its `trackerBbox`), from a file the panel exported (`--bbox-file`, the `{ name, bbox, maxZoom, terrainMaxZoom }` JSON both box editors offer under "Export for tile builder"), or from `--bbox`. The operator never retypes a box.
+2. Probe the newest daily basemap build with `HEAD https://build.protomaps.com/YYYYMMDD.pmtiles`, today first, walking back up to seven days; `--build` pins a date instead. The date becomes the map's `sourceBuild`.
+3. `pmtiles extract <build> tiles.pmtiles --bbox=<west>,<south>,<east>,<north> --maxzoom=<max-zoom>` (default 15). `--dry-run` prints the tile count and the bytes and stops.
+4. Unless `--no-terrain`: fetch terrarium elevation tiles for the box from `WMSFO_TILES_TERRAIN_URL` up to `--terrain-max-zoom` (default 13) into `terrain.mbtiles` through `node:sqlite`, then `pmtiles convert terrain.mbtiles terrain.pmtiles`. Terrain is on by default and is the slow, large half: the Missoula valley at zoom 13 is about 173 MB and a long corridor is gigabytes. The panel shows terrain as present or absent per map.
+5. Write `manifest.json` beside the archives under `./out/<packageKey>/` and print the package key (contracts 1.1: the SHA-256 of the canonical `{ bbox, minZoom, maxZoom, terrainMaxZoom }`).
+
+`upload` calls `POST /admin/maps` with the manifest's fields, streams each archive in 64 MB parts to the URLs `POST /admin/maps/{id}/parts` signs (four parts in flight, per-part retry), calls `POST /admin/maps/{id}/complete` per archive, then `POST /admin/maps/{id}/confirm`, which verifies the archives' headers and marks the map `ready`. Re-running after a failure resumes on the same pending row: the API hands back the open uploads. The objects land under `maps/{packageKey}/` with the headers of 1.2, immutable, and need no invalidation; a changed box or zoom range is a new package key. A `409 package_exists` means a ready map with the same box and zooms already exists; `wmsfo-tiles list` shows it.
+
+**The glyphs, by hand, once.** The glyph set does not depend on any box. Copy it from the basemap build's font assets and upload it under `basemap/glyphs/`:
+
+```sh
+# the glyph set the MapLibre themes name, laid out as glyphs/{fontstack}/{range}.pbf
+# (copied from the basemap build's font assets into ./glyphs)
 aws s3 cp glyphs s3://<bucket>/basemap/glyphs --recursive \
   --content-type application/x-protobuf --cache-control "public, max-age=86400"
 ```
 
-`<basemap-build-url>` is the URL of a published OSM basemap PMTiles build; the bounding box covers every route the site shows with some margin. Then set `VITE_ROUTE_BASEMAP_URL` on the four Vercel projects of section 8 and redeploy them. After replacing either upload, invalidate `/basemap/*` on the distribution so the one day cache does not serve the old archive. Range requests and the `Access-Control-Allow-Origin: *` header of 1.6.2 need no extra distribution setting; check with:
+After replacing it, invalidate `/basemap/glyphs/*` on the distribution so the one day cache does not serve the old files.
+
+**The seeded map.** `basemap/tiles.pmtiles` and `basemap/terrain.pmtiles` were uploaded by hand before the `tracker_map` table existed (a bounded extract of `<basemap-build-url>` for the Missoula valley at zoom 0 to 15, and its terrain at zoom 0 to 13, with `Cache-Control: public, max-age=86400`). The migration registers them as the "Missoula valley" row with prefix `basemap` (sql.md 6), every existing event's map from day one. They are the only map objects that are not immutable: the API never writes, tags, or deletes under `basemap/`, and deleting the seeded row leaves them in place; a replacement of either archive is followed by an invalidation of `/basemap/*`. A new box, the valley included, goes through the CLI as a new package.
+
+Range requests and the `Access-Control-Allow-Origin: *` header of 1.6.2 need no distribution setting for any prefix; check with:
 
 ```sh
 curl -sI -H "Range: bytes=0-16383" https://<cdn-domain>/basemap/tiles.pmtiles | head -1
 # expect: HTTP/2 206
+curl -sI -H "Range: bytes=0-126" https://<cdn-domain>/maps/<packageKey>/tiles.pmtiles | head -1
+# expect: HTTP/2 206 (the 127 byte PMTiles header the API's confirm reads)
 ```
-
-The terrain archive sits beside the basemap at `<base>/terrain.pmtiles`: a raster-dem PMTiles archive in terrarium encoding, which the site's hillshade reads when a visitor turns on the route map's terrain toggle (the `map` style of `route_preview`, shown unless the current event's `routeMapConfig.controls.terrain` is false; contracts 1.3). The site hides the toggle when the archive is missing, so the route map works without it. The operator fetches terrarium elevation tiles from a public elevation tile set for the same bounding box as `tiles.pmtiles` at zooms 0 to 13 into an MBTiles file, converts it, and uploads it with the same Cache-Control:
-
-```sh
-# terrarium elevation tiles for the same bounding box, zoom 0 to 13, gathered into terrain.mbtiles
-# (fetched from <elevation-tiles-url>)
-pmtiles convert terrain.mbtiles terrain.pmtiles
-
-aws s3 cp terrain.pmtiles s3://<bucket>/basemap/terrain.pmtiles \
-  --content-type application/octet-stream --cache-control "public, max-age=86400"
-```
-
-`<elevation-tiles-url>` is the tile URL template of a public terrarium-encoded elevation tile set. After replacing it, invalidate `/basemap/*` as for the basemap.
 
 ---
 
@@ -573,7 +595,7 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
 }
 ```
 
-The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design.
+The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
 
 ### 6.2 CI role
 
@@ -637,6 +659,10 @@ The deploy client credential is the existing CI app client on the ops pool with 
 ### 9.1a Cognito Custom Message Lambda
 
 `wmsfo-api/.github/workflows/cognito-message.yml` runs on pull requests and on pushes to `dev` and `main` that touch `lambdas/**` or `templates/email/**`: `node scripts/check-no-infra.mjs` and `node --test lambdas/cognito-message`. On a push to `dev` it zips `lambdas/cognito-message/` with `templates/email/` (without `_golden/`) and runs `aws lambda update-function-code` through the OIDC role of 6.2, the account id masked, with the function name from the `dev` environment secret `COGNITO_MESSAGE_FUNCTION`. `main` does not deploy. The function's environment variables: `CDN_BASE_URL` (the logo URL's base, as `WMSFO_CDN_BASE_URL`), `SITE_BASE_URL` (the layout's site link), and `PANEL_BASE_URL` (the invite's Sign in button). The handler writes one JSON log line per call with the trigger source and the template, never the address or the code.
+
+### 9.1b Tile CLI
+
+`wmsfo-api/.github/workflows/tiles.yml` runs on pull requests and on pushes to `dev` and `main` that touch `tools/tiles/**`: `node scripts/check-no-infra.mjs`, then `npm ci` and `node --test` in `tools/tiles` on Node 22, beside the lambda's workflow (9.1a). It deploys nothing: the CLI runs on an operator's machine (1.8) and is not part of the API image.
 
 ### 9.2 Site and admin panel
 
@@ -824,6 +850,8 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 |---|---|
 | CloudFront, event night at 100k pollers | about $150 (contracts 1.7 pattern) |
 | S3 requests and storage | under $5 |
+| Tracker tiles on event night, 100k viewers on MapLibre | about $40 to $60 of CloudFront range requests (300 to 500 GB), against about $700 for the same viewers on Google dynamic map loads at $7 per thousand; the viewers who fall back to Google still cost that rate for their share |
+| Map package storage | under 1 cent a month for the valley package; 10 to 20 cents a month for a corridor package with terrain, at about 2 cents per GB-month |
 | Cognito | free under 50,000 monthly active users |
 | SES | about $6 for 60,000 messages |
 | Fleet scale-up, 10 large instances for a day | tens of dollars |
@@ -838,7 +866,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Admin TOTP is enforced by the API through `AdminGetUser` (`403 mfa_required`); the operator procedure in 4.3 is the complement, not the guarantee.
 - Bucket object ownership enforced, ACLs off, Block Public Access fully on, read only by the distribution through origin access control.
 - Origin Shield on; CORS for reads from a CloudFront response headers policy allowing `*`; one bucket CORS rule for the admin panel's presigned `PUT`; nothing from the viewer request in the cache key.
-- Media lifecycle by object tag: `state=pending` expires after 1 day, `state=orphaned` after 7; nothing untagged expires.
+- Media lifecycle by object tag: `state=pending` expires after 1 day, `state=orphaned` after 7; nothing untagged expires. A third rule, `wmsfo-abort-multipart`, aborts incomplete multipart uploads after a day on every key (2026-10-08) and expires nothing.
 - Cognito groups `admin`, `editor`, and `canvasser`; the API decides what each may do.
 - The migration tool imports legacy logos as media assets rather than keeping legacy keys; the legacy bucket is retired.
 - Price class North America and Europe.
@@ -864,5 +892,6 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - **Prod metric filters, dashboard, and alarms.** Dev has the twelve metric filters of 10.2 on the API's log group (namespace `WMSFO/dev`) and the `wmsfo-dev` dashboard of 10.4. Prod needs the same filters in `WMSFO/prod`, the `wmsfo-prod` dashboard, and the alarms of 10.3 at cut-over.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
 - **Cognito Custom Message Lambda, prod.** Dev is done (the function, its role, invoke permissions, the trigger on both dev pools, the CI grant and secret). Prod gets its own function at cut-over, deployed by hand until the workflow deploys main, and the prod pools get the same DEVELOPER sending, identity policy condition, and trigger.
-- **Route basemap.** Build the bounded PMTiles extract, the glyph set, and the terrain archive, upload them under `basemap/` in each environment's bucket, and set `VITE_ROUTE_BASEMAP_URL` on the site and panel projects (1.8).
+- **Tracker maps.** The glyph set is the one hand upload left (1.8); tile packages come through the tile CLI as `maps/{packageKey}/`. Dev holds the seeded valley archives under `basemap/` and the glyphs; prod gets the glyphs and the valley archives under `basemap/` at cut-over, so the migration's seeded map row has its objects, then every further package comes through `wmsfo-tiles upload` against prod. `VITE_ROUTE_BASEMAP_URL` stays set on the two panel projects only (optional there, contracts 8.4) and is removed from the site projects.
+- **Prod bucket lifecycle rule.** Dev has `wmsfo-abort-multipart` (1.1, added 2026-10-08). Add the same rule to the prod bucket, beside its two tag rules, when the tracker maps and themes work goes to `main` and before the first `wmsfo-tiles upload` against prod.
 - **Cut-over mail cleanup.** Remove the unused wmsfo-cognito-dev identity policy on the personal domain identity; the legacy PHP mail relay and its contact address on the old flyover domain retire with the legacy stack.

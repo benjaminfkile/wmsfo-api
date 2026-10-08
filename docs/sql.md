@@ -35,6 +35,10 @@ This document is the technical design of the Postgres schema and the data layer 
 | `route` | Uploaded route objects (metadata; bytes live on the CDN) | Route upload; migration tool | tens |
 | `poster` | The admin panel's poster documents: a name, an optional recording, the opaque layout | `/admin/posters` writes; route delete (unlinks) | tens |
 | `help_topic` | The admin panel's help popover texts: the seed's defaults from `help/topics.json`, the text shown, the edit stamp | Boot ensure (section 8.16); `PUT /admin/help/{key}`, reset | about 120 |
+| `tracker_map` | One tile package the operator built for a bounding box and uploaded under `maps/{package_key}/`; the current event's rides in the snapshot | `/admin/maps` writes (the CLI's create, complete, confirm; rename; delete); the pending map sweep; the migration seed | tens |
+| `tracker_theme` | One tracker look for one renderer: style hash, chrome, overlay, thumbnail, default flags | `/admin/themes` writes; the migration seed | tens |
+| `event_tracker_theme` | The themes an event offers, one row per pair | Event create, patch, clone; theme delete; the migration seed | tens per event |
+| `tracker_theme_state` | Single row: when the seeded themes' style objects were last written to the bucket | Boot first-boot step (section 8.16) | 1 |
 | `beacon` | Trusted senders, hashed key, telemetry, health stamps | Admin writes; ingest; heartbeat; chores | tens |
 | `beacon_enrollment_token` | One-time QR enrollment tokens | Beacon create, rotate, enroll; nightly cleanup | tens |
 | `beacon_log` | Red-Nose debug log uploads | `POST /beacons/logs`; nightly cleanup | tens per month |
@@ -126,12 +130,15 @@ create table event (
   next_seq      bigint not null default 1,
   latest_fix    jsonb,
   route_map_config jsonb,
+  tracker_bbox  jsonb not null default '{"west":-114.75,"south":46.35,"east":-113.30,"north":47.25}'::jsonb,
+  tracker_map_id bigint references tracker_map (id) on delete set null,
   created_by    text not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
 create unique index event_one_live    on event (status_id) where status_id = 3;
 create unique index event_one_current on event (is_current) where is_current;
+create index event_tracker_map on event (tracker_map_id) where tracker_map_id is not null;
 
 comment on table event is 'One row per flyover. Status changes only when an admin changes them.';
 comment on column event.status_id is 'event_status.id. At most one row has 3 (event_one_live).';
@@ -145,7 +152,11 @@ comment on column event.status_notified_at is 'When the current status was last 
 comment on column event.next_seq is 'Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.';
 comment on column event.route_map_config is 'The event''s route map configuration { display?, controls? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.';
 comment on column event.latest_fix is 'The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).';
+comment on column event.tracker_bbox is '{ west, south, east, north } in degrees, west < east, south < north, at least 0.05 and at most 20 degrees on a side. Required on create (the API always writes it; the column default exists only so a rolled-back API that does not know the column can still insert events, which works because the event inserts name their columns). Both tracker renderers lock to it; the snapshot carries it; the tile CLI builds from it. The migration fills existing events with the Missoula valley box.';
+comment on column event.tracker_map_id is 'The tile package the tracker renders with MapLibre. Null means Google Maps for every viewer. Write rule: the package bbox contains tracker_bbox (400 validation_failed at trackerMapId); shrinking or moving the box later must keep it inside the package or the write is refused the same way at trackerBbox.';
 ```
+
+The two tracker columns come with the tables of 3.33 to 3.35 (`tracker_map` is created before `event` gains the foreign key). `event_tracker_map` serves the map's event count, the map delete impact, and the set-null cascade from `tracker_map`.
 
 ### 3.4 `event_status_history`
 
@@ -867,6 +878,104 @@ comment on column help_topic.updated_at is 'When the row last changed, by an edi
 
 The rows come from `help/topics.json` (section 6) and the boot keeps them in line with it (section 8.16). `PUT /admin/help/{key}` sets `title`, `body`, `links`, `edited_by` (the email claim or `key:<name>`), `edited_at = now()`; `POST /admin/help/{key}/reset` copies the three defaults back and nulls `edited_by` and `edited_at`; both bump `updated_at` and record an `audit_log` row with entity `help_topic` and `entity_id` the key. The wire's `defaultChanged` is `edited_by is not null and default_updated_at > edited_at`. The list reads every row (about 120) ordered by `page`, `key`, so no index beyond the primary key.
 
+### 3.33 `tracker_map`
+
+```sql
+create table tracker_map (
+  id            bigint generated always as identity primary key,
+  name          text not null check (char_length(name) between 1 and 200),
+  package_key   text not null unique,
+  prefix        text not null unique,
+  bbox          jsonb not null,
+  min_zoom      smallint not null check (min_zoom between 0 and 15),
+  max_zoom      smallint not null check (max_zoom between 8 and 15),
+  terrain_max_zoom smallint check (terrain_max_zoom between 8 and 13),
+  tiles_bytes   bigint,
+  terrain_bytes bigint,
+  source_build  date,
+  state         text not null check (state in ('pending', 'ready')),
+  built_at      timestamptz,
+  created_by    text not null,
+  created_at    timestamptz not null default now(),
+  updated_by    text not null,
+  updated_at    timestamptz not null default now()
+);
+
+comment on table tracker_map is 'A tile package the operator built for a bounding box and uploaded under maps/{package_key}/. Events reference one; the snapshot carries the current event''s.';
+comment on column tracker_map.package_key is 'Lowercase hex SHA-256 of the canonical JSON { bbox, minZoom, maxZoom, terrainMaxZoom }. Two uploads of the same box and zooms collide here on purpose.';
+comment on column tracker_map.prefix is 'The CDN prefix holding tiles.pmtiles and terrain.pmtiles: maps/{package_key} for uploaded packages; basemap for the seeded Missoula valley row, whose objects the operator placed by hand before this table existed (those two objects are cached one day and hand-invalidated, platform.md 1.8, unlike the immutable maps/ objects).';
+comment on column tracker_map.bbox is '{ west, south, east, north } in degrees, west < east, south < north, at most 20 degrees on a side.';
+comment on column tracker_map.terrain_max_zoom is 'Null when the package has no terrain file.';
+comment on column tracker_map.source_build is 'The Protomaps daily build date the vector tiles came from.';
+comment on column tracker_map.state is 'pending until POST /admin/maps/{id}/confirm verifies the objects; only ready maps can be picked by an event.';
+```
+
+The checks are named `tracker_map_name_check`, `tracker_map_min_zoom_check`, `tracker_map_max_zoom_check`, `tracker_map_terrain_max_zoom_check`, and `tracker_map_state_check`. `created_by` and `updated_by` are the audit text of contracts 3.1; every write records an `audit_log` row with entity `tracker_map`. The open multipart upload ids are not stored: the API resolves them by listing the open uploads under `prefix` (api.md 11.6). The list reads every row ordered by `name`, `id` with a count over `event.tracker_map_id` (index `event_tracker_map`), so no index beyond the two unique ones.
+
+### 3.34 `tracker_theme`
+
+```sql
+create table tracker_theme (
+  id                 bigint generated always as identity primary key,
+  renderer           text not null check (renderer in ('google', 'maplibre')),
+  key                text not null check (key ~ '^[a-z][a-z0-9-]{1,39}$'),
+  name               text not null check (char_length(name) between 1 and 60),
+  sort_order         integer not null default 0,
+  style_sha256       text not null,
+  style_bytes        integer not null,
+  sprite_sha256      text,
+  chrome             jsonb not null,
+  overlay            jsonb not null,
+  thumbnail_media_id uuid references media_asset (id) on delete set null,
+  default_light_mode boolean not null default false,
+  default_dark_mode  boolean not null default false,
+  created_by         text not null,
+  created_at         timestamptz not null default now(),
+  updated_by         text not null,
+  updated_at         timestamptz not null default now(),
+  unique (renderer, key)
+);
+create unique index tracker_theme_one_default_light on tracker_theme (renderer) where default_light_mode;
+create unique index tracker_theme_one_default_dark  on tracker_theme (renderer) where default_dark_mode;
+create index tracker_theme_thumbnail_media on tracker_theme (thumbnail_media_id) where thumbnail_media_id is not null;
+
+comment on table tracker_theme is 'One tracker look for one renderer. The style body lives on the CDN at themes/{style_sha256}.json; the row carries what the snapshot needs inline.';
+comment on column tracker_theme.key is 'Stable slug. The viewer''s localStorage choice names it. The six seeded Google themes keep their current keys.';
+comment on column tracker_theme.chrome is '{ bg, fg, text, tile, tileFg, panel, accent } as #rrggbb or #rrggbbaa. Write check: text on bg and tileFg on tile at 4.5:1 or better.';
+comment on column tracker_theme.overlay is '{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor }.';
+comment on column tracker_theme.sprite_sha256 is 'Lowercase hex SHA-256 of the canonical bytes of the confirmed sprite index: the set lives under themes/{id}/sprites/{sprite_sha256}/sprite{,@2x}.{png,json}, immutable; a re-upload is a new prefix and the old one stays. MapLibre only; null without a sprite set.';
+comment on column tracker_theme.thumbnail_media_id is 'A media asset (uuid, like sponsor.logo_media_id). The media orphan chore, media usage, and media impact all count this reference (5.4).';
+```
+
+The unique constraint is `tracker_theme_renderer_key_key`; the checks are `tracker_theme_renderer_check`, `tracker_theme_key_check`, and `tracker_theme_name_check`. The two partial unique indexes hold one default holder per renderer per appearance and are written with the clear-then-set pattern of 4.2. `tracker_theme_thumbnail_media` serves media usage, the media delete impact, and the orphan chore's referenced set, like `sponsor_logo_media`. `created_by` and `updated_by` are the audit text of contracts 3.1; every write records an `audit_log` row with entity `tracker_theme`. The list reads every row ordered by `renderer`, `sort_order`, `id` with a count over `event_tracker_theme`.
+
+### 3.35 `event_tracker_theme`
+
+```sql
+create table event_tracker_theme (
+  event_id bigint not null references event (id) on delete cascade,
+  theme_id bigint not null references tracker_theme (id) on delete cascade,
+  primary key (event_id, theme_id)
+);
+create index event_tracker_theme_theme on event_tracker_theme (theme_id);
+
+comment on table event_tracker_theme is 'The themes this event offers. Write rule: at least one google theme (400 validation_failed at trackerThemeIds). Clone copies the rows under the "Tracker map and themes" flag; create follows the one rule in 5.3.';
+```
+
+`PATCH /admin/events/{id} { trackerThemeIds }` replaces an event's rows whole (delete, then one multi-row insert) inside the [snapshot] frame of 8.5; the theme delete of contracts 4.5 repoints or removes rows in its own transaction. `event_tracker_theme_theme` serves the theme's event count, the impact and the last-Google-theme check, and the cascade from `tracker_theme`.
+
+### 3.36 `tracker_theme_state`
+
+```sql
+create table tracker_theme_state (
+  id         smallint primary key check (id = 1),
+  written_at timestamptz
+);
+insert into tracker_theme_state (id) values (1);
+
+comment on table tracker_theme_state is 'Single row (id = 1). When the first-boot step last wrote the seeded themes'' style objects to the bucket (section 8.16 step 2b). The step writes every theme whose object is missing, so it is idempotent and heals a lost object.';
+```
+
 
 ## 4. Indexes
 
@@ -884,6 +993,13 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `event_year_key` | unique `(year)` | `409 year_taken` (pre-check plus `23505` mapping); the ordered admin list; migration idempotency |
 | `event_one_live` | unique `(status_id) where status_id = 3` | the live-event lock in the location and cookie transactions; the concurrency guard behind `409 another_event_live`; `liveEventId` on heartbeat answers |
 | `event_one_current` | unique `(is_current) where is_current` | the reconcile tick's current-event read; the snapshot builder; the concurrency guard behind the current-flag switch |
+| `event_tracker_map` | `(tracker_map_id) where tracker_map_id is not null` | the map's `eventCount`, the map delete impact and its repoint, and the set-null cascade from `tracker_map` |
+| `tracker_map_pkey`, `tracker_map_package_key_key`, `tracker_map_prefix_key` | pk `(id)`, unique `(package_key)`, unique `(prefix)` | every map read and write; the lookup by key in `POST /admin/maps` (a pending row is reused, a ready one is `409 package_exists`); the prefix invariant |
+| `tracker_theme_pkey`, `tracker_theme_renderer_key_key` | pk `(id)`, unique `(renderer, key)` | every theme read and write; `400 validation_failed` at `key` (pre-check plus `23505` mapping) |
+| `tracker_theme_one_default_light`, `tracker_theme_one_default_dark` | unique `(renderer) where default_light_mode`, unique `(renderer) where default_dark_mode` | one default holder per renderer per appearance; the concurrency guard behind `POST /admin/themes/{id}/default` and the flag move of a theme delete |
+| `tracker_theme_thumbnail_media` | `(thumbnail_media_id) where thumbnail_media_id is not null` | media usage, the media delete impact, the orphan chore's referenced set; the set-null cascade from `media_asset` |
+| `event_tracker_theme_pkey` | pk `(event_id, theme_id)` | the event's enabled set in the snapshot builder and the event DTO; cascade from `event` |
+| `event_tracker_theme_theme` | `(theme_id)` | the theme's `eventCount`, the theme delete impact, the last-Google-theme check, the delete's repoint; cascade from `tracker_theme` |
 | `event_status_history_pkey` | pk `(id)` | |
 | `event_status_history_event` | `(event_id, changed_at desc)` | `GET /admin/events/{id}/status-history` newest first; cascade from `event` |
 | `event_message_pkey` | pk `(id)` | message patch and delete |
@@ -930,7 +1046,7 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `section_page_position` | `(page_id, position, id)` | the page detail and the document builder in order; cascade from `page`; position compaction |
 | `section_item_pkey` | pk `(id)` | item writes |
 | `section_item_section_position` | `(section_id, position, id)` | items in order; cascade from `section` |
-| `site_setting_draft_pkey`, `icon_library_state_pkey` | pk `(id)` | the single row |
+| `site_setting_draft_pkey`, `icon_library_state_pkey`, `tracker_theme_state_pkey` | pk `(id)` | the single row |
 | `content_version_pkey` | pk `(id)` | the newest row (`order by id desc limit 1`); the version list; restore; the prune (`id not in (select id ... order by id desc limit 50)`) |
 | `preview_token_pkey`, `preview_token_token_hash_key` | pk `(id)`, unique `(token_hash)` | `GET /preview/document` lookup by hash |
 | `snapshot_pkey`, `live_state_pkey` | pk `(id)` | the single row |
@@ -952,6 +1068,7 @@ Partial unique indexes are checked per statement, not at commit. The two "clear 
 
 - Activate a beacon: `update beacon set is_active = false ... where is_active and id <> $1;` then `update beacon set is_active = true ... where id = $1;`. Two concurrent activations serialize on the second statement's row lock and on `beacon_one_active`; the loser receives `23505` and retries the transaction once.
 - Set the current event: the same pattern on `event.is_current` with `event_one_current`.
+- Set a theme default (`POST /admin/themes/{id}/default`, and the flag move of a theme delete): the same pattern per flag and per renderer on `tracker_theme.default_light_mode` with `tracker_theme_one_default_light` and on `default_dark_mode` with `tracker_theme_one_default_dark`: `update tracker_theme set default_light_mode = false ... where renderer = $renderer and default_light_mode and id <> $1;` then `update tracker_theme set default_light_mode = true ... where id = $1;`. Two concurrent writes serialize the same way; the loser retries once.
 - Set an event live: a single `update event set status_id = 3 ...`. The API pre-checks under the row lock (section 8.4); `event_one_live` is the concurrency guard, and a `23505` on it maps to `409 another_event_live`.
 
 ### 4.3 Unique violations the API maps to error codes
@@ -966,6 +1083,11 @@ The API catches `PostgresException` with `SqlState = '23505'` and switches on `C
 | `event_one_live` | `409 another_event_live` |
 | `event_one_current` | retry the transaction once, then `500 internal_error` |
 | `beacon_one_active` | retry the transaction once, then `500 internal_error` |
+| `tracker_theme_one_default_light`, `tracker_theme_one_default_dark` | retry the transaction once, then `500 internal_error` |
+| `tracker_map_package_key_key` | `409 package_exists` (pre-check plus `23505` mapping; a `pending` row with the key is reused before the insert) |
+| `tracker_map_prefix_key` | never raised (the prefix is derived from the key) |
+| `tracker_theme_renderer_key_key` | `400 validation_failed` at `key` (pre-check plus `23505` mapping) |
+| `event_tracker_theme_pkey` | never raised (`on conflict do nothing` on the seed and the clone; the patch deletes before it inserts) |
 | `route_s3_key_key` | `200` with the existing row |
 | `subscriber_channel_address_key` | `409 address_taken` |
 | `alert_delivery_subscriber_id_outbox_id_key` | never raised (`on conflict do nothing`) |
@@ -986,6 +1108,10 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | `event.status_id` | `event_status.id` | no action | lookup rows are never deleted |
 | `event.route_id` | `route.id` | set null | a deleted flight recording unlinks from its events (the delete impact lists them) |
 | `poster.route_id` | `route.id` | set null | a deleted flight recording unlinks from its posters (the delete impact lists them) |
+| `event.tracker_map_id` | `tracker_map.id` | set null | a deleted map unlinks from its events, whose viewers get Google Maps (the delete impact lists them; the delete repoints them first when it carries a `replacementId`) |
+| `event_tracker_theme.event_id` | `event.id` | cascade | the enabled set goes with the event |
+| `event_tracker_theme.theme_id` | `tracker_theme.id` | cascade | a deleted theme leaves the events that enabled it (the delete impact lists them; the delete repoints the rows first when it carries a `replacementId`) |
+| `tracker_theme.thumbnail_media_id` | `media_asset.id` | set null | a deleted asset leaves the theme without a thumbnail (the delete impact lists the themes) |
 | `event_status_history.outbox_id` | `outbox.id` | set null | the history row outlives the pruned outbox row |
 | `event_status_history.event_id` | `event.id` | cascade | history goes with the event |
 | `event_status_history.from_status_id`, `to_status_id` | `event_status.id` | no action | lookup |
@@ -1013,7 +1139,7 @@ All foreign keys are `not deferrable` and are checked per statement. `no action`
 | `alert_delivery.outbox_id` | `outbox.id` | cascade | deliveries go with their outbox row (section 11) |
 | `alert_delivery.subscriber_id` | `subscriber.id` | cascade | `DELETE /admin/subscribers/{id}` and the nightly unverified cleanup remove deliveries |
 
-Every cascading foreign key has an index whose leading column is the referencing column (section 4.1), so a parent delete never scans a child table. `cookie_type.icon` and the content JSON reference media assets by id inside JSON, not by foreign key; the API and the orphan chore resolve those references (section 9.6). `beacon_enrollment_token.beacon_id` is the exception: the table holds a handful of rows and is deleted from by `beacon_id` only on rotate and revoke.
+Every cascading foreign key has an index whose leading column is the referencing column (section 4.1), so a parent delete never scans a child table. `cookie_type.icon` and the content JSON reference media assets by id inside JSON, not by foreign key; the API and the orphan chore resolve those references (section 9.6). `tracker_theme.thumbnail_media_id` is a foreign key like `sponsor.logo_media_id` and is counted by the same three readers. `beacon_enrollment_token.beacon_id` is the exception: the table holds a handful of rows and is deleted from by `beacon_id` only on rotate and revoke.
 
 ---
 
@@ -1029,6 +1155,11 @@ Every cascading foreign key has an index whose leading column is the referencing
 | `page`, `section`, `section_item`, `site_setting_draft.data` | the starter content: the seven role pages (`no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`, `postponed`) with a sensible section stack each, the ordinary pages `about`, `sponsors`, `route`, `donate`, `contact`, `alerts`, and the site settings (with one header link, `headerLinks: [{ label: "Facebook", href: "https://www.facebook.com/WesternMontanaSantaFlyover", icon: { source: "library", id: "facebook" }, newTab: true }]`, and no `landmarks`), from `contracts/starter-content.json` (library icons only, no media) | first boot (section 8.16) | inserted only when `page` is empty |
 | `content_version` | version 1: the starter content published | first boot (section 8.16) | inserted only when the table is empty |
 | `snapshot` | version 1 | first boot (section 8.16) | inserted only when absent |
+| `tracker_map` | the "Missoula valley" row: `prefix` `basemap`, the Missoula valley box (west -114.75, south 46.35, east -113.30, north 47.25), zooms 0 to 15, terrain to 13, `state` `ready`, `package_key` computed as contracts 1.1 computes it, `created_by = updated_by = 'seed'`; set as every existing event's `tracker_map_id` | `A<task>TrackerMapsThemes` (section 14.4) | inserted only when no row has the prefix |
+| `tracker_theme` | eight rows: two `maplibre` themes `route-light` (default light) and `route-dark` (default dark) from `contracts/fixtures/themes/route-light.json` and `route-dark.json` (the two route map flavors, sources named `basemap` and `terrain`, the places layer marked), with the route map's path and label colours as `overlay` and the site's light and dark tokens as `chrome`; six `google` themes from `contracts/fixtures/themes/<key>.json` with keys `standard` (default light), `night` (default dark), `blizzard`, `charcoal`, `expedition`, `nebula`, their current names, chrome, and overlay; every row with `style_sha256` and `style_bytes` of its canonical fixture, `sprite_sha256` null, no thumbnail, `sort_order` in file order times 10, `created_by = updated_by = 'seed'` | the same migration | inserted only when no row has the `(renderer, key)` |
+| `event_tracker_theme` | every seeded theme enabled on every existing event | the same migration | `on conflict do nothing` |
+| `site_setting_draft.data -> 'tracker'` | `{ "defaultBbox": <the Missoula valley box> }` | the same migration | written only when the draft is an object without a `tracker` key; it reaches the published document on the next publish |
+| `tracker_theme_state` | `(id = 1)`, `written_at` null | the same migration | migration runs once |
 | `help_topic` | one row per entry of `help/topics.json` (about 120): `page`, `label`, and the defaults from the entry, `title`, `body`, `links` equal to the defaults, `edited_by` null | every boot (section 8.16 step 2a), after the API has validated the file at startup | upsert by `key`: the defaults move on every boot, the shown text follows them only while `edited_by` is null, `default_updated_at` moves only when a default changed, rows whose key the file no longer lists are deleted |
 
 Sponsor special cookie types are admin-added rows, not seeds. The starter content is a placeholder site, not the real copy: editors replace it through the panel after cut-over (contracts 10 step 8). `GET /admin/settings` shows `updatedBy: "seed"` and the migration time for a setting no admin has touched; the compiled defaults stay in the API for a key whose row is missing.
@@ -1054,6 +1185,20 @@ where event_id = $event_id
 order by created_at desc, id desc
 limit 1;
 
+-- the current event's box and map (event.trackerBbox, event.trackerMap; the map is null when unlinked)
+select e.tracker_bbox, m.id, m.name, m.prefix, m.bbox, m.min_zoom, m.max_zoom, m.terrain_max_zoom
+from event e
+left join tracker_map m on m.id = e.tracker_map_id and m.state = 'ready'
+where e.id = $event_id;
+
+-- the current event's enabled themes (trackerThemes), both renderers, in admin order
+select t.id, t.renderer, t.key, t.name, t.style_sha256, t.sprite_sha256, t.thumbnail_media_id, t.chrome, t.overlay,
+       t.default_light_mode, t.default_dark_mode
+from event_tracker_theme et
+join tracker_theme t on t.id = et.theme_id
+where et.event_id = $event_id
+order by t.sort_order, t.id;
+
 -- sponsors of the current event's year
 select s.id, s.name, s.website_url, s.fb_url, s.ig_url, s.logo_media_id,
        y.amount_donated, y.can_advertise,
@@ -1076,7 +1221,7 @@ select key, value from app_setting;
 -- the published content document
 select id, document, media_ids from content_version order by id desc limit 1;
 
--- the media map: assets the document, the listed sponsors, and the cookie types reference, each with its ready dark version
+-- the media map: assets the document, the listed sponsors, the cookie types, and the enabled themes' thumbnails reference, each with its ready dark version
 -- and its ready small version, the small version with its own ready dark version, and its credit
 select m.id, m.s3_key, m.kind, m.width, m.height, m.alt, m.variants, m.dzi_key, m.invert_in_dark, d.s3_key, d.variants,
        s.id, s.s3_key, s.variants, s.invert_in_dark, sd.s3_key, sd.variants, m.credit
@@ -1084,12 +1229,12 @@ from media_asset m
 left join media_asset d on d.id = m.dark_media_id and d.state = 'ready'
 left join media_asset s on s.id = m.small_media_id and s.state = 'ready'
 left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'
-where m.id = any($ids)        -- content_version.media_ids, plus sponsor.logo_media_id of the sponsors above, plus cookie_type.icon->>'id' where icon->>'source' = 'media'
+where m.id = any($ids)        -- content_version.media_ids, plus sponsor.logo_media_id of the sponsors above, plus cookie_type.icon->>'id' where icon->>'source' = 'media', plus tracker_theme.thumbnail_media_id of the themes above
   and m.state = 'ready'
 order by m.id;
 ```
 
-`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeUrl`, `media[].url`, and `media[].variants` are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Every table here is tens of rows and the document is one row; plans are irrelevant.
+`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeUrl`, `media[].url`, `media[].variants`, `trackerMap.tilesUrl` and `terrainUrl` (`prefix + '/tiles.pmtiles'`, `prefix + '/terrain.pmtiles'`, the latter null when `terrain_max_zoom` is null), `trackerThemes[].styleUrl` (`themes/{style_sha256}.json`), and `spriteUrl` (`themes/{id}/sprites/{sprite_sha256}/sprite` while `sprite_sha256` is not null) are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Every table here is tens of rows and the document is one row; plans are irrelevant.
 
 ---
 
@@ -1250,12 +1395,18 @@ Without a message it is not snapshot-affecting: nothing the site reads changes. 
 ```sql
 begin;
 select * from event where id = $source for update;                          -- none: 404
-insert into event (year, name, status_id, is_current, funds_percent, route_id, route_map_config, created_by)
+insert into event (year, name, status_id, is_current, funds_percent, route_id, route_map_config, tracker_bbox, tracker_map_id, created_by)
 values ($year, $name, 1, false, 0,
         case when $copy_route  then $source_route_id  end,
         case when $copy_route_map_config then $source_route_map_config end,
+        $source_tracker_bbox,                                                 -- the box always copies (required)
+        case when $copy_tracker then $source_tracker_map_id else $inherited_tracker_map_id end,   -- else: the create rule of 8.7
         $admin_email)
 returning id into $new;                                                       -- 23505 on year: 409 year_taken
+-- copy.tracker: the source's enabled themes; otherwise the create rule's set (8.7)
+insert into event_tracker_theme (event_id, theme_id)
+select $new, theme_id from event_tracker_theme where event_id = case when $copy_tracker then $source else $inherited_from end
+on conflict do nothing;
 -- copy.sponsors: the source year's rows to the new year, skipping sponsors that already have it
 insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override)
 select sponsor_id, $year, amount_donated, active, can_advertise, anonymous, pinned_position, linger_ms_override
@@ -1293,7 +1444,7 @@ Every write marked **[snapshot]** in the contracts runs this frame; the middle d
 ```sql
 begin;
 select * from snapshot where id = 1 for update;
--- the write: one or more statements on event, event_message, sponsor, sponsor_year, cookie_type, or app_setting
+-- the write: one or more statements on event, event_tracker_theme, event_message, sponsor, sponsor_year, cookie_type, app_setting, tracker_map, or tracker_theme
 -- example, PUT /admin/sponsors/{id}/years/{eventYear}:
 insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
 values ($sponsor, $year, $amount, $active, $can_advertise, $anonymous)
@@ -1335,9 +1486,17 @@ begin;
 select * from snapshot where id = 1 for update;
 -- inheritRoute true: route_id = (select route_id from event where route_id is not null order by year desc limit 1), or null
 -- inheritRoute false: route_id = $route_id, checked with select 1 from route where id = $route_id (none: 404)
-insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by)
-values ($year, $name, 1, $scheduled_at, $funds_percent, $route_id, $admin_email)
+-- trackerBbox absent or null: the published settings.tracker.defaultBbox (the newest content_version's document), else the Missoula valley constant
+-- the map and the themes come from the most recent event by year (the map only when its package contains $tracker_bbox):
+--   select id, tracker_map_id from event order by year desc limit 1
+--   select bbox from tracker_map where id = $inherited_map and state = 'ready'      -- contains the box, else null
+--   with no event at all: the map is the ready row with prefix 'basemap' when it contains the box, and every theme is enabled
+insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, tracker_bbox, tracker_map_id, created_by)
+values ($year, $name, 1, $scheduled_at, $funds_percent, $route_id, $tracker_bbox, $tracker_map_id, $admin_email)
 returning *;                                                                  -- 23505 on event_year_key: 409 year_taken
+insert into event_tracker_theme (event_id, theme_id)
+select $new, theme_id from event_tracker_theme where event_id = $inherited_from   -- or select $new, id from tracker_theme when no event existed
+on conflict do nothing;
 -- build, hash, PUT; update snapshot; commit
 ```
 
@@ -1546,6 +1705,7 @@ Run by the node holding the migration advisory lock (section 14), after migratio
 
 1. **Starter content**, when `select 1 from page limit 1` returns nothing: insert the pages, sections, items, and `site_setting_draft.data` from `contracts/starter-content.json` with `created_by = updated_by = 'seed'` in one transaction.
 2. **Icon library**, when `icon_library_state.library_sha256` differs from the compiled library's hash: PUT every `icons/{sha256}.svg` with the immutable header (one attempt, 3 s each; any failure aborts this step and the boot retries below), then `update icon_library_state set library_sha256 = $hash, written_at = now() where id = 1`.
+2b. **Theme style objects**, every boot: for every `tracker_theme` row, `HEAD themes/{style_sha256}.json`; when the key is absent, PUT the canonical body (the seeded themes' bodies from `contracts/fixtures/themes/`, api.md 11a.10) with the immutable header (one attempt, 3 s each; any failure aborts this step and the boot retries below); then `update tracker_theme_state set written_at = now() where id = 1` when anything was written. The step writes only what is missing, so it is idempotent and heals a lost object; a theme created through the API already has its object.
 2a. **Help topics**, every boot: in one transaction, upsert every entry of `help/topics.json` by `key` (one `insert ... select from unnest(...) on conflict (key) do update`) setting `page`, `label`, `default_title`, `default_body`, `default_links`; `default_updated_at = now()` only when one of the three defaults differs from the row's; `title`, `body`, `links` copied from the defaults only when `edited_by is null`; a row already equal to its entry is not written. Then `delete from help_topic where not (key = any($keys))`. One log line carries the inserted, updated, unchanged, and deleted counts. The file was validated at startup (api.md 11a.9), so this step only fails on a database error, which fails the boot like any other step.
 3. **Content version 1**, when `select 1 from content_version limit 1` returns nothing: the publish recipe (8.19) with `published_by = 'seed'` and `label = 'Starter content'`, minus the snapshot rebuild, which the next step does.
 4. **Snapshot version 1**, when `select 1 from snapshot where id = 1` returns nothing:
@@ -1689,6 +1849,7 @@ where exists (select 1 from section s where s.page_id = p.id and (s.data::text l
 select count(*) from content_version where $id = any(media_ids);
 select id, name from sponsor where logo_media_id = $id;
 select id, name from cookie_type where icon->>'source' = 'media' and icon->>'id' = $id::text;
+select id, name from tracker_theme where thumbnail_media_id = $id;   -- MediaUsage.themes
 select data::text like '%' || $id || '%' from site_setting_draft where id = 1;
 select id, filename from media_asset where dark_media_id = $id;   -- "dark version of <filename>"
 
@@ -1813,11 +1974,12 @@ Each statement is idempotent; two leaders running it in the same minute delete n
 ### 9.6 Media orphan collection (every hour)
 
 ```sql
--- the referenced set, one pass over the working set, the retained versions, sponsors, cookie types, and the dark and small versions of ready assets
+-- the referenced set, one pass over the working set, the retained versions, sponsors, cookie types, tracker theme thumbnails, and the dark and small versions of ready assets
 with refs as (
   select unnest(media_ids) as id from content_version
   union select logo_media_id from sponsor where logo_media_id is not null
   union select (icon->>'id')::uuid from cookie_type where icon->>'source' = 'media'
+  union select thumbnail_media_id from tracker_theme where thumbnail_media_id is not null
   union select (icon->>'id')::uuid from page where icon->>'source' = 'media'
   union select m.id from media_asset m where exists (
     select 1 from section s where s.data::text like '%' || m.id || '%' or s.presentation::text like '%' || m.id || '%')
@@ -1841,6 +2003,16 @@ delete from media_asset where state = 'orphaned' and orphaned_at < now() - inter
 ```
 
 The library is hundreds of rows; the text matches scan the working set once per hour. A tag call that fails leaves the row as it was and is retried next hour; every statement is idempotent.
+
+### 9.7 Pending map sweep (09:00 UTC, after the nightly cleanup)
+
+```sql
+select id, prefix from tracker_map where state = 'pending' and created_at < now() - interval '1 day';
+  -- per row: ListMultipartUploads under prefix and AbortMultipartUpload each; ListObjectsV2 under prefix and DeleteObjects; then
+  delete from tracker_map where id = $id and state = 'pending';
+```
+
+A map the CLI confirms within the day is `ready` and never selected; a failed S3 call leaves the row for the next run. The bucket's lifecycle rule aborts the same uploads on its own after a day (platform.md 1.1), so the abort here usually finds nothing.
 
 ---
 
@@ -1904,7 +2076,9 @@ Subscriber status filter: `verified` is `verified_at is not null and unsubscribe
 | `content_version` | Newest 50 rows | the publish transaction |
 | `media_asset` | `pending` 2 days; `ready` until unreferenced for 30 days, then `orphaned` for 8 days; referenced assets forever | nightly cleanup; orphan chore; `DELETE /admin/media/{id}` |
 | `preview_token` | 24 h after expiry | nightly cleanup |
-| `app_setting`, `snapshot`, `live_state`, `event_status`, `icon_library_state` | Permanent | |
+| `tracker_map` | `pending` 1 day; `ready` until an admin deletes | the pending map sweep; `DELETE /admin/maps/{id}` |
+| `tracker_theme`, `event_tracker_theme` | Until an admin deletes the theme or changes the event's set; the join rows go with their event or theme | admin endpoints; the cascades |
+| `app_setting`, `snapshot`, `live_state`, `event_status`, `icon_library_state`, `tracker_theme_state` | Permanent | |
 
 Autovacuum defaults are sufficient: the only tables that churn are `location` (insert only), `cookie` (insert, rare update), `beacon` (one update per heartbeat and per fix on a handful of rows), `outbox` and `alert_delivery` (claim and send updates). `beacon` is the one hot-update table; with tens of rows it stays within a few pages whatever the update rate.
 
@@ -1943,7 +2117,7 @@ alter default privileges for role wmsfo_migrate_dev in schema public
   grant select, insert, update, delete on tables to wmsfo_app_dev;
 ```
 
-Prod is the same with `prod` in place of `dev`. The default privileges apply to every table the migrate role creates afterwards, so the initial migration and every later one need no grant statements. Identity columns draw from their sequences through the table's insert privilege; no sequence grant exists, and the app role cannot call `setval` or `nextval` directly. The app role cannot create, alter, drop, or truncate anything, and has no access to `__EFMigrationsHistory` beyond what the default privileges give every table (select, insert, update, delete), which the API never uses. The tool in section 15 runs as the migrate role.
+Prod is the same with `prod` in place of `dev`. The default privileges apply to every table the migrate role creates afterwards, so the initial migration and every later one (the tracker tables of 3.33 to 3.36 included) need no grant statements. Identity columns draw from their sequences through the table's insert privilege; no sequence grant exists, and the app role cannot call `setval` or `nextval` directly. The app role cannot create, alter, drop, or truncate anything, and has no access to `__EFMigrationsHistory` beyond what the default privileges give every table (select, insert, update, delete), which the API never uses. The tool in section 15 runs as the migrate role.
 
 Timeouts: `statement_timeout = 10s` bounds every API statement, including a location `for update` waiting behind a snapshot transaction (at most about 3 s). `idle_in_transaction_session_timeout = 15s` bounds a snapshot-affecting transaction that is idle while its 3 s S3 PUT runs and kills any transaction the API leaks. `lock_timeout = 5s` turns a lock convoy into an error instead of a stall. The migrate role has no statement timeout because index builds and the legacy copy run as single statements, and a 60 s lock timeout so a migration blocked by a stray session fails the boot with a clear error instead of hanging.
 
@@ -2059,7 +2233,7 @@ CI runs the migration against an empty Postgres service container and fails on `
 
 ### 14.4 Later migrations
 
-- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body), `A77Postponed` (2026-10-03: `insert into event_status values (6, 'postponed')`; `page_role_check` gains `'postponed'` and the `page` table comment says seven; when `page` has rows and none has the role `postponed`, inserts the page `postponed` (title `Postponed`, `nav_label` null, not hidden, `created_by = updated_by = 'seed'`; slug `postponed-2` and so on when `postponed` is taken) with the starter postponed sections, unpublished; an empty `page` is left for the first boot seed; the Down path moves status 6 rows to 1 and deletes the postponed pages and the status), `A82MessageNotify` (2026-10-04: `alter table event_message drop column event_time`; adds `notify boolean not null default false`, `outbox_id bigint references outbox (id) on delete set null`, and `sent_count integer not null default 0`; a message an `event.message_posted` outbox row names in its payload's `messageId` takes `notify` true, that `outbox_id`, and the count of its `alert_delivery` rows with `sent_at` set; the Down path drops the three and recreates `event_time` nullable)., `A83GlobalLandmarks` (2026-10-04: the landmarks become one sitewide site setting; folds every event's `route_map_config -> 'landmarks'` into `site_setting_draft.data -> 'landmarks'` (id 1), the draft's own landmarks first, then the current event's, then the other events' by `year` descending; a landmark is a duplicate of an earlier one when its `name` matches case-insensitively and its `lat` and `lng` round to the same five decimals; at most 50 kept; the draft is not written when no event has a landmark; then removes the `landmarks` key from every event's `route_map_config`, and a configuration left `{}` becomes null; the column comment loses `landmarks?`. The published `content_version` rows are immutable, so the landmarks reach the site when the editor publishes after the deploy. A second run changes nothing; the Down path restores the comment only), `A84RoutePreviewMapOnly` (2026-10-04: the route preview is the map only and the event has no route image; removes the `style` key from the `data` of every `section` row of kind `route_preview` that carries it (`data - 'style'`), leaving every other section alone, so the working set validates against the `route_preview` schema; then drops `event.route_image_media_id` with `event_route_image_media_id_fkey`, nothing migrated. The published `content_version` rows are immutable and the site ignores `style` in older documents. A second run changes nothing; the Down path recreates the column nullable with its comment and foreign key, empty, and leaves the sections without `style`), `A88GlobalPlaces` (2026-10-05: the places on both maps become one site setting, `settings.places`, the tracker's and the route preview's lists apart; when `site_setting_draft.data` (id 1) is an object without a `places` key, builds one: `tracker` from the first `section` row of kind `map` (ordered by `page_id`, `position`, `id`) whose `data ->> 'poiFilter'` is `true`, as `{ "kinds": <its poiKinds array, or [] when absent or not an array> }`, and `routeMap` from the current event's `route_map_config -> 'pois'` when it is an object whose `kinds` is an array, else from the event with the greatest `year` that has one; writes `places` holding the parts found with `updated_at = now()`, and leaves the draft alone when neither exists; then removes `poiFilter` and `poiKinds` from the `data` of every `map` section that carries either, and `pois` from every event's `route_map_config`, a configuration left `{}` becoming null; the column comment reads `{ display?, controls? }`. Every path is guarded with `jsonb_typeof`. The published `content_version` rows are immutable and the site ignores the old keys in older documents; the setting reaches the site when the editor publishes after the deploy. A second run changes nothing; the Down path restores the comment only)
+- One migration per change; names describe the change (`AddFinalCookieTally`). Migrations after the initial one, in order: `A24Design` (2026-09-11: `event.route_image_media_id`, `sponsor_year.pinned_position` and `linger_ms_override` with `sponsor_year_pinned_ux`, the `flight_history_max_points` seed), `A26ApiKey` (2026-09-11: the `api_key` table), `DropBeaconRole` (2026-09-12: `alter table beacon drop column role`), `AddMediaDziKey` (2026-09-12: `alter table media_asset add column dzi_key text`), `AddStatusNotify` (2026-09-13: `event.status_notified_at`, `event_status_history.notify`, `.message`, `.outbox_id`), `AddAuditLog` (2026-09-13: the `audit_log` table and its two indexes), `AddQrCodesAndPlaces` (the four tables of 3.30 and their indexes), `PlaceDeleteRules` (`place.parent_id` cascades; `qr_attachment.place_id` nullable and sets null), `DeleteCascades` (`location.event_id`, `cookie.cookie_type_id`, `event_message.event_id`, `status_history.event_id` cascade; `event.route_id`, `event.route_image_media_id`, `sponsor.logo_media_id` set null), `A37LocationFilters` (2026-09-15: `beacon.min_interval_ms`, `beacon.fixes_stored`, `beacon.fixes_carried`, `beacon.fixes_rate_limited`; `location.speed_source`; `location_event_beacon_seq`; seed `location_min_interval_ms`, `location_min_distance_m`, `location_max_gap_s`), `A38LocationEventPosition` (2026-09-15: removes existing `(event_id, lat, lng)` duplicates keeping the lowest `seq` per group, then creates the unique index `location_event_position` on `location (event_id, lat, lng)` so the index builds on dev and prod data as they are), `A39RemoveLocationMaxGap` (2026-09-15: deletes the `location_max_gap_s` `app_setting` row and refreshes the `beacon.fixes_carried` comment; A38's unique index makes the max-gap rule redundant), `A40HubFlags` (2026-09-15: `beacon.hub_allowed`, the `hub_enabled` seed), `A41CarriedStampsLastLocation` (2026-09-15: the carried-fix comment), `A42CommentsAsBuilt` (2026-09-18: comments only, no column or constraint changes: the `beacon` and `cookie_type` table comments and the comments on `beacon.last_location_at`, `beacon.telemetry`, `cookie.note`, `cookie.hidden_at`, `sponsor.logo_media_id`, and `audit_log.entity_id` state the behaviour as built), `A51MediaDarkVersion` (2026-09-27: `media_asset.dark_media_id uuid references media_asset (id) on delete set null` and `media_asset.invert_in_dark boolean not null default false`), `A58MediaSmallVersion` (2026-09-27: `media_asset.small_media_id uuid references media_asset (id) on delete set null`), `A63EventPosterLayout` (2026-09-28: `event.poster_layout jsonb`), `A64Posters` (2026-09-28: drops `event.poster_layout` with nothing migrated, and creates the `poster` table of 3.31 with `poster_name_check` and `poster_route_id_fkey` set null on delete), `A67EventRouteMapConfig` (2026-09-29: `event.route_map_config jsonb`, nullable, nothing migrated), `A69MediaCredit` (2026-09-30: `media_asset.credit text`, nullable, nothing migrated), `A70PageIcon` (2026-09-30: `page.icon jsonb`, nullable, nothing migrated), `A71SeededCookies` (2026-10-02: `cookie.person_id` nullable, `cookie.seeded_by text` nullable, the check constraint `cookie_origin_check` requiring exactly one of the two, and the `cookie` table and column comments; nothing migrated, every existing row has a person), `A74StatusMessageRef` (2026-10-03: `event_status_history.message_id bigint references event_message (id) on delete set null`; every history row with a non-null `message` gets an `event_message` row (`body = message`, `event_time` null, `created_by = changed_by`, `created_at = updated_at = changed_at`) that `message_id` references, the `event.status_changed` and `event.status_notified` outbox payloads swap `message` for `messageId`, then `message` is dropped; the Down path recreates `message` from the referenced body), `A77Postponed` (2026-10-03: `insert into event_status values (6, 'postponed')`; `page_role_check` gains `'postponed'` and the `page` table comment says seven; when `page` has rows and none has the role `postponed`, inserts the page `postponed` (title `Postponed`, `nav_label` null, not hidden, `created_by = updated_by = 'seed'`; slug `postponed-2` and so on when `postponed` is taken) with the starter postponed sections, unpublished; an empty `page` is left for the first boot seed; the Down path moves status 6 rows to 1 and deletes the postponed pages and the status), `A82MessageNotify` (2026-10-04: `alter table event_message drop column event_time`; adds `notify boolean not null default false`, `outbox_id bigint references outbox (id) on delete set null`, and `sent_count integer not null default 0`; a message an `event.message_posted` outbox row names in its payload's `messageId` takes `notify` true, that `outbox_id`, and the count of its `alert_delivery` rows with `sent_at` set; the Down path drops the three and recreates `event_time` nullable)., `A83GlobalLandmarks` (2026-10-04: the landmarks become one sitewide site setting; folds every event's `route_map_config -> 'landmarks'` into `site_setting_draft.data -> 'landmarks'` (id 1), the draft's own landmarks first, then the current event's, then the other events' by `year` descending; a landmark is a duplicate of an earlier one when its `name` matches case-insensitively and its `lat` and `lng` round to the same five decimals; at most 50 kept; the draft is not written when no event has a landmark; then removes the `landmarks` key from every event's `route_map_config`, and a configuration left `{}` becomes null; the column comment loses `landmarks?`. The published `content_version` rows are immutable, so the landmarks reach the site when the editor publishes after the deploy. A second run changes nothing; the Down path restores the comment only), `A84RoutePreviewMapOnly` (2026-10-04: the route preview is the map only and the event has no route image; removes the `style` key from the `data` of every `section` row of kind `route_preview` that carries it (`data - 'style'`), leaving every other section alone, so the working set validates against the `route_preview` schema; then drops `event.route_image_media_id` with `event_route_image_media_id_fkey`, nothing migrated. The published `content_version` rows are immutable and the site ignores `style` in older documents. A second run changes nothing; the Down path recreates the column nullable with its comment and foreign key, empty, and leaves the sections without `style`), `A88GlobalPlaces` (2026-10-05: the places on both maps become one site setting, `settings.places`, the tracker's and the route preview's lists apart; when `site_setting_draft.data` (id 1) is an object without a `places` key, builds one: `tracker` from the first `section` row of kind `map` (ordered by `page_id`, `position`, `id`) whose `data ->> 'poiFilter'` is `true`, as `{ "kinds": <its poiKinds array, or [] when absent or not an array> }`, and `routeMap` from the current event's `route_map_config -> 'pois'` when it is an object whose `kinds` is an array, else from the event with the greatest `year` that has one; writes `places` holding the parts found with `updated_at = now()`, and leaves the draft alone when neither exists; then removes `poiFilter` and `poiKinds` from the `data` of every `map` section that carries either, and `pois` from every event's `route_map_config`, a configuration left `{}` becoming null; the column comment reads `{ display?, controls? }`. Every path is guarded with `jsonb_typeof`. The published `content_version` rows are immutable and the site ignores the old keys in older documents; the setting reaches the site when the editor publishes after the deploy. A second run changes nothing; the Down path restores the comment only), `A89HelpTopics` (2026-10-08: the `help_topic` table of 3.32), `A<task>TrackerMapsThemes` (tracker maps and themes as data, contracts 4.5 Maps and Themes. Up: creates `tracker_map`, `tracker_theme` with its two partial unique indexes and `tracker_theme_thumbnail_media`, `event_tracker_theme` with `event_tracker_theme_theme`, and `tracker_theme_state` with its row (3.33 to 3.36), every comment included; adds `event.tracker_bbox` with its default, so every existing row holds the Missoula valley box before the not-null constraint lands, `event.tracker_map_id` with `event_tracker_map`, and the two column comments; seeds the rows of section 6 (the "Missoula valley" map with prefix `basemap`, set as every existing event's map; the eight themes from `contracts/fixtures/themes/`; every theme enabled on every event; `tracker.defaultBbox` into `site_setting_draft.data` (id 1) with `updated_at = now()` when the draft is an object without a `tracker` key); then removes `themes` and `defaultTheme` from the `data` of every `section` row of kind `map` that carries either (`data - 'themes' - 'defaultTheme'`), the working set only. The style objects are written at boot by 8.16 step 2b, never by the migration. The published `content_version` rows are immutable and the site ignores both keys in older documents; `Restorer.cs` strips keys the current section schema no longer allows, so a restored pre-migration version cannot reinstate them (api.md 11a.5). Every seed is guarded (the map by `prefix`, the themes by `(renderer, key)`, the joins by `on conflict do nothing`, the setting by the key's absence), so a second `Up` changes nothing. Down: drops `event.tracker_map_id` with `event_tracker_map`, `event.tracker_bbox`, and the four tables; writes `themes` (the six Google keys, `standard`, `night`, `blizzard`, `charcoal`, `expedition`, `nebula`, in that order) and `defaultTheme` (`standard`) back into `data` of every `map` section; and removes the `tracker` key from `site_setting_draft.data`, so the baseline `map.schema.json` and `site-settings.schema.json` validate the working set again; content versions are untouched in both directions, and the baseline API's `A89HelpTopics` is the target (`dotnet ef database update A89HelpTopics --connection "<connection>"`, the design-time factory's placeholder connection being replaced on the command line). Two integration tests guard it in the `A74StatusMessageTests` pattern: `Up` then `Down` on a copy of a baseline database leaves the baseline schema and a working set the baseline schemas validate, and a second `Up` on a migrated database changes nothing)
 - Additive by default: add nullable columns or columns with defaults; drop columns in a later release after the code stopped reading them.
 - `create index concurrently` cannot run inside a transaction: such a migration is generated with `[Migration]` on a class whose `Up()` uses `migrationBuilder.Sql(..., suppressTransaction: true)`; everything else runs in EF's per-migration transaction.
 - Never a data backfill that infers state; a data change is an explicit `update` with a fixed value or none at all.
