@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Wmsfo.Api.Themes;
 
 namespace Wmsfo.Api.Data;
 
@@ -42,6 +43,8 @@ public sealed class Event
     public long NextSeq { get; set; }
     public JsonDocument? LatestFix { get; set; }
     public JsonDocument? RouteMapConfig { get; set; }
+    public JsonDocument TrackerBbox { get; set; } = JsonDocument.Parse(TrackerThemeSeed.ValleyBboxJson);
+    public long? TrackerMapId { get; set; }   // null means Google Maps for every viewer
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
@@ -470,6 +473,64 @@ public sealed class HelpTopic
     public string? EditedBy { get; set; }   // null while the shown text is the seed's
     public DateTimeOffset? EditedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+}
+
+// sql.md 3.33: a tile package uploaded under its prefix.
+public sealed class TrackerMap
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = "";
+    public string PackageKey { get; set; } = "";
+    public string Prefix { get; set; } = "";
+    public JsonDocument Bbox { get; set; } = JsonDocument.Parse("{}");
+    public short MinZoom { get; set; }
+    public short MaxZoom { get; set; }
+    public short? TerrainMaxZoom { get; set; }   // null when the package has no terrain file
+    public long? TilesBytes { get; set; }
+    public long? TerrainBytes { get; set; }
+    public DateOnly? SourceBuild { get; set; }
+    public string State { get; set; } = "";
+    public DateTimeOffset? BuiltAt { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+// sql.md 3.34: one tracker look for one renderer.
+public sealed class TrackerTheme
+{
+    public long Id { get; set; }
+    public string Renderer { get; set; } = "";
+    public string Key { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int SortOrder { get; set; }
+    public string StyleSha256 { get; set; } = "";
+    public int StyleBytes { get; set; }
+    public string? SpriteSha256 { get; set; }
+    public JsonDocument Chrome { get; set; } = JsonDocument.Parse("{}");
+    public JsonDocument Overlay { get; set; } = JsonDocument.Parse("{}");
+    public Guid? ThumbnailMediaId { get; set; }
+    public bool DefaultLightMode { get; set; }
+    public bool DefaultDarkMode { get; set; }
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public string UpdatedBy { get; set; } = "";
+    public DateTimeOffset UpdatedAt { get; set; }
+}
+
+// sql.md 3.35: one theme an event offers.
+public sealed class EventTrackerTheme
+{
+    public long EventId { get; set; }
+    public long ThemeId { get; set; }
+}
+
+// sql.md 3.36: single row (id = 1).
+public sealed class TrackerThemeState
+{
+    public short Id { get; set; }
+    public DateTimeOffset? WrittenAt { get; set; }
 }
 
 public sealed class QrAttachment

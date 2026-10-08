@@ -105,6 +105,7 @@ wmsfo-api/
     Icons/IconLibrary.cs              # loads icons/, hashes, writes to the bucket, builds the icons map
     Themes/ThemeStyles.cs             # the seeded themes' style bodies from contracts/fixtures/themes/, the boot ensure of their objects (section 11a.10)
     Themes/ThemeStyleValidator.cs  ChromeContrast.cs   # the style shape rules and the WCAG contrast check of contracts 4.5 Themes
+    Themes/TrackerThemeSeed.cs        # the eight seeded theme rows of contracts/fixtures/themes/seed.json and the Missoula valley map constants the A92TrackerMapsThemes migration inserts
     Help/HelpTopics.cs                # loads and validates help/topics.json, the boot ensure of help_topic
     Chores/ChoreHost.cs               # runs chores while leader
     Chores/OutboxPublisher.cs  AlertSender.cs  StaleBeaconFlagger.cs  MediaOrphanCollector.cs  NightlyCleanup.cs  PendingMapSweeper.cs  IChoreClock.cs
@@ -468,7 +469,7 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 
 ### 11a.5 Restore
 
-`Restorer.RestoreAsync(versionId, email)` runs sql.md 8.20 in one transaction: delete every page (cascade) except a role page whose role the document has no page for, reinsert pages, sections, and items from the version's document with new ids and `updated_by = email`, replace the site settings draft, stripping from every section's `data` any key the kind's current schema no longer allows (a `map` section's `themes` and `defaultTheme` from a pre-A<task> version), so a restore can never reinstate a key the next publish would refuse with `content_invalid`. It answers `GET /admin/content/status` computed afterwards. A published document holds one page per role it knows and the kept pages cover the rest, so the seven role pages remain; the partial unique index is satisfied because the delete precedes the inserts in the same transaction.
+`Restorer.RestoreAsync(versionId, email)` runs sql.md 8.20 in one transaction: delete every page (cascade) except a role page whose role the document has no page for, reinsert pages, sections, and items from the version's document with new ids and `updated_by = email`, replace the site settings draft, stripping from every section's `data` any key the kind's current schema no longer allows (a `map` section's `themes` and `defaultTheme` from a pre-A92 version), so a restore can never reinstate a key the next publish would refuse with `content_invalid`. It answers `GET /admin/content/status` computed afterwards. A published document holds one page per role it knows and the kept pages cover the rest, so the seven role pages remain; the partial unique index is satisfied because the delete precedes the inserts in the same transaction.
 
 ### 11a.6 Preview
 

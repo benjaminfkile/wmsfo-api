@@ -34,7 +34,7 @@ public sealed class A88GlobalPlacesMigrationTests : IClassFixture<PostgresFixtur
             "'{\"pois\":{\"kinds\":[\"hospital\"]}}'",
             "'{\"display\":{\"arrows\":false},\"pois\":{\"kinds\":[\"park\"]}}'"));
 
-        await MigrateToAsync(null);
+        await MigrateToAsync("A88GlobalPlaces");
 
         var (draft, updatedAt) = await ReadDraftAsync();
         Assert.Equal("Test site", draft.RootElement.GetProperty("siteName").GetString());

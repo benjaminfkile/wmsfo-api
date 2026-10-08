@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Conventions;
+using Wmsfo.Api.Themes;
 
 namespace Wmsfo.Api.Data;
 
@@ -59,6 +60,10 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<QrScan> QrScan => Set<QrScan>();
     public DbSet<Poster> Poster => Set<Poster>();
     public DbSet<HelpTopic> HelpTopic => Set<HelpTopic>();
+    public DbSet<TrackerMap> TrackerMap => Set<TrackerMap>();
+    public DbSet<TrackerTheme> TrackerTheme => Set<TrackerTheme>();
+    public DbSet<EventTrackerTheme> EventTrackerTheme => Set<EventTrackerTheme>();
+    public DbSet<TrackerThemeState> TrackerThemeState => Set<TrackerThemeState>();
 
     protected override void OnModelCreating(ModelBuilder mb)
     {
@@ -131,6 +136,11 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).");
             e.Property(x => x.RouteMapConfig).HasColumnType("jsonb").HasColumnName("route_map_config")
                 .HasComment("The event's route map configuration { display?, controls? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.");
+            e.Property(x => x.TrackerBbox).HasColumnType("jsonb").IsRequired()
+                .HasDefaultValueSql("'" + TrackerThemeSeed.ValleyBboxJson + "'::jsonb")
+                .HasComment("{ west, south, east, north } in degrees, west < east, south < north, at least 0.05 and at most 20 degrees on a side. Required on create (the API always writes it; the column default exists only so a rolled-back API that does not know the column can still insert events, which works because the event inserts name their columns). Both tracker renderers lock to it; the snapshot carries it; the tile CLI builds from it. The migration fills existing events with the Missoula valley box.");
+            e.Property(x => x.TrackerMapId).HasColumnType("bigint")
+                .HasComment("The tile package the tracker renders with MapLibre. Null means Google Maps for every viewer. Write rule: the package bbox contains tracker_bbox (400 validation_failed at trackerMapId); shrinking or moving the box later must keep it inside the package or the write is refused the same way at trackerBbox.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
@@ -143,6 +153,9 @@ public sealed class WmsfoDbContext : DbContext
 
             e.HasIndex(x => x.StatusId).HasDatabaseName("event_one_live").IsUnique().HasFilter("status_id = 3");
             e.HasIndex(x => x.IsCurrent).HasDatabaseName("event_one_current").IsUnique().HasFilter("is_current");
+            e.HasOne<TrackerMap>().WithMany().HasForeignKey(x => x.TrackerMapId)
+                .HasConstraintName("event_tracker_map_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.TrackerMapId).HasDatabaseName("event_tracker_map").HasFilter("tracker_map_id is not null");
         });
 
         // 3.4 event_status_history
@@ -990,6 +1003,115 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("When the last edit was made; null while the shown text is the seed's.");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()")
                 .HasComment("When the row last changed, by an edit, a reset, or the boot.");
+        });
+
+        // 3.33 tracker_map
+        mb.Entity<TrackerMap>(e =>
+        {
+            e.ToTable("tracker_map", t =>
+            {
+                t.HasComment("A tile package the operator built for a bounding box and uploaded under maps/{package_key}/. Events reference one; the snapshot carries the current event's.");
+                t.HasCheckConstraint("tracker_map_name_check", "char_length(name) between 1 and 200");
+                t.HasCheckConstraint("tracker_map_min_zoom_check", "min_zoom between 0 and 15");
+                t.HasCheckConstraint("tracker_map_max_zoom_check", "max_zoom between 8 and 15");
+                t.HasCheckConstraint("tracker_map_terrain_max_zoom_check", "terrain_max_zoom between 8 and 13");
+                t.HasCheckConstraint("tracker_map_state_check", "state in ('pending', 'ready')");
+            });
+            e.HasKey(x => x.Id).HasName("tracker_map_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Name).HasColumnType("text").IsRequired();
+            e.Property(x => x.PackageKey).HasColumnType("text").IsRequired()
+                .HasComment("Lowercase hex SHA-256 of the canonical JSON { bbox, minZoom, maxZoom, terrainMaxZoom }. Two uploads of the same box and zooms collide here on purpose.");
+            e.Property(x => x.Prefix).HasColumnType("text").IsRequired()
+                .HasComment("The CDN prefix holding tiles.pmtiles and terrain.pmtiles: maps/{package_key} for uploaded packages; basemap for the seeded Missoula valley row, whose objects the operator placed by hand before this table existed (those two objects are cached one day and hand-invalidated, platform.md 1.8, unlike the immutable maps/ objects).");
+            e.Property(x => x.Bbox).HasColumnType("jsonb").IsRequired()
+                .HasComment("{ west, south, east, north } in degrees, west < east, south < north, at most 20 degrees on a side.");
+            e.Property(x => x.MinZoom).HasColumnType("smallint").IsRequired();
+            e.Property(x => x.MaxZoom).HasColumnType("smallint").IsRequired();
+            e.Property(x => x.TerrainMaxZoom).HasColumnType("smallint")
+                .HasComment("Null when the package has no terrain file.");
+            e.Property(x => x.TilesBytes).HasColumnType("bigint");
+            e.Property(x => x.TerrainBytes).HasColumnType("bigint");
+            e.Property(x => x.SourceBuild).HasColumnType("date")
+                .HasComment("The Protomaps daily build date the vector tiles came from.");
+            e.Property(x => x.State).HasColumnType("text").IsRequired()
+                .HasComment("pending until POST /admin/maps/{id}/confirm verifies the objects; only ready maps can be picked by an event.");
+            e.Property(x => x.BuiltAt).HasColumnType("timestamptz");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasAlternateKey(x => x.PackageKey).HasName("tracker_map_package_key_key");
+            e.HasAlternateKey(x => x.Prefix).HasName("tracker_map_prefix_key");
+        });
+
+        // 3.34 tracker_theme
+        mb.Entity<TrackerTheme>(e =>
+        {
+            e.ToTable("tracker_theme", t =>
+            {
+                t.HasComment("One tracker look for one renderer. The style body lives on the CDN at themes/{style_sha256}.json; the row carries what the snapshot needs inline.");
+                t.HasCheckConstraint("tracker_theme_renderer_check", "renderer in ('google', 'maplibre')");
+                t.HasCheckConstraint("tracker_theme_key_check", "key ~ '^[a-z][a-z0-9-]{1,39}$'");
+                t.HasCheckConstraint("tracker_theme_name_check", "char_length(name) between 1 and 60");
+            });
+            e.HasKey(x => x.Id).HasName("tracker_theme_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Renderer).HasColumnType("text").IsRequired();
+            e.Property(x => x.Key).HasColumnType("text").IsRequired()
+                .HasComment("Stable slug. The viewer's localStorage choice names it. The six seeded Google themes keep their current keys.");
+            e.Property(x => x.Name).HasColumnType("text").IsRequired();
+            e.Property(x => x.SortOrder).HasColumnType("integer").IsRequired().HasDefaultValue(0);
+            e.Property(x => x.StyleSha256).HasColumnType("text").IsRequired();
+            e.Property(x => x.StyleBytes).HasColumnType("integer").IsRequired();
+            e.Property(x => x.SpriteSha256).HasColumnType("text")
+                .HasComment("Lowercase hex SHA-256 of the canonical bytes of the confirmed sprite index: the set lives under themes/{id}/sprites/{sprite_sha256}/sprite{,@2x}.{png,json}, immutable; a re-upload is a new prefix and the old one stays. MapLibre only; null without a sprite set.");
+            e.Property(x => x.Chrome).HasColumnType("jsonb").IsRequired()
+                .HasComment("{ bg, fg, text, tile, tileFg, panel, accent } as #rrggbb or #rrggbbaa. Write check: text on bg and tileFg on tile at 4.5:1 or better.");
+            e.Property(x => x.Overlay).HasColumnType("jsonb").IsRequired()
+                .HasComment("{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor }.");
+            e.Property(x => x.ThumbnailMediaId).HasColumnType("uuid")
+                .HasComment("A media asset (uuid, like sponsor.logo_media_id). The media orphan chore, media usage, and media impact all count this reference (5.4).");
+            e.Property(x => x.DefaultLightMode).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.DefaultDarkMode).HasColumnType("boolean").IsRequired().HasDefaultValue(false);
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.UpdatedBy).HasColumnType("text").IsRequired();
+            e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasAlternateKey(x => new { x.Renderer, x.Key }).HasName("tracker_theme_renderer_key_key");
+            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.ThumbnailMediaId)
+                .HasConstraintName("tracker_theme_thumbnail_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(x => x.Renderer, "tracker_theme_one_default_light").HasDatabaseName("tracker_theme_one_default_light").IsUnique().HasFilter("default_light_mode");
+            e.HasIndex(x => x.Renderer, "tracker_theme_one_default_dark").HasDatabaseName("tracker_theme_one_default_dark").IsUnique().HasFilter("default_dark_mode");
+            e.HasIndex(x => x.ThumbnailMediaId).HasDatabaseName("tracker_theme_thumbnail_media").HasFilter("thumbnail_media_id is not null");
+        });
+
+        // 3.35 event_tracker_theme
+        mb.Entity<EventTrackerTheme>(e =>
+        {
+            e.ToTable("event_tracker_theme", t =>
+                t.HasComment("The themes this event offers. Write rule: at least one google theme (400 validation_failed at trackerThemeIds). Clone copies the rows under the \"Tracker map and themes\" flag; create follows the one rule in 5.3."));
+            e.HasKey(x => new { x.EventId, x.ThemeId }).HasName("event_tracker_theme_pkey");
+            e.Property(x => x.EventId).HasColumnType("bigint").IsRequired();
+            e.Property(x => x.ThemeId).HasColumnType("bigint").IsRequired();
+            e.HasOne<Event>().WithMany().HasForeignKey(x => x.EventId)
+                .HasConstraintName("event_tracker_theme_event_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<TrackerTheme>().WithMany().HasForeignKey(x => x.ThemeId)
+                .HasConstraintName("event_tracker_theme_theme_id_fkey").OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.ThemeId).HasDatabaseName("event_tracker_theme_theme");
+        });
+
+        // 3.36 tracker_theme_state
+        mb.Entity<TrackerThemeState>(e =>
+        {
+            e.ToTable("tracker_theme_state", t =>
+            {
+                t.HasComment("Single row (id = 1). When the first-boot step last wrote the seeded themes' style objects to the bucket (section 8.16 step 2b). The step writes every theme whose object is missing, so it is idempotent and heals a lost object.");
+                t.HasCheckConstraint("tracker_theme_state_id_check", "id = 1");
+            });
+            e.HasKey(x => x.Id).HasName("tracker_theme_state_pkey");
+            e.Property(x => x.Id).HasColumnType("smallint").ValueGeneratedNever();
+            e.Property(x => x.WrittenAt).HasColumnType("timestamptz");
         });
 
         // 3.28 icon_library_state
