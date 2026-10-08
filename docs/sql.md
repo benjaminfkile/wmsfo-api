@@ -34,6 +34,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `event_message` | Messages shown on the site | Admin writes; migration tool | hundreds |
 | `route` | Uploaded route objects (metadata; bytes live on the CDN) | Route upload; migration tool | tens |
 | `poster` | The admin panel's poster documents: a name, an optional recording, the opaque layout | `/admin/posters` writes; route delete (unlinks) | tens |
+| `help_topic` | The admin panel's help popover texts: the seed's defaults from `help/topics.json`, the text shown, the edit stamp | Boot ensure (section 8.16); `PUT /admin/help/{key}`, reset | about 120 |
 | `beacon` | Trusted senders, hashed key, telemetry, health stamps | Admin writes; ingest; heartbeat; chores | tens |
 | `beacon_enrollment_token` | One-time QR enrollment tokens | Beacon create, rotate, enroll; nightly cleanup | tens |
 | `beacon_log` | Red-Nose debug log uploads | `POST /beacons/logs`; nightly cleanup | tens per month |
@@ -829,6 +830,44 @@ comment on column poster.layout is 'The admin panel''s poster composer layout, s
 The check is named `poster_name_check`. `created_by` is the audit text of contracts 3.1 (the email claim or `key:<name>`), like `place` and `qr_code`; every write also records an `audit_log` row with entity `poster`. The list reads `order by id desc` over a table of tens of rows, so no index beyond the primary key; `route_id` sets null on delete like `event.route_id`, which is not indexed either.
 
 
+### 3.32 `help_topic`
+
+```sql
+create table help_topic (
+  key                text primary key,
+  page               text not null,
+  label              text not null,
+  title              text not null,
+  body               text not null,
+  links              jsonb not null default '[]',
+  default_title      text not null,
+  default_body       text not null,
+  default_links      jsonb not null default '[]',
+  default_updated_at timestamptz not null,
+  edited_by          text,
+  edited_at          timestamptz,
+  updated_at         timestamptz not null default now()
+);
+
+comment on table help_topic is 'One help popover of the admin panel: the text shown, the seed''s default text from help/topics.json, and who last edited it. Admin only; never in the snapshot or on the site.';
+comment on column help_topic.key is 'The seed key, dotted lower-case segments (page, page.card, page.dialog).';
+comment on column help_topic.page is 'The admin panel page the topic belongs to, from the seed.';
+comment on column help_topic.label is 'What the topic is about, from the seed; the panel lists topics by it.';
+comment on column help_topic.title is 'The title shown: the default while edited_by is null, else the admin''s.';
+comment on column help_topic.body is 'The body shown: the default while edited_by is null, else the admin''s.';
+comment on column help_topic.links is 'The links shown, an array of { label, to }: the default while edited_by is null, else the admin''s.';
+comment on column help_topic.default_title is 'The seed''s title, rewritten on every boot.';
+comment on column help_topic.default_body is 'The seed''s body, rewritten on every boot.';
+comment on column help_topic.default_links is 'The seed''s links, rewritten on every boot.';
+comment on column help_topic.default_updated_at is 'When the boot last found a default_title, default_body, or default_links different from the seed.';
+comment on column help_topic.edited_by is 'The actor of the last edit (the audit text of contracts 3.1); null while the shown text is the seed''s.';
+comment on column help_topic.edited_at is 'When the last edit was made; null while the shown text is the seed''s.';
+comment on column help_topic.updated_at is 'When the row last changed, by an edit, a reset, or the boot.';
+```
+
+The rows come from `help/topics.json` (section 6) and the boot keeps them in line with it (section 8.16). `PUT /admin/help/{key}` sets `title`, `body`, `links`, `edited_by` (the email claim or `key:<name>`), `edited_at = now()`; `POST /admin/help/{key}/reset` copies the three defaults back and nulls `edited_by` and `edited_at`; both bump `updated_at` and record an `audit_log` row with entity `help_topic` and `entity_id` the key. The wire's `defaultChanged` is `edited_by is not null and default_updated_at > edited_at`. The list reads every row (about 120) ordered by `page`, `key`, so no index beyond the primary key.
+
+
 ## 4. Indexes
 
 Every index, including the ones created implicitly by primary keys and unique constraints, with the query it serves. Section 10 shows the hot-path queries against them.
@@ -990,6 +1029,7 @@ Every cascading foreign key has an index whose leading column is the referencing
 | `page`, `section`, `section_item`, `site_setting_draft.data` | the starter content: the seven role pages (`no-event`, `planned`, `scheduled`, `live`, `ended`, `cancelled`, `postponed`) with a sensible section stack each, the ordinary pages `about`, `sponsors`, `route`, `donate`, `contact`, `alerts`, and the site settings (with one header link, `headerLinks: [{ label: "Facebook", href: "https://www.facebook.com/WesternMontanaSantaFlyover", icon: { source: "library", id: "facebook" }, newTab: true }]`, and no `landmarks`), from `contracts/starter-content.json` (library icons only, no media) | first boot (section 8.16) | inserted only when `page` is empty |
 | `content_version` | version 1: the starter content published | first boot (section 8.16) | inserted only when the table is empty |
 | `snapshot` | version 1 | first boot (section 8.16) | inserted only when absent |
+| `help_topic` | one row per entry of `help/topics.json` (about 120): `page`, `label`, and the defaults from the entry, `title`, `body`, `links` equal to the defaults, `edited_by` null | every boot (section 8.16 step 2a), after the API has validated the file at startup | upsert by `key`: the defaults move on every boot, the shown text follows them only while `edited_by` is null, `default_updated_at` moves only when a default changed, rows whose key the file no longer lists are deleted |
 
 Sponsor special cookie types are admin-added rows, not seeds. The starter content is a placeholder site, not the real copy: editors replace it through the panel after cut-over (contracts 10 step 8). `GET /admin/settings` shows `updatedBy: "seed"` and the migration time for a setting no admin has touched; the compiled defaults stay in the API for a key whose row is missing.
 
@@ -1506,6 +1546,7 @@ Run by the node holding the migration advisory lock (section 14), after migratio
 
 1. **Starter content**, when `select 1 from page limit 1` returns nothing: insert the pages, sections, items, and `site_setting_draft.data` from `contracts/starter-content.json` with `created_by = updated_by = 'seed'` in one transaction.
 2. **Icon library**, when `icon_library_state.library_sha256` differs from the compiled library's hash: PUT every `icons/{sha256}.svg` with the immutable header (one attempt, 3 s each; any failure aborts this step and the boot retries below), then `update icon_library_state set library_sha256 = $hash, written_at = now() where id = 1`.
+2a. **Help topics**, every boot: in one transaction, upsert every entry of `help/topics.json` by `key` (one `insert ... select from unnest(...) on conflict (key) do update`) setting `page`, `label`, `default_title`, `default_body`, `default_links`; `default_updated_at = now()` only when one of the three defaults differs from the row's; `title`, `body`, `links` copied from the defaults only when `edited_by is null`; a row already equal to its entry is not written. Then `delete from help_topic where not (key = any($keys))`. One log line carries the inserted, updated, unchanged, and deleted counts. The file was validated at startup (api.md 11a.9), so this step only fails on a database error, which fails the boot like any other step.
 3. **Content version 1**, when `select 1 from content_version limit 1` returns nothing: the publish recipe (8.19) with `published_by = 'seed'` and `label = 'Starter content'`, minus the snapshot rebuild, which the next step does.
 4. **Snapshot version 1**, when `select 1 from snapshot where id = 1` returns nothing:
 

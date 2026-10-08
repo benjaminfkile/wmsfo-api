@@ -81,12 +81,13 @@ public static class ApiKeyCapabilities
     public const string Diagnostics = "diagnostics";
     public const string Audit = "audit";
     public const string Qr = "qr";
+    public const string Help = "help";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
         Events, Routes, Beacons, Sponsors, CookieTypes, Pages, Sections, SiteSettings,
         Content, Media, Icons, Settings, ContactMessages, Subscribers, People,
-        Diagnostics, Audit, Qr,
+        Diagnostics, Audit, Qr, Help,
     };
 
     public static bool IsKnown(string value) => All.Contains(value, StringComparer.Ordinal);

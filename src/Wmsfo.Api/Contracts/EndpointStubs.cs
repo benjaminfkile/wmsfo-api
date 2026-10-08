@@ -35,7 +35,8 @@ public static class EndpointStubs
         includeAdminApiKeysStubs: true,
         includeQrPlacesStubs: true,
         includeAdminImpactStubs: true,
-        includeAdminPostersStubs: true);
+        includeAdminPostersStubs: true,
+        includeAdminHelpStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -62,7 +63,8 @@ public static class EndpointStubs
         bool includeAdminApiKeysStubs = true,
         bool includeQrPlacesStubs = true,
         bool includeAdminImpactStubs = true,
-        bool includeAdminPostersStubs = true)
+        bool includeAdminPostersStubs = true,
+        bool includeAdminHelpStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -90,6 +92,7 @@ public static class EndpointStubs
         if (includeQrPlacesStubs) MapQrAndPlaces(app);
         if (includeAdminImpactStubs) MapAdminImpact(app);
         if (includeAdminPostersStubs) MapAdminPosters(app);
+        if (includeAdminHelpStubs) MapAdminHelp(app);
     }
 
     // A36 / api.md 5b: `GET /admin/<resource>/{id}/impact` per deletable
@@ -766,6 +769,22 @@ public static class EndpointStubs
         app.MapDelete("/admin/posters/{id:long}", NotImplemented)
             .WithTags("AdminPosters")
             .Produces(StatusCodes.Status204NoContent);
+    }
+
+    private static void MapAdminHelp(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/help", NotImplemented)
+            .WithTags("AdminHelp")
+            .Produces<ItemsResponse<HelpTopicDto>>(StatusCodes.Status200OK);
+
+        app.MapPut("/admin/help/{key}", NotImplemented)
+            .WithTags("AdminHelp")
+            .Accepts<PutHelpTopicRequest>("application/json")
+            .Produces<HelpTopicDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/help/{key}/reset", NotImplemented)
+            .WithTags("AdminHelp")
+            .Produces<HelpTopicDto>(StatusCodes.Status200OK);
     }
 
     private static void MapAdminApiKeys(IEndpointRouteBuilder app)

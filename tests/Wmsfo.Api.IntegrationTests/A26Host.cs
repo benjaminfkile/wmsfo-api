@@ -129,6 +129,7 @@ public sealed class A26Host : IAsyncDisposable
         AdminEventEndpoints.MapAll(app);           // events (Admin)
         AdminCookieTypeEndpoints.MapAll(app);      // cookie_types (Admin)
         AdminSettingsEndpoints.MapAll(app);        // settings (Admin)
+        AdminHelpEndpoints.MapAll(app);            // help (Editor read, Admin write)
 
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>()
