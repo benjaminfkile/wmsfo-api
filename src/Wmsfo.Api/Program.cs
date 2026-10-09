@@ -77,15 +77,7 @@ var connections = WmsfoConnectionStrings.Build(options);
 builder.Services.AddSingleton(connections);
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<WmsfoReadinessGate>();
-// Both registrations share one DbContextOptions<WmsfoDbContext>, so they must
-// agree: both serve requests on the app connection. Migrations build their own
-// context on the migrate connection inside DatabaseMigrator.
-builder.Services.AddDbContextFactory<WmsfoDbContext>(o => o
-    .UseNpgsql(connections.App)
-    .UseSnakeCaseNamingConvention());
-builder.Services.AddDbContext<WmsfoDbContext>(o => o
-    .UseNpgsql(connections.App)
-    .UseSnakeCaseNamingConvention());
+builder.Services.AddWmsfoDbContexts(connections.App);
 
 // api.md 3 step 3: the object store. S3 in the fleet, LocalObjectStore when
 // WMSFO_OBJECT_STORE_DIR is set (dev, tests). Both implement IObjectStore
@@ -242,12 +234,7 @@ static string? ResolveContractsRoot(string start)
 // (icon library from A3, snapshot v1 from A7). Starter content and version 1
 // belong to A14; the SnapshotBootstrap stand-in inserts the fixture content so
 // the pipeline is testable end to end.
-builder.Services.AddSingleton<IFirstBootHook, FleetFirstBootHook>();
-builder.Services.AddScoped<DatabaseMigrator>(sp => new DatabaseMigrator(
-    connections.Migrate,
-    sp.GetRequiredService<IFirstBootHook>(),
-    sp.GetRequiredService<ILoggerFactory>().CreateLogger<DatabaseMigrator>()));
-builder.Services.AddHostedService<MigrationHostedService>();
+builder.Services.AddWmsfoMigrator(connections.Migrate);
 
 // api.md 5 pipeline services: forwarded headers, CORS, auth, rate limits.
 builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
