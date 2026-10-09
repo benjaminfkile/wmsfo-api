@@ -64,11 +64,11 @@ public sealed class A89HelpTopicTests : IClassFixture<PostgresFixture>, IAsyncLi
     public async Task Boot_ensure_writes_every_seed_row_with_the_defaults_shown()
     {
         var first = await EnsureAsync(_seed);
-        Assert.Equal(120, first.Inserted);
+        Assert.Equal(143, first.Inserted);
         Assert.Equal(0, first.Updated);
         Assert.Equal(0, first.Deleted);
 
-        Assert.Equal(120L, await ScalarAsync<long>("select count(*) from help_topic;"));
+        Assert.Equal(143L, await ScalarAsync<long>("select count(*) from help_topic;"));
         Assert.Equal(0L, await ScalarAsync<long>(
             "select count(*) from help_topic where edited_by is not null or edited_at is not null;"));
         Assert.Equal(0L, await ScalarAsync<long>(
@@ -82,7 +82,7 @@ public sealed class A89HelpTopicTests : IClassFixture<PostgresFixture>, IAsyncLi
         // A second ensure with the same seed writes nothing.
         var stampBefore = await ScalarAsync<DateTime>("select max(updated_at) from help_topic;");
         var second = await EnsureAsync(_seed);
-        Assert.Equal(new HelpTopics.EnsureResult(0, 0, 120, 0), second);
+        Assert.Equal(new HelpTopics.EnsureResult(0, 0, 143, 0), second);
         Assert.Equal(stampBefore, await ScalarAsync<DateTime>("select max(updated_at) from help_topic;"));
     }
 
@@ -118,7 +118,7 @@ public sealed class A89HelpTopicTests : IClassFixture<PostgresFixture>, IAsyncLi
         });
         var result = await EnsureAsync(changed);
         Assert.Equal(2, result.Updated);
-        Assert.Equal(118, result.Unchanged);
+        Assert.Equal(141, result.Unchanged);
 
         Assert.Equal("Edited title", await ScalarAsync<string>($"select title from help_topic where key = '{edited.Key}';"));
         Assert.Equal("Edited body", await ScalarAsync<string>($"select body from help_topic where key = '{edited.Key}';"));
@@ -155,9 +155,9 @@ public sealed class A89HelpTopicTests : IClassFixture<PostgresFixture>, IAsyncLi
 
         var result = await EnsureAsync(shorter);
         Assert.Equal(1, result.Deleted);
-        Assert.Equal(119, result.Unchanged);
+        Assert.Equal(142, result.Unchanged);
         Assert.Equal(0L, await ScalarAsync<long>($"select count(*) from help_topic where key = '{gone}';"));
-        Assert.Equal(119L, await ScalarAsync<long>("select count(*) from help_topic;"));
+        Assert.Equal(142L, await ScalarAsync<long>("select count(*) from help_topic;"));
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public sealed class A89HelpTopicTests : IClassFixture<PostgresFixture>, IAsyncLi
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var doc = await ReadJsonAsync(response);
         var items = doc.RootElement.GetProperty("items").EnumerateArray().ToList();
-        Assert.Equal(120, items.Count);
+        Assert.Equal(143, items.Count);
 
         var expected = _seed.Entries
             .OrderBy(e => e.Page, StringComparer.Ordinal)

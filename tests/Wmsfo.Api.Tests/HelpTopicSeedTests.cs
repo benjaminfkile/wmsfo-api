@@ -16,7 +16,7 @@ public class HelpTopicSeedTests
     public void Loader_accepts_the_committed_file()
     {
         var seed = HelpTopicSeed.Load(ContractsPaths.RepoRoot);
-        Assert.Equal(120, seed.Entries.Count);
+        Assert.Equal(143, seed.Entries.Count);
         Assert.Equal("dashboard", seed.Entries[0].Key);
         Assert.All(seed.Entries, e => Assert.True(HelpTopicSeed.IsValidKey(e.Key)));
     }
