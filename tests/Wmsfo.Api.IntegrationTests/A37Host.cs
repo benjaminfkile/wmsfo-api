@@ -33,11 +33,13 @@ public sealed class A37Host : IAsyncDisposable
     public FakeGatewayClient Gateway { get; }
     public LiveObjectWriter Writer => App.Services.GetRequiredService<LiveObjectWriter>();
     public BeaconRateLimiter RateLimiter => App.Services.GetRequiredService<BeaconRateLimiter>();
+    public ManualTimeProvider Time { get; }
     public NodeStateService State => App.Services.GetRequiredService<NodeStateService>();
 
     private A37Host(WebApplication app, HttpClient client, WmsfoOptions options,
-        RecordingObjectStore store, FakeGatewayClient gateway)
+        RecordingObjectStore store, FakeGatewayClient gateway, ManualTimeProvider time)
     {
+        Time = time;
         App = app;
         Client = client;
         Options = options;
@@ -92,6 +94,7 @@ public sealed class A37Host : IAsyncDisposable
         var connections = TestConnections.For(connectionString);
         var store = new RecordingObjectStore();
         var gateway = new FakeGatewayClient();
+        var time = new ManualTimeProvider();
 
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(connections);
@@ -110,6 +113,7 @@ public sealed class A37Host : IAsyncDisposable
         builder.Services.AddSingleton(SharedContent.Validator);
         builder.Services.AddSingleton<SnapshotBuilder>();
         builder.Services.AddSingleton<LiveObjectWriter>();
+        builder.Services.AddSingleton<TimeProvider>(time);
         builder.Services.AddSingleton<BeaconRateLimiter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
@@ -144,7 +148,7 @@ public sealed class A37Host : IAsyncDisposable
             .Features.Get<IServerAddressesFeature>()!
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
-        return new A37Host(app, client, options, store, gateway);
+        return new A37Host(app, client, options, store, gateway, time);
     }
 
     private static IEnumerable<string> AllPolicies()
