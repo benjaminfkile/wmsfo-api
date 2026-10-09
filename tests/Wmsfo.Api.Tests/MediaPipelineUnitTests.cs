@@ -98,6 +98,23 @@ public sealed class MediaPipelineUnitTests
     }
 
     [Fact]
+    public void Decode_refuses_a_tiff_body_whatever_it_claims_to_be()
+    {
+        // A valid TIFF (ImageSharp's own encoder) never reaches a decoder: the
+        // API admits png, jpeg, webp, and gif only, so the TIFF code paths of
+        // the suppressed 3.1.12 advisories cannot run on uploaded bytes.
+        using var ms = new MemoryStream();
+        using (var image = new Image<Rgba32>(4, 4))
+            image.Save(ms, new SixLabors.ImageSharp.Formats.Tiff.TiffEncoder());
+        var tiff = ms.ToArray();
+
+        var load = Assert.Throws<MediaDecodeException>(() => VariantDeriver.LoadRaster(tiff));
+        Assert.Equal("decode_failed", load.Message);
+        var identify = Assert.Throws<MediaDecodeException>(() => VariantDeriver.DecodeGifDimensions(tiff));
+        Assert.Equal("decode_failed", identify.Message);
+    }
+
+    [Fact]
     public void Decode_bogus_bytes_throws_decode_failed()
     {
         var ex = Assert.Throws<MediaDecodeException>(() => VariantDeriver.DecodeRaster(new byte[] { 0, 1, 2, 3 }));

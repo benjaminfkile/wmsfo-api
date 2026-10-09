@@ -1,4 +1,8 @@
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats;
+using SixLabors.ImageSharp.Formats.Gif;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Processing;
 
@@ -16,6 +20,19 @@ public static class VariantDeriver
     public const int WebpQuality = 82;
     public static readonly int[] TargetWidths = { 480, 960, 1600 };
 
+    // The decoders the API admits: the four raster formats of api.md 11.3 and
+    // nothing else, whatever the bytes claim to be. ImageSharp sniffs the
+    // format from the bytes, so without this a TIFF or BMP body uploaded under
+    // a png content type would reach a decoder the media rules never allow.
+    public static readonly DecoderOptions RasterDecoder = new()
+    {
+        Configuration = new Configuration(
+            new PngConfigurationModule(),
+            new JpegConfigurationModule(),
+            new WebpConfigurationModule(),
+            new GifConfigurationModule()),
+    };
+
     // Load the raster into an ImageSharp Image and enforce the 40-megapixel
     // ceiling. The caller owns the returned image and must dispose it.
     public static Image LoadRaster(byte[] bytes)
@@ -24,7 +41,7 @@ public static class VariantDeriver
         Image image;
         try
         {
-            image = Image.Load(bytes);
+            image = Image.Load(RasterDecoder, bytes);
         }
         catch (Exception)
         {
@@ -74,7 +91,7 @@ public static class VariantDeriver
         ArgumentNullException.ThrowIfNull(bytes);
         try
         {
-            var info = Image.Identify(bytes);
+            var info = Image.Identify(RasterDecoder, bytes);
             if (info is null) throw new MediaDecodeException("decode_failed");
             return (info.Width, info.Height);
         }
