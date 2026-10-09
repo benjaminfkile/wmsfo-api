@@ -113,6 +113,18 @@ public sealed class A96MapEndpointsTests : IClassFixture<PostgresFixture>, IAsyn
     }
 
     [Fact]
+    public async Task Create_accepts_terrain_to_zoom_15_and_reads_it_back()
+    {
+        var response = await SendAsync(HttpMethod.Post, "/admin/maps", Body("Terrain 15", Box, 0, 15, 15).ToJsonString());
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        Assert.Equal(AdminMapEndpoints.PackageKey(Box, 0, 15, 15), doc.RootElement.GetProperty("packageKey").GetString());
+        var listed = await FindInListAsync(Id(doc));
+        Assert.Equal(15, listed.GetProperty("terrainMaxZoom").GetInt32());
+        Assert.Equal(15, await CountAsync("select terrain_max_zoom::int from tracker_map where name = $1", "Terrain 15"));
+    }
+
+    [Fact]
     public async Task Create_again_reuses_the_pending_row_and_its_open_uploads_and_restarts_a_lost_one()
     {
         var body = Body("Reused", Box, 2, 13, 11).ToJsonString();
@@ -159,7 +171,7 @@ public sealed class A96MapEndpointsTests : IClassFixture<PostgresFixture>, IAsyn
             (b => b["maxZoom"] = 7, "maxZoom"),
             (b => b["maxZoom"] = 16, "maxZoom"),
             (b => { b["minZoom"] = 12; b["maxZoom"] = 10; }, "maxZoom"),
-            (b => b["terrainMaxZoom"] = 14, "terrainMaxZoom"),
+            (b => b["terrainMaxZoom"] = 16, "terrainMaxZoom"),
             (b => b["terrainMaxZoom"] = 7, "terrainMaxZoom"),
             (b => b["sourceBuild"] = "2026-13-01", "sourceBuild"),
             (b => b["sourceBuild"] = "October 1", "sourceBuild"),
