@@ -241,6 +241,65 @@
     ]
   },
   {
+    "key": "events.detail.tracker-map",
+    "page": "Events",
+    "label": "Tracker map card",
+    "title": "The area, map, and themes of this event",
+    "body": "This card sets how the live tracker and the route map look for this event. It has three parts: the area the maps are locked to, the map the tiles come from, and the themes viewers can choose between.\n\nWith a ready map picked, viewers whose browser can run it see the event on MapLibre, drawn from your own tiles. Without one, every viewer sees Google Maps. Either way the view stays inside the area.\n\nEvery change here is part of the snapshot, so the public site shows it on the next snapshot while this is the current event.",
+    "links": [
+      { "label": "Maps", "to": "/maps" },
+      { "label": "Tracker themes", "to": "/themes" }
+    ]
+  },
+  {
+    "key": "events.detail.tracker-map.bbox",
+    "page": "Events",
+    "label": "Tracker area",
+    "title": "The area both maps lock to",
+    "body": "The area is a box on the map, west, south, east, and north in degrees. Both renderers lock to it: viewers cannot pan outside it, and the furthest they can zoom out is the zoom that fits the box on their screen. The route map uses it as its pan limit too.\n\nDraw the box on the map or type the four edges. Each side must be at least 0.05 and at most 20 degrees. Keep it tight around where the flight goes; a wide box makes a large tile package.\n\nExport for tile builder saves the box as a file the tile builder reads, so a map can be built for exactly this area. If the event has a map, the new box must stay inside that map's area or the save is refused.",
+    "links": [
+      { "label": "Maps", "to": "/maps" }
+    ]
+  },
+  {
+    "key": "events.detail.tracker-map.map",
+    "page": "Events",
+    "label": "Tracker map choice",
+    "title": "Which map the event draws on",
+    "body": "The list offers only ready maps whose area covers this event's box. Pick one and viewers draw the event on MapLibre with that map's tiles; their browser falls back to Google Maps when it cannot run MapLibre.\n\nChoose No map and every viewer gets Google Maps, still locked to the event's area.\n\nIf you widen or move the box so the chosen map no longer covers it, the save is refused. Either pick a map that covers the new box, build one with the tile builder, or keep the box inside the current map.",
+    "links": [
+      { "label": "Maps", "to": "/maps" }
+    ]
+  },
+  {
+    "key": "events.detail.tracker-map.themes",
+    "page": "Events",
+    "label": "Tracker theme checklist",
+    "title": "Which themes viewers can choose",
+    "body": "The checklist shows every theme grouped by renderer, Google Maps and MapLibre. Checked themes appear in the tracker menu for this event, in the order the Tracker themes page sets.\n\nAt least one Google theme must stay checked, because any viewer can end up on Google Maps: an event without a map, or a browser that cannot run MapLibre. MapLibre themes only matter when the event has a map.\n\nWhich checked theme a new viewer starts on comes from the light and dark defaults on the Tracker themes page.",
+    "links": [
+      { "label": "Tracker themes", "to": "/themes" }
+    ]
+  },
+  {
+    "key": "events.create.bbox",
+    "page": "Events",
+    "label": "New event area",
+    "title": "The area a new event starts with",
+    "body": "The new event dialog fills the area from the default area in Site settings. Keep it, or draw or type another box with each side between 0.05 and 20 degrees.\n\nThe map and the themes are not chosen here. The new event copies them from the newest event, by year: its checked themes, and its map when that map covers the new box. Otherwise the new event has no map and shows Google Maps until you pick one.\n\nYou can change the area, map, and themes afterwards on the event page's Tracker map card.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "events.clone.tracker",
+    "page": "Events",
+    "label": "Clone tracker option",
+    "title": "Copying the tracker map and themes",
+    "body": "With the Tracker map box on, the copy takes the source event's map and its checked themes.\n\nWith it off, the copy takes them the way a new event does: from the newest event, the map only when it covers the area.\n\nThe area itself always copies from the source event, whichever way the box is set, because every event has one.",
+    "links": []
+  },
+  {
     "key": "routes",
     "page": "Flight recordings",
     "label": "Flight recordings list",
@@ -696,6 +755,26 @@
     ]
   },
   {
+    "key": "posters.theme",
+    "page": "Poster studio",
+    "label": "Poster map theme",
+    "title": "The theme the poster's map is drawn with",
+    "body": "The poster's map is drawn with one MapLibre theme from the Tracker themes page. Pick the look that suits the print.\n\nThe route path, its arrows, and the time labels take the theme's overlay colours until you set your own under Route styling. Change theme later and those that still follow the theme change with it; your overrides stay.",
+    "links": [
+      { "label": "Tracker themes", "to": "/themes" }
+    ]
+  },
+  {
+    "key": "posters.map",
+    "page": "Poster studio",
+    "label": "Poster map",
+    "title": "Where the poster's base map comes from",
+    "body": "The poster's base map tiles come from one of the maps on the Maps page. By default it is the map of the newest event that uses this poster's recording.\n\nPick another map when that one does not cover the whole route or you want a different area. Only ready maps are listed.",
+    "links": [
+      { "label": "Maps", "to": "/maps" }
+    ]
+  },
+  {
     "key": "site-settings",
     "page": "Site settings",
     "label": "Site settings form",
@@ -764,6 +843,17 @@
     "body": "Places on the maps chooses the kinds of real-world places each map labels, such as parks, schools, or churches. There are two groups because the two maps draw places differently. Live tracker covers the tracker map; Default shows the places its map style draws, and Custom shows only the kinds you check. Route map covers the route drawing; Default shows no places, and Custom labels only the kinds you check.\n\nEach group is a Default or Custom choice with a checkbox per category. Custom with nothing checked means the map shows no places, and the group says so.\n\nThis is not the same as viewpoints, which are your own named spots. The event page's route map dialog previews the route map places chosen here. The choice is a draft until published.",
     "links": [
       { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "site-settings.tracker",
+    "page": "Site settings",
+    "label": "Default tracker area",
+    "title": "The area a new event starts with",
+    "body": "Default tracker area is the box a new event takes when its dialog keeps the suggested area. Draw it or type its four edges; each side is between 0.05 and 20 degrees.\n\nChanging it changes nothing on existing events. Each event keeps its own area, set on its event page.\n\nLike every setting here it is a draft until you publish, and new events use the published value. The box can also be exported for the tile builder from here.",
+    "links": [
+      { "label": "Events", "to": "/events" },
+      { "label": "Maps", "to": "/maps" }
     ]
   },
   {
@@ -1151,5 +1241,128 @@
     "links": [
       { "label": "Help", "to": "/help" }
     ]
+  },
+  {
+    "key": "maps",
+    "page": "Maps",
+    "label": "Maps list",
+    "title": "What a map is",
+    "body": "A map is a package of map tiles for one area: the streets, places, and labels the tracker draws, plus an optional terrain layer for relief. The tiles are your own copy on the site's storage, so viewers do not call any outside map service.\n\nMaps are built and uploaded by the tile builder, a command line tool run on an operator's computer. This page only lists them, renames them, and deletes them; it cannot upload one.\n\nAn event with a ready map draws the tracker on MapLibre with those tiles. An event without one draws Google Maps. Pick the map on the event page's Tracker map card.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "maps.list",
+    "page": "Maps",
+    "label": "Map columns",
+    "title": "Reading the maps list",
+    "body": "Each row shows the map's area, its state, the zoom range, the size of the tiles and of the terrain, the date of the source build the tiles came from, and how many events use it.\n\nA ready map can be picked on an event. A pending map is an upload that has not been confirmed yet: the tile builder is still sending it, or it stopped part way. Running the upload again resumes it, and a pending map left for a day is removed on its own.",
+    "links": []
+  },
+  {
+    "key": "maps.build",
+    "page": "Maps",
+    "label": "Building a map",
+    "title": "How to build and upload a map",
+    "body": "1. Export the area: on an event's Tracker map card or in Site settings, use Export for tile builder to save the box as a file. Or skip the file and give the builder an event with --event.\n\n2. Build: run wmsfo-tiles build with that file. Terrain is included unless you add --no-terrain; it is the slow, large half of the package.\n\n3. Upload: run wmsfo-tiles upload with the folder the build wrote. It needs an API key with the Maps capability (and Events as well for --event). The upload ends with the map ready on this page.\n\n4. Pick the map on the event's Tracker map card.",
+    "links": [
+      { "label": "API keys", "to": "/api-keys" },
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "maps.delete",
+    "page": "Maps",
+    "label": "Delete map",
+    "title": "What deleting a map does",
+    "body": "Deleting a map removes its tiles. Every event using it loses its map and falls back to Google Maps, unless you choose a replacement map that covers each of those events' areas. The preview lists the events first, and warns when the current event is among them.\n\nThe seeded Missoula valley map is different: deleting its row leaves its files in place.\n\nIf the current event uses the map, its viewers move on the next snapshot.",
+    "links": []
+  },
+  {
+    "key": "themes",
+    "page": "Tracker themes",
+    "label": "Tracker themes list",
+    "title": "What a tracker theme is",
+    "body": "A theme is one look for one renderer: Google Maps, or MapLibre over one of your maps. It carries the map style, the colours of the tracker's buttons and panels, the colours drawn over the map, and a thumbnail.\n\nThemes are offered per event: each event's Tracker map card checks which themes its viewers can choose. The order on this page is the order in the tracker menu.\n\nThe light and dark defaults decide which theme a viewer starts on.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "themes.editor",
+    "page": "Tracker themes",
+    "label": "Theme editor",
+    "title": "The theme record",
+    "body": "The editor holds the record around a style file you import: the renderer, fixed once the theme is created; the key, a short name the site remembers a viewer's choice by; the display name; the style file; the chrome and overlay colours; the thumbnail; and the default flags.\n\nIt is not a style editor. The map style itself is made in another tool and dropped here as a file. Changing the key makes viewers who chose the old key start from the default again.",
+    "links": []
+  },
+  {
+    "key": "themes.style-file",
+    "page": "Tracker themes",
+    "label": "Style file",
+    "title": "What the style file must be",
+    "body": "For Google Maps, the file is a JSON array of rules, each with only featureType, elementType, and stylers.\n\nFor MapLibre, the file is a version 8 style whose sources are basemap and, optionally, terrain, with no URLs in them. Every layer that has a source names one of the two. Layers that draw places carry \"metadata\": { \"wmsfo:places\": true } so the site can apply the places chosen in Site settings.\n\nTo make a MapLibre style: download the starter style, open it in Maputnik, edit it, export it, and drop the exported file here. The file is checked on upload and refused with the reason when it breaks a rule.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
+  },
+  {
+    "key": "themes.starter-style",
+    "page": "Tracker themes",
+    "label": "Starter style",
+    "title": "The style to start a MapLibre theme from",
+    "body": "The starter style is the seeded light route style, with the sources and the places layer already set up the way the site needs them.\n\nDownload it, change colours and layers in Maputnik, and import the result as a new MapLibre theme. Starting here saves you from the source and metadata rules.",
+    "links": []
+  },
+  {
+    "key": "themes.chrome",
+    "page": "Tracker themes",
+    "label": "Chrome colours",
+    "title": "The colours of the tracker screen",
+    "body": "Chrome is the seven colours everything on the tracker screen that is not the map takes while this theme is on: the background, the secondary text, the main text, the menu tiles and their text, the panels, and the accent. The pills, panels, tiles, and buttons all use them.\n\nTwo pairs must be readable: the text on the background, and the tile text on the tile, each at a contrast of at least 4.5 to 1. The save is refused at the colour that falls short.\n\nColours may carry transparency, such as a slightly see-through panel.",
+    "links": []
+  },
+  {
+    "key": "themes.overlay",
+    "page": "Tracker themes",
+    "label": "Overlay colours",
+    "title": "The colours drawn over the map",
+    "body": "Overlay sets what the site draws on top of the map: the route path's colour and opacity, the arrows along it, the time labels' background, text, and opacity, and the colour of the viewer's own location marker.\n\nPick colours that stand out against this theme's map. Opacities run from 0, invisible, to 1, solid.",
+    "links": []
+  },
+  {
+    "key": "themes.defaults",
+    "page": "Tracker themes",
+    "label": "Default flags",
+    "title": "Which theme a viewer starts on",
+    "body": "Each renderer has one light default and one dark default. A viewer who never picked a theme starts on the default that matches their light or dark appearance, if the event offers it, and on the first offered theme otherwise.\n\nTurning a flag on here moves it off the theme that held it, so there is never more than one holder.",
+    "links": []
+  },
+  {
+    "key": "themes.sprite",
+    "page": "Tracker themes",
+    "label": "Sprite files",
+    "title": "The icon images a style needs",
+    "body": "MapLibre only. A sprite is the set of icon images a style draws, such as road shields or place symbols. It is four files uploaded together: sprite.json, sprite.png, sprite@2x.json, and sprite@2x.png.\n\nThe seeded themes carry none and need none. Add a sprite only when your style uses icons; a new upload replaces the set the theme uses.",
+    "links": []
+  },
+  {
+    "key": "themes.thumbnail",
+    "page": "Tracker themes",
+    "label": "Theme thumbnail",
+    "title": "The picture in the tracker menu",
+    "body": "The thumbnail is the round picture viewers see for this theme in the tracker menu. Pick an image from the media library.\n\nA theme without one shows a swatch of its colours instead. MapLibre themes can render a thumbnail from the preview.",
+    "links": [
+      { "label": "Media", "to": "/media" }
+    ]
+  },
+  {
+    "key": "themes.delete",
+    "page": "Tracker themes",
+    "label": "Delete theme",
+    "title": "What deleting a theme does",
+    "body": "Every event offering the theme loses it, unless you choose a replacement of the same renderer, which those events then offer in its place. A default flag the theme holds moves to the replacement, or is cleared.\n\nEvery event must keep at least one Google theme, so the last Google theme checked on an event cannot be deleted without a Google replacement. The preview names the event when that is the case.",
+    "links": []
   }
 ]
