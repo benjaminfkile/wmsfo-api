@@ -1,0 +1,15 @@
+{
+  "name": "wmsfo-tiles",
+  "private": true,
+  "type": "module",
+  "main": "index.test.mjs",
+  "bin": {
+    "wmsfo-tiles": "./cli.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

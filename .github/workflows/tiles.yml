@@ -1,0 +1,23 @@
+# docs/platform.md section 9.1b: the tile package CLI. It runs on an operator's
+# machine and is not part of the API image, so the workflow tests and never
+# deploys. The CLI has no npm dependency and no lockfile, so there is no install.
+name: tiles
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["tools/tiles/**"]
+  pull_request:
+    paths: ["tools/tiles/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
+      - run: node --test tools/tiles
