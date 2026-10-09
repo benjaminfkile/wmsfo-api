@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # local object store (api.md section 20)
 .local-cdn/
+
+# Tile packages the tile CLI builds (tools/tiles, docs/platform.md 1.8)
+tools/tiles/out/

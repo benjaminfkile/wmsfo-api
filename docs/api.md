@@ -123,7 +123,7 @@ wmsfo-api/
     Contracts/OpenApiExport.cs  SchemaExport.cs  FixtureExport.cs  FixtureData.cs  StarterContentBuilder.cs  AdminThresholds.cs  EndpointStubs.cs   # the export-contracts mode (section 21)
   tools/Wmsfo.Migrate/                # the one-off legacy migration tool (sql.md 15, platform.md 12)
   tools/tiles/                        # the tile package CLI, Node 22 with its own package.json and node --test, run on an operator's machine (platform.md 1.8)
-  .dockerignore                       # created by the CLI task (it does not exist today): tools/tiles/node_modules and tools/tiles/out, so COPY . . leaves them out of the image
+  .dockerignore                       # tools/tiles/node_modules and tools/tiles/out, so COPY . . leaves them out of the image
   tests/Wmsfo.Api.Tests/              # unit + contract tests
   tests/Wmsfo.Api.IntegrationTests/   # Postgres-backed, full pipeline
 ```
