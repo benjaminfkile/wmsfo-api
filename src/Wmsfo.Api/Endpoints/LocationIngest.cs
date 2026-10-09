@@ -487,9 +487,19 @@ where id = $1;", conn, tx);
 // (mirrored from the beacon row on the last write), the last accepted seq for
 // the dropped-response body, and a drop counter that flushes to
 // beacon.fixes_rate_limited at most once every 5 s per beacon (contracts 7.2).
+// The flush window reads the injected TimeProvider (the system clock unless a
+// host registers another).
 public sealed class BeaconRateLimiter
 {
+    public static readonly TimeSpan FlushWindow = TimeSpan.FromSeconds(5);
+
     private readonly ConcurrentDictionary<long, BeaconState> _states = new();
+    private readonly TimeProvider _time;
+
+    public BeaconRateLimiter(TimeProvider? time = null)
+    {
+        _time = time ?? TimeProvider.System;
+    }
 
     private sealed class BeaconState
     {
@@ -552,14 +562,14 @@ public sealed class BeaconRateLimiter
     {
         var s = GetOrAdd(beaconId);
         Interlocked.Increment(ref s.PendingDrops);
-        var now = DateTimeOffset.UtcNow;
-        if (now - s.LastFlushAt < TimeSpan.FromSeconds(5)) return;
+        var now = _time.GetUtcNow();
+        if (now - s.LastFlushAt < FlushWindow) return;
 
         if (!await s.FlushGate.WaitAsync(0, ct).ConfigureAwait(false))
             return;                    // another flush in flight
         try
         {
-            if (DateTimeOffset.UtcNow - s.LastFlushAt < TimeSpan.FromSeconds(5))
+            if (_time.GetUtcNow() - s.LastFlushAt < FlushWindow)
                 return;
             var toFlush = Interlocked.Exchange(ref s.PendingDrops, 0);
             if (toFlush <= 0) return;
@@ -572,7 +582,7 @@ public sealed class BeaconRateLimiter
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (long)toFlush });
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                 await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-                s.LastFlushAt = DateTimeOffset.UtcNow;
+                s.LastFlushAt = _time.GetUtcNow();
             }
             catch
             {

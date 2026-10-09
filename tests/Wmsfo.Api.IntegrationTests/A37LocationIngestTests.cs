@@ -218,15 +218,19 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
     public async Task Rate_limit_flush_lands_in_fixes_rate_limited()
     {
         await SeedEventAsync();
-        var (beaconId, key) = await SeedBeaconAsync("flush", isActive: true, minIntervalMs: null);
-        _ = await PostFixAsync(key, 46.87, -114.0);
-        // Force a flush window elapsed by rewinding the state.
-        var limiter = _host!.RateLimiter;
-        // The private LastFlushAt starts at MinValue so the first drop flushes.
+        // A 60 s override keeps the second fix inside the interval however
+        // long the first request takes, so the drop does not race the wall
+        // clock.
+        var (beaconId, key) = await SeedBeaconAsync("flush", isActive: true, minIntervalMs: 60000);
+        var (_, storedDoc) = await PostFixAsync(key, 46.87, -114.0);
+        Assert.Equal("stored", storedDoc.RootElement.GetProperty("outcome").GetString());
+        // The limiter's flush window reads the host's manual clock; move it
+        // past the window so the next drop flushes.
+        _host!.Time.Advance(BeaconRateLimiter.FlushWindow + TimeSpan.FromSeconds(1));
         var (_, dropDoc) = await PostFixAsync(key, 46.87, -114.0);
         Assert.Equal("dropped", dropDoc.RootElement.GetProperty("outcome").GetString());
-        // The flush is async but runs inside HandleAsync before the response;
-        // read the column now.
+        // The flush runs inside HandleAsync before the response; read the
+        // column now.
         var (_, _, rateLimited) = await ReadBeaconCountersAsync(beaconId);
         Assert.Equal(1L, rateLimited);
     }
