@@ -3179,6 +3179,25 @@
         }
       }
     },
+    "/admin/maps/{id}/impact": {
+      "get": {
+        "tags": [
+          "AdminImpact"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteImpactDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/posters": {
       "get": {
         "tags": [
@@ -3545,6 +3564,187 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/admin/maps": {
+      "get": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfTrackerMapDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrackerMapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapUploadDto"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapUploadDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/maps/{id}/parts": {
+      "post": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackerMapPartsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapPartsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/maps/{id}/complete": {
+      "post": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrackerMapCompleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/maps/{id}/confirm": {
+      "post": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/maps/{id}": {
+      "patch": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTrackerMapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrackerMapDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AdminMaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteTrackerMapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -5117,6 +5317,49 @@
           }
         }
       },
+      "CreateTrackerMapRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/Bbox"
+          },
+          "minZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "terrainMaxZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sourceBuild": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateTrackerThemeRequest": {
         "type": "object",
         "properties": {
@@ -5181,6 +5424,21 @@
             }
           }
         }
+      },
+      "DeleteTrackerMapRequest": {
+        "type": "object",
+        "properties": {
+          "replacementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false
       },
       "DeleteTrackerThemeRequest": {
         "type": "object",
@@ -5996,6 +6254,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SubscriptionDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfTrackerMapDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackerMapDto"
             }
           }
         }
@@ -7852,6 +8121,15 @@
             ]
           }
         }
+      },
+      "PatchTrackerMapRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "PatchTrackerThemeRequest": {
         "type": "object",
@@ -10099,6 +10377,262 @@
           }
         }
       },
+      "TrackerMapCompletePartDto": {
+        "type": "object",
+        "properties": {
+          "partNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "etag": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TrackerMapCompleteRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackerMapCompletePartDto"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TrackerMapDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": "string"
+          },
+          "packageKey": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "bbox": {
+            "$ref": "#/components/schemas/Bbox"
+          },
+          "minZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "terrainMaxZoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "tilesBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "terrainBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "sourceBuild": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "builtAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "tilesUrl": {
+            "type": "string"
+          },
+          "terrainUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "eventCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "audit": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuditStampDto"
+              }
+            ]
+          }
+        }
+      },
+      "TrackerMapPartsDto": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrackerMapPartUrlDto"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrackerMapPartsRequest": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "partNumbers": {
+            "type": "array",
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TrackerMapPartUrlDto": {
+        "type": "object",
+        "properties": {
+          "partNumber": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "TrackerMapUploadDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "packageKey": {
+            "type": "string"
+          },
+          "uploads": {
+            "$ref": "#/components/schemas/TrackerMapUploadsDto"
+          }
+        }
+      },
+      "TrackerMapUploadIdDto": {
+        "type": "object",
+        "properties": {
+          "uploadId": {
+            "type": "string"
+          }
+        }
+      },
+      "TrackerMapUploadsDto": {
+        "type": "object",
+        "properties": {
+          "tiles": {
+            "$ref": "#/components/schemas/TrackerMapUploadIdDto"
+          },
+          "terrain": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrackerMapUploadIdDto"
+              }
+            ]
+          }
+        }
+      },
       "TrackerThemeDto": {
         "type": "object",
         "properties": {
@@ -10358,6 +10892,9 @@
     },
     {
       "name": "AdminThemes"
+    },
+    {
+      "name": "AdminMaps"
     },
     {
       "name": "AdminDiagnostics"

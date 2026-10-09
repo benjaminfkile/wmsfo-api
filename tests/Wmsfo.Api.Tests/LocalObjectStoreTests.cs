@@ -170,4 +170,57 @@ public sealed class LocalObjectStoreTests : IDisposable
 
     private const string IconContentType = "image/svg+xml";
     private const string ImmutableCache = "public, max-age=31536000, immutable";
+
+    [Fact]
+    public async Task Multipart_round_trip_writes_parts_lists_completes_reads_a_range_and_aborts()
+    {
+        const string key = "maps/abc/tiles.pmtiles";
+        const string cache = "public, max-age=31536000, immutable";
+        var uploadId = await _store.StartMultipartAsync(key, "application/octet-stream", cache);
+        var second = await _store.StartMultipartAsync("maps/abc/terrain.pmtiles", "application/octet-stream", cache);
+
+        Assert.Equal($"{UploadBase}/local-upload/parts/{uploadId}/1",
+            _store.PresignUploadPart(key, uploadId, 1, TimeSpan.FromMinutes(15)));
+
+        var one = Encoding.UTF8.GetBytes("first part ");
+        var two = Encoding.UTF8.GetBytes("second part");
+        var etag1 = await _store.WritePartAsync(uploadId, 1, new MemoryStream(one));
+        var etag2 = await _store.WritePartAsync(uploadId, 2, new MemoryStream(two));
+        Assert.NotNull(etag1);
+        Assert.NotNull(etag2);
+        Assert.True(File.Exists(Path.Combine(_root, ".multipart", uploadId, "1")));
+        await _store.WritePartAsync(second, 1, new MemoryStream(one));
+        Assert.Null(await _store.WritePartAsync("0123456789abcdef0123456789abcdef", 1, new MemoryStream(one)));
+        Assert.Null(await _store.WritePartAsync("../escape", 1, new MemoryStream(one)));
+
+        var open = await _store.ListMultipartUploadsAsync("maps/abc/");
+        Assert.Equal(2, open.Count);
+        Assert.Contains(new MultipartUploadEntry(key, uploadId), open);
+        Assert.Empty(await _store.ListMultipartUploadsAsync("maps/other/"));
+        // The part files are not objects.
+        await foreach (var entry in _store.ListPrefixAsync(""))
+            Assert.DoesNotContain(".multipart", entry.Key);
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            _store.CompleteMultipartAsync(key, uploadId, [new MultipartPart(1, etag1!), new MultipartPart(2, "\"bad\"")]));
+        await _store.CompleteMultipartAsync(key, uploadId, [new MultipartPart(1, etag1!), new MultipartPart(2, etag2!)]);
+
+        var head = await _store.HeadObjectAsync(key);
+        Assert.NotNull(head);
+        Assert.Equal(one.Length + two.Length, head!.ContentLength);
+        Assert.Equal("application/octet-stream", head.ContentType);
+        Assert.Equal(cache, head.CacheControl);
+        var joined = (await _store.GetObjectAsync(key))!.Bytes;
+        Assert.Equal(one.Concat(two).ToArray(), joined);
+        Assert.False(Directory.Exists(Path.Combine(_root, ".multipart", uploadId)));
+
+        Assert.Equal(Encoding.UTF8.GetBytes("part second"), await _store.GetObjectRangeAsync(key, 6, 16));
+        Assert.Equal(two, await _store.GetObjectRangeAsync(key, one.Length, 1000));
+        Assert.Null(await _store.GetObjectRangeAsync("maps/abc/missing.pmtiles", 0, 126));
+
+        Assert.Equal([new MultipartUploadEntry("maps/abc/terrain.pmtiles", second)], await _store.ListMultipartUploadsAsync("maps/abc/"));
+        await _store.AbortMultipartAsync("maps/abc/terrain.pmtiles", second);
+        Assert.False(Directory.Exists(Path.Combine(_root, ".multipart", second)));
+        Assert.Empty(await _store.ListMultipartUploadsAsync("maps/"));
+    }
 }

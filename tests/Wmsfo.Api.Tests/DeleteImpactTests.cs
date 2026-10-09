@@ -31,6 +31,14 @@ public class DeleteImpactTests
         Assert.Equal(
             "The maplibre renderer loses its default dark theme.",
             string.Format(CultureInfo.InvariantCulture, ImpactHelpers.ThemeDefaultWarning, "maplibre", "dark"));
+        Assert.Equal(
+            "2 events lose their map; their viewers get Google Maps at the next snapshot.",
+            string.Format(CultureInfo.InvariantCulture, ImpactHelpers.MapEventsWarning, 2));
+        Assert.Equal(
+            "Liftoff 2026 is the current event; its viewers move to Google Maps at the next snapshot.",
+            string.Format(CultureInfo.InvariantCulture, ImpactHelpers.MapCurrentEventWarning, "Liftoff 2026"));
+        Assert.Equal("Liftoff 2026 is live.",
+            string.Format(CultureInfo.InvariantCulture, ImpactHelpers.MapLiveEventWarning, "Liftoff 2026"));
     }
 
     [Fact]

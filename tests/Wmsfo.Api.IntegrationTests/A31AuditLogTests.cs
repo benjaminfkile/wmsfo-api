@@ -237,7 +237,7 @@ public sealed class A31AuditLogTests : IClassFixture<PostgresFixture>, IAsyncLif
             "activate", "deactivate", "revoke", "rotate",
             "order", "copy", "import", "confirm",
             "publish", "restore", "move", "duplicate", "enroll",
-            "sprite", "default",
+            "sprite", "default", "parts", "complete",
         };
 
         // Read every audit_log row and inspect it.

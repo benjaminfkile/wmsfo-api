@@ -17,9 +17,10 @@ public sealed class ChoreHost : BackgroundService
     public static readonly TimeSpan OrphanCadence = TimeSpan.FromHours(1);
     public static readonly TimeSpan NightlyPollCadence = TimeSpan.FromMinutes(1);
 
-    // Nightly cleanup fires at 09:00 UTC exactly once per day. The poll
-    // cadence above is how often the host wakes to check the clock; each
-    // day's fire is guarded by _nightlyLastRunDate.
+    // Nightly cleanup fires at 09:00 UTC exactly once per day, the pending
+    // map sweep right after it. The poll cadence above is how often the host
+    // wakes to check the clock; each day's fire is guarded by
+    // _nightlyLastRunDate.
     public static readonly TimeSpan NightlyRunAt = TimeSpan.FromHours(9);
 
     private readonly NodeStateService _state;
@@ -29,6 +30,7 @@ public sealed class ChoreHost : BackgroundService
     private readonly StaleBeaconFlagger _stale;
     private readonly MediaOrphanCollector _orphan;
     private readonly NightlyCleanup _nightly;
+    private readonly PendingMapSweeper _mapSweep;
     private readonly IChoreClock _clock;
     private readonly ILogger<ChoreHost> _logger;
 
@@ -42,6 +44,7 @@ public sealed class ChoreHost : BackgroundService
         StaleBeaconFlagger stale,
         MediaOrphanCollector orphan,
         NightlyCleanup nightly,
+        PendingMapSweeper mapSweep,
         IChoreClock clock,
         ILogger<ChoreHost> logger)
     {
@@ -52,6 +55,7 @@ public sealed class ChoreHost : BackgroundService
         _stale = stale;
         _orphan = orphan;
         _nightly = nightly;
+        _mapSweep = mapSweep;
         _clock = clock;
         _logger = logger;
     }
@@ -121,23 +125,32 @@ public sealed class ChoreHost : BackgroundService
                 var targetToday = today + NightlyRunAt;
                 if (now < targetToday) continue;
                 if (_nightlyLastRunDate == today) continue;
-                try
-                {
-                    _nightlyLastRunDate = today;
-                    await _nightly.RunOnceAsync(ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (ct.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "nightly chore threw");
-                }
+                _nightlyLastRunDate = today;
+                if (!await RunNightlyChoreAsync("nightly", _nightly.RunOnceAsync, ct).ConfigureAwait(false)) return;
+                if (!await RunNightlyChoreAsync("pending-map-sweep", _mapSweep.RunOnceAsync, ct).ConfigureAwait(false)) return;
             }
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    // One nightly chore; a throw is logged and the next chore still runs.
+    // False when the host is stopping.
+    private async Task<bool> RunNightlyChoreAsync<T>(string name, Func<CancellationToken, Task<T>> body, CancellationToken ct)
+    {
+        try
+        {
+            await body(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "{Chore} chore threw", name);
+        }
+        return true;
     }
 }
