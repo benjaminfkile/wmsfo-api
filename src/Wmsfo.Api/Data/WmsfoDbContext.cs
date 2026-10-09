@@ -1014,7 +1014,7 @@ public sealed class WmsfoDbContext : DbContext
                 t.HasCheckConstraint("tracker_map_name_check", "char_length(name) between 1 and 200");
                 t.HasCheckConstraint("tracker_map_min_zoom_check", "min_zoom between 0 and 15");
                 t.HasCheckConstraint("tracker_map_max_zoom_check", "max_zoom between 8 and 15");
-                t.HasCheckConstraint("tracker_map_terrain_max_zoom_check", "terrain_max_zoom between 8 and 13");
+                t.HasCheckConstraint("tracker_map_terrain_max_zoom_check", "terrain_max_zoom between 8 and 15");
                 t.HasCheckConstraint("tracker_map_state_check", "state in ('pending', 'ready')");
             });
             e.HasKey(x => x.Id).HasName("tracker_map_pkey");

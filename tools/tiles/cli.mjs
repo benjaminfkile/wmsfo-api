@@ -14,7 +14,7 @@ import { runUpload } from "./lib/upload.mjs";
 
 export const USAGE = `usage:
   wmsfo-tiles build (--event <id> | --bbox-file <file> | --bbox <west,south,east,north>) [--name <name>]
-                    [--max-zoom 8..15] [--terrain-max-zoom 8..13] [--no-terrain] [--build YYYYMMDD]
+                    [--max-zoom 8..15] [--terrain-max-zoom 8..15] [--no-terrain] [--build YYYYMMDD]
                     [--dry-run] [--out <dir>]
   wmsfo-tiles upload <package dir>
   wmsfo-tiles list
@@ -100,7 +100,7 @@ function parseBuild(args) {
     bbox,
     name: values.name,
     maxZoom: integerFlag(values, "max-zoom", 8, 15),
-    terrainMaxZoom: integerFlag(values, "terrain-max-zoom", 8, 13),
+    terrainMaxZoom: integerFlag(values, "terrain-max-zoom", 8, 15),
     noTerrain: values["no-terrain"] ?? false,
     build: values.build,
     dryRun: values["dry-run"] ?? false,

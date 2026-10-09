@@ -109,7 +109,7 @@ public static class AdminMapEndpoints
                 var minZoom = ReadInt(root, "minZoom", 0, 15, required: true, v);
                 var maxZoom = ReadInt(root, "maxZoom", 8, 15, required: true, v);
                 if (minZoom is int lo && maxZoom is int hi && hi < lo) v.Field("maxZoom", "must be at least minZoom");
-                var terrainMaxZoom = ReadInt(root, "terrainMaxZoom", 8, 13, required: false, v);
+                var terrainMaxZoom = ReadInt(root, "terrainMaxZoom", 8, 15, required: false, v);
                 var sourceBuild = ReadSourceBuild(root, v);
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);

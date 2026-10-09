@@ -19,7 +19,7 @@ Run from this directory (`node cli.mjs ...`), or `npm link` once for `wmsfo-tile
 
 ```sh
 # build from an event's box (read through the API), from a file a panel box editor exported, or from a flag
-wmsfo-tiles build --event 41 [--name <name>] [--no-terrain] [--max-zoom 15] [--terrain-max-zoom 13] [--build 20261001] [--dry-run] [--out out]
+wmsfo-tiles build --event 41 [--name <name>] [--no-terrain] [--max-zoom 8..15] [--terrain-max-zoom 8..15] [--build 20261001] [--dry-run] [--out out]
 wmsfo-tiles build --bbox-file ./missoula.json [--name "Missoula valley"] ...
 wmsfo-tiles build --bbox -114.75,46.35,-113.30,47.25 --name "Missoula valley" ...
 

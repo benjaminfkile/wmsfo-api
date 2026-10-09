@@ -54,7 +54,7 @@ const BAD = [
   [["build", "--bbox", "1,2,3", "--name", "V"], /four numbers/],
   [["build", "--event", "x"], /event id/],
   [["build", "--event", "1", "--max-zoom", "16"], /--max-zoom must be an integer from 8 to 15/],
-  [["build", "--event", "1", "--terrain-max-zoom", "14"], /--terrain-max-zoom must be an integer from 8 to 13/],
+  [["build", "--event", "1", "--terrain-max-zoom", "16"], /--terrain-max-zoom must be an integer from 8 to 15/],
   [["build", "--event", "1", "--terrain-max-zoom", "12", "--no-terrain"], /do not go together/],
   [["build", "--event", "1", "--build", "2026-10-01"], /YYYYMMDD/],
   [["build", "--event", "1", "--zoom", "3"], /Unknown option/],
