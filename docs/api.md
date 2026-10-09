@@ -111,6 +111,7 @@ wmsfo-api/
     Chores/OutboxPublisher.cs  AlertSender.cs  StaleBeaconFlagger.cs  MediaOrphanCollector.cs  NightlyCleanup.cs  PendingMapSweeper.cs  IChoreClock.cs
     Objects/IObjectStore.cs           # put, delete, list, copy with headers, presign PUT; multipart start, presign part, complete, abort, list open uploads; ranged get (section 11.6)
     Objects/S3ObjectStore.cs  LocalObjectStore.cs
+    Objects/PmtilesHeader.cs          # the 127 byte PMTiles v3 header: magic, version, zooms, E7 bounds, and the confirm's checks (section 11.6)
     Objects/CanonicalJson.cs          # the serializer options and sha256 helper (contracts 1.6)
     Objects/CdnObjects.cs  ContentDocument.cs   # LiveObject, Snapshot, Route, and the content document DTOs in contract key order
     Realtime/GatewayInternalClient.cs # publish, leader, and presence calls with the injected token

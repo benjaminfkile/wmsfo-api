@@ -35,7 +35,55 @@ public interface IObjectStore
     Task<ObjectContent?> GetObjectAsync(string key, CancellationToken cancellationToken = default);
 
     string PresignPut(string key, string contentType, string tag);
+
+    // api.md 11.6: the multipart upload of a map package. Start answers the
+    // upload id; the completed object carries the content type and the
+    // cache header given at start. A store that never holds a map package
+    // (the small test stores) leaves these to the defaults, which refuse.
+    Task<string> StartMultipartAsync(
+        string key,
+        string contentType,
+        string cacheControl,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no multipart uploads");
+
+    // A URL the uploader PUTs one part's bytes to, valid for `expires`.
+    string PresignUploadPart(string key, string uploadId, int partNumber, TimeSpan expires) =>
+        throw new NotSupportedException("this store has no multipart uploads");
+
+    // Joins the listed parts in order into the object; a missing part or a
+    // wrong etag throws.
+    Task CompleteMultipartAsync(
+        string key,
+        string uploadId,
+        IReadOnlyList<MultipartPart> parts,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no multipart uploads");
+
+    Task AbortMultipartAsync(string key, string uploadId, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no multipart uploads");
+
+    // Every open upload whose key starts with the prefix.
+    Task<IReadOnlyList<MultipartUploadEntry>> ListMultipartUploadsAsync(
+        string prefix,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no multipart uploads");
+
+    // The bytes from `from` to `to` inclusive (fewer when the object is
+    // shorter), or null when the key is absent.
+    Task<byte[]?> GetObjectRangeAsync(
+        string key,
+        long from,
+        long to,
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no ranged reads");
 }
+
+// One uploaded part of a multipart upload as the uploader reports it.
+public sealed record MultipartPart(int PartNumber, string ETag);
+
+// One open multipart upload: its object key and upload id.
+public sealed record MultipartUploadEntry(string Key, string UploadId);
 
 // Rows returned by ListPrefixAsync. Size mirrors S3's ListObjectsV2 Content.Size
 // so callers do not need a second HeadObject for the byte count.

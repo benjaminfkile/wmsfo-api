@@ -9,11 +9,17 @@ namespace Wmsfo.Api.Objects;
 // them in <root>/<key>.wmsfo.tag as the raw `state=...` string. PresignPut
 // cannot sign anything, so it returns the WMSFO_PUBLIC_API_BASE_URL +
 // /local-upload/{id} URL the admin panel PUTs to (that endpoint writes the
-// bytes and the pending tag through this store).
+// bytes and the pending tag through this store). A multipart upload keeps its
+// parts as files under <root>/.multipart/<uploadId>/<partNumber> beside an
+// `upload` file naming the key, the content type, and the cache header; part
+// URLs point at PUT /local-upload/parts/{uploadId}/{partNumber} on the API,
+// which writes the part through WritePartAsync.
 public sealed class LocalObjectStore : IObjectStore
 {
     private const string HeadersSuffix = ".wmsfo.headers";
     private const string TagSuffix = ".wmsfo.tag";
+    private const string MultipartDir = ".multipart";
+    private const string UploadFile = "upload";
 
     private readonly string _rootDir;
     private readonly string _uploadBaseUrl;
@@ -91,6 +97,7 @@ public sealed class LocalObjectStore : IObjectStore
             cancellationToken.ThrowIfCancellationRequested();
             if (IsSidecar(path)) continue;
             var relative = KeyOf(path);
+            if (relative.StartsWith(MultipartDir + "/", StringComparison.Ordinal)) continue;
             if (!relative.StartsWith(prefix, StringComparison.Ordinal)) continue;
             var length = new FileInfo(path).Length;
             yield return new ObjectListEntry(relative, length);
@@ -185,6 +192,172 @@ public sealed class LocalObjectStore : IObjectStore
             "public, max-age=31536000, immutable",
             ObjectTags.Pending,
             cancellationToken);
+    }
+
+    public async Task<string> StartMultipartAsync(
+        string key,
+        string contentType,
+        string cacheControl,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateKey(key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheControl);
+        var uploadId = Guid.NewGuid().ToString("N");
+        var dir = UploadDir(uploadId);
+        Directory.CreateDirectory(dir);
+        await File.WriteAllTextAsync(Path.Combine(dir, UploadFile),
+            key + "\n" + contentType + "\n" + cacheControl + "\n", cancellationToken).ConfigureAwait(false);
+        return uploadId;
+    }
+
+    public string PresignUploadPart(string key, string uploadId, int partNumber, TimeSpan expires)
+    {
+        ValidateKey(key);
+        ValidateUploadId(uploadId);
+        return $"{_uploadBaseUrl}/local-upload/parts/{uploadId}/{partNumber}";
+    }
+
+    // Called by the /local-upload/parts/{uploadId}/{partNumber} endpoint:
+    // writes one part of an open upload and answers its etag (the quoted MD5
+    // hex of the bytes, as S3 answers), or null when no such upload is open or the part number is outside 1 to
+    // 10,000.
+    public async Task<string?> WritePartAsync(
+        string uploadId,
+        int partNumber,
+        Stream body,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsUploadId(uploadId) || partNumber is < 1 or > 10000) return null;
+        var dir = UploadDir(uploadId);
+        if (!File.Exists(Path.Combine(dir, UploadFile))) return null;
+        var path = PartPath(dir, partNumber);
+        await using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            await body.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        return await PartETagAsync(path, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CompleteMultipartAsync(
+        string key,
+        string uploadId,
+        IReadOnlyList<MultipartPart> parts,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateKey(key);
+        ValidateUploadId(uploadId);
+        ArgumentNullException.ThrowIfNull(parts);
+        var dir = UploadDir(uploadId);
+        var upload = await ReadUploadAsync(dir, cancellationToken).ConfigureAwait(false);
+        if (upload is null || upload.Value.Key != key)
+            throw new InvalidOperationException($"no open upload {uploadId} for {key}");
+        if (parts.Count == 0) throw new InvalidOperationException("an upload completes with at least one part");
+        var previous = 0;
+        foreach (var part in parts)
+        {
+            if (part.PartNumber <= previous) throw new InvalidOperationException("parts must be in ascending order");
+            previous = part.PartNumber;
+            var path = PartPath(dir, part.PartNumber);
+            if (!File.Exists(path)) throw new InvalidOperationException($"part {part.PartNumber} was not uploaded");
+            var etag = await PartETagAsync(path, cancellationToken).ConfigureAwait(false);
+            if (etag.Trim('"') != (part.ETag ?? "").Trim('"'))
+                throw new InvalidOperationException($"part {part.PartNumber} has another etag");
+        }
+
+        var absolute = ResolvePath(key);
+        Directory.CreateDirectory(Path.GetDirectoryName(absolute)!);
+        await using (var target = new FileStream(absolute, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            foreach (var part in parts)
+            {
+                await using var source = new FileStream(PartPath(dir, part.PartNumber), FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+                await source.CopyToAsync(target, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        await File.WriteAllTextAsync(HeadersPath(absolute),
+            upload.Value.ContentType + "\n" + upload.Value.CacheControl + "\n", cancellationToken).ConfigureAwait(false);
+        await WriteTagAsync(absolute, null, cancellationToken).ConfigureAwait(false);
+        Directory.Delete(dir, recursive: true);
+    }
+
+    public Task AbortMultipartAsync(string key, string uploadId, CancellationToken cancellationToken = default)
+    {
+        ValidateKey(key);
+        ValidateUploadId(uploadId);
+        var dir = UploadDir(uploadId);
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        return Task.CompletedTask;
+    }
+
+    public async Task<IReadOnlyList<MultipartUploadEntry>> ListMultipartUploadsAsync(
+        string prefix,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        var uploads = new List<MultipartUploadEntry>();
+        var root = Path.Combine(_rootDir, MultipartDir);
+        if (!Directory.Exists(root)) return uploads;
+        foreach (var dir in Directory.EnumerateDirectories(root).Order(StringComparer.Ordinal))
+        {
+            var upload = await ReadUploadAsync(dir, cancellationToken).ConfigureAwait(false);
+            if (upload is null || !upload.Value.Key.StartsWith(prefix, StringComparison.Ordinal)) continue;
+            uploads.Add(new MultipartUploadEntry(upload.Value.Key, Path.GetFileName(dir)));
+        }
+        return uploads;
+    }
+
+    public async Task<byte[]?> GetObjectRangeAsync(
+        string key,
+        long from,
+        long to,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateKey(key);
+        ArgumentOutOfRangeException.ThrowIfNegative(from);
+        ArgumentOutOfRangeException.ThrowIfLessThan(to, from);
+        var absolute = ResolvePath(key);
+        if (!File.Exists(absolute)) return null;
+        await using var stream = new FileStream(absolute, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+        if (from >= stream.Length) return [];
+        var count = (int)Math.Min(to - from + 1, stream.Length - from);
+        var buffer = new byte[count];
+        stream.Seek(from, SeekOrigin.Begin);
+        await stream.ReadExactlyAsync(buffer, cancellationToken).ConfigureAwait(false);
+        return buffer;
+    }
+
+    private string UploadDir(string uploadId) => Path.Combine(_rootDir, MultipartDir, uploadId);
+
+    private static string PartPath(string uploadDir, int partNumber) =>
+        Path.Combine(uploadDir, partNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    private static async Task<string> PartETagAsync(string path, CancellationToken ct)
+    {
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        var hash = await System.Security.Cryptography.MD5.HashDataAsync(stream, ct).ConfigureAwait(false);
+        return "\"" + Convert.ToHexStringLower(hash) + "\"";
+    }
+
+    private static async Task<(string Key, string ContentType, string CacheControl)?> ReadUploadAsync(
+        string uploadDir, CancellationToken ct)
+    {
+        var path = Path.Combine(uploadDir, UploadFile);
+        if (!File.Exists(path)) return null;
+        var lines = await File.ReadAllLinesAsync(path, ct).ConfigureAwait(false);
+        if (lines.Length < 3) return null;
+        return (lines[0], lines[1], lines[2]);
+    }
+
+    // An upload id is the 32 hex characters StartMultipartAsync mints, so it
+    // can never name a path outside the multipart folder.
+    private static bool IsUploadId(string uploadId) =>
+        uploadId is { Length: 32 } && uploadId.All(char.IsAsciiHexDigitLower);
+
+    private static void ValidateUploadId(string uploadId)
+    {
+        if (!IsUploadId(uploadId))
+            throw new ArgumentException($"invalid upload id: '{uploadId}'", nameof(uploadId));
     }
 
     private static void ValidateKey(string key)

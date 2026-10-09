@@ -37,7 +37,8 @@ public static class EndpointStubs
         includeAdminImpactStubs: true,
         includeAdminPostersStubs: true,
         includeAdminHelpStubs: true,
-        includeAdminThemesStubs: true);
+        includeAdminThemesStubs: true,
+        includeAdminMapsStubs: true);
 
     // A8/A9/A10/A15/A11/A12/A13/A14: Program.cs registers real handlers for the endpoint
     // groups it wires up and passes `false` for each. Tests and the OpenAPI export
@@ -66,7 +67,8 @@ public static class EndpointStubs
         bool includeAdminImpactStubs = true,
         bool includeAdminPostersStubs = true,
         bool includeAdminHelpStubs = true,
-        bool includeAdminThemesStubs = true)
+        bool includeAdminThemesStubs = true,
+        bool includeAdminMapsStubs = true)
     {
         // Health is registered by Program.cs against the live readiness gate and
         // the app connection; the stub remains only for hosts that do not do
@@ -96,6 +98,7 @@ public static class EndpointStubs
         if (includeAdminPostersStubs) MapAdminPosters(app);
         if (includeAdminHelpStubs) MapAdminHelp(app);
         if (includeAdminThemesStubs) MapAdminThemes(app);
+        if (includeAdminMapsStubs) MapAdminMaps(app);
     }
 
     // A36 / api.md 5b: `GET /admin/<resource>/{id}/impact` per deletable
@@ -127,6 +130,7 @@ public static class EndpointStubs
         MapLong(app, "/admin/contact-messages/{id:long}/impact");
         MapLong(app, "/admin/posters/{id:long}/impact");
         MapLong(app, "/admin/themes/{id:long}/impact");
+        MapLong(app, "/admin/maps/{id:long}/impact");
     }
 
     // A33: QR codes, places, and the public scan beacon. Real handlers live in
@@ -811,6 +815,44 @@ public static class EndpointStubs
         app.MapDelete("/admin/themes/{id:long}", NotImplemented)
             .WithTags("AdminThemes")
             .Accepts<DeleteTrackerThemeRequest>(isOptional: true, "application/json")
+            .Produces(StatusCodes.Status204NoContent);
+    }
+
+    // contracts 4.5 Maps; the real handlers are AdminMapEndpoints.
+    private static void MapAdminMaps(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/maps", NotImplemented)
+            .WithTags("AdminMaps")
+            .Produces<ItemsResponse<TrackerMapDto>>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/maps", NotImplemented)
+            .WithTags("AdminMaps")
+            .Accepts<CreateTrackerMapRequest>("application/json")
+            .Produces<TrackerMapUploadDto>(StatusCodes.Status201Created)
+            .Produces<TrackerMapUploadDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/maps/{id:long}/parts", NotImplemented)
+            .WithTags("AdminMaps")
+            .Accepts<TrackerMapPartsRequest>("application/json")
+            .Produces<TrackerMapPartsDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/maps/{id:long}/complete", NotImplemented)
+            .WithTags("AdminMaps")
+            .Accepts<TrackerMapCompleteRequest>("application/json")
+            .Produces<TrackerMapDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/maps/{id:long}/confirm", NotImplemented)
+            .WithTags("AdminMaps")
+            .Produces<TrackerMapDto>(StatusCodes.Status200OK);
+
+        app.MapPatch("/admin/maps/{id:long}", NotImplemented)
+            .WithTags("AdminMaps")
+            .Accepts<PatchTrackerMapRequest>("application/json")
+            .Produces<TrackerMapDto>(StatusCodes.Status200OK);
+
+        app.MapDelete("/admin/maps/{id:long}", NotImplemented)
+            .WithTags("AdminMaps")
+            .Accepts<DeleteTrackerMapRequest>(isOptional: true, "application/json")
             .Produces(StatusCodes.Status204NoContent);
     }
 

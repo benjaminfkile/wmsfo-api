@@ -20,6 +20,9 @@ public static class ImpactHelpers
     public const string CurrentEventBlocked = "This is the current event. Make another event current first.";
     public const string ThemeDefaultWarning = "The {0} renderer loses its default {1} theme.";
     public const string LastGoogleThemeBlocked = "This is the only Google theme enabled on {0}. Enable another there first.";
+    public const string MapEventsWarning = "{0} events lose their map; their viewers get Google Maps at the next snapshot.";
+    public const string MapCurrentEventWarning = "{0} is the current event; its viewers move to Google Maps at the next snapshot.";
+    public const string MapLiveEventWarning = "{0} is live.";
 
     // Runs a `count(*)` plus a `select <nameCol> order by id limit 10` on the
     // same table with the same where clause and parameters, and returns them as

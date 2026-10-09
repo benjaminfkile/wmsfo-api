@@ -32,6 +32,7 @@ public static class AdminImpactEndpoints
         MapContactMessage(app);
         MapPoster(app);
         MapTheme(app);
+        MapMap(app);
     }
 
     private static void MapEvent(IEndpointRouteBuilder app) => Register(app,
@@ -176,6 +177,14 @@ public static class AdminImpactEndpoints
         {
             if (!await ExistsAsync(conn, "tracker_theme", id, ct)) return null;
             return await TrackerThemeImpactQueries.PreviewAsync(conn, null, id, ct);
+        });
+
+    private static void MapMap(IEndpointRouteBuilder app) => Register(app,
+        "/admin/maps/{id:long}/impact", ApiKeyCapabilities.Maps, AuthPolicies.Admin,
+        async (id, conn, ct) =>
+        {
+            if (!await ExistsAsync(conn, "tracker_map", id, ct)) return null;
+            return await TrackerMapImpactQueries.PreviewAsync(conn, null, id, ct);
         });
 
     private static void Register(

@@ -186,6 +186,126 @@ public sealed class S3ObjectStore : IObjectStore
         return _s3.GetPreSignedURL(request);
     }
 
+    public async Task<string> StartMultipartAsync(
+        string key,
+        string contentType,
+        string cacheControl,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cacheControl);
+        var request = new InitiateMultipartUploadRequest
+        {
+            BucketName = _bucket,
+            Key = key,
+            ContentType = contentType,
+        };
+        request.Headers.CacheControl = cacheControl;
+        var response = await _s3.InitiateMultipartUploadAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.UploadId;
+    }
+
+    public string PresignUploadPart(string key, string uploadId, int partNumber, TimeSpan expires)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentException.ThrowIfNullOrEmpty(uploadId);
+        return _s3.GetPreSignedURL(new GetPreSignedUrlRequest
+        {
+            BucketName = _bucket,
+            Key = key,
+            Verb = HttpVerb.PUT,
+            UploadId = uploadId,
+            PartNumber = partNumber,
+            Expires = DateTime.UtcNow.Add(expires),
+            Protocol = Protocol.HTTPS,
+        });
+    }
+
+    public async Task CompleteMultipartAsync(
+        string key,
+        string uploadId,
+        IReadOnlyList<MultipartPart> parts,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentException.ThrowIfNullOrEmpty(uploadId);
+        ArgumentNullException.ThrowIfNull(parts);
+        await _s3.CompleteMultipartUploadAsync(new CompleteMultipartUploadRequest
+        {
+            BucketName = _bucket,
+            Key = key,
+            UploadId = uploadId,
+            PartETags = parts.Select(p => new PartETag(p.PartNumber, p.ETag)).ToList(),
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task AbortMultipartAsync(string key, string uploadId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        ArgumentException.ThrowIfNullOrEmpty(uploadId);
+        await _s3.AbortMultipartUploadAsync(new AbortMultipartUploadRequest
+        {
+            BucketName = _bucket,
+            Key = key,
+            UploadId = uploadId,
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<MultipartUploadEntry>> ListMultipartUploadsAsync(
+        string prefix,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        var uploads = new List<MultipartUploadEntry>();
+        string? keyMarker = null;
+        string? uploadIdMarker = null;
+        while (true)
+        {
+            var response = await _s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest
+            {
+                BucketName = _bucket,
+                Prefix = prefix,
+                KeyMarker = keyMarker,
+                UploadIdMarker = uploadIdMarker,
+            }, cancellationToken).ConfigureAwait(false);
+            if (response.MultipartUploads is not null)
+            {
+                foreach (var upload in response.MultipartUploads)
+                    uploads.Add(new MultipartUploadEntry(upload.Key, upload.UploadId));
+            }
+            if (!(response.IsTruncated ?? false)) break;
+            keyMarker = response.NextKeyMarker;
+            uploadIdMarker = response.NextUploadIdMarker;
+        }
+        return uploads;
+    }
+
+    public async Task<byte[]?> GetObjectRangeAsync(
+        string key,
+        long from,
+        long to,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(key);
+        try
+        {
+            using var response = await _s3.GetObjectAsync(new GetObjectRequest
+            {
+                BucketName = _bucket,
+                Key = key,
+                ByteRange = new ByteRange(from, to),
+            }, cancellationToken).ConfigureAwait(false);
+            using var ms = new MemoryStream();
+            await response.ResponseStream.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            return ms.ToArray();
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     private static List<Tag> ToTagSet(string tag)
     {
         var eq = tag.IndexOf('=');

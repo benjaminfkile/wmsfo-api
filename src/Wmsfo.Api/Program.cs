@@ -177,6 +177,7 @@ builder.Services.AddSingleton<AlertSender>();
 builder.Services.AddSingleton<StaleBeaconFlagger>();
 builder.Services.AddSingleton<MediaOrphanCollector>();
 builder.Services.AddSingleton<NightlyCleanup>();
+builder.Services.AddSingleton<PendingMapSweeper>();
 builder.Services.AddHostedService<ChoreHost>();
 
 static string? ResolveTemplatesRoot(string start)
@@ -349,6 +350,8 @@ AdminPosterEndpoints.MapAll(app);
 AdminHelpEndpoints.MapAll(app);
 // Tracker themes (contracts 4.5 Themes, api.md 11a.10).
 AdminThemeEndpoints.MapAll(app);
+// Tracker maps (contracts 4.5 Maps, api.md 11.6).
+AdminMapEndpoints.MapAll(app);
 // A36: `GET /admin/<resource>/{id}/impact` previews for every deletable
 // resource (contracts 4.5 Delete impact, api.md 5b).
 AdminImpactEndpoints.MapAll(app);
@@ -376,12 +379,15 @@ EndpointStubs.MapAll(app,
     includeAdminImpactStubs: false,
     includeAdminPostersStubs: false,
     includeAdminHelpStubs: false,
-    includeAdminThemesStubs: false);
+    includeAdminThemesStubs: false,
+    includeAdminMapsStubs: false);
 AdminDiagnosticsEndpoints.MapAdminDiagnostics(app);
 
 // api.md 20: with WMSFO_OBJECT_STORE_DIR set, LocalObjectStore cannot presign,
 // so upload tickets point uploadUrl at PUT /local-upload/{id} on the API. The
-// route writes the bytes and the pending tag through the store. It exists only
+// route writes the bytes and the pending tag through the store; its sibling
+// PUT /local-upload/parts/{uploadId}/{partNumber} takes the parts of a map
+// package's multipart upload. Both exist only
 // when the directory store is active and never in prod (the options validator
 // refuses that combination up front).
 if (app.Services.GetRequiredService<IObjectStore>() is LocalObjectStore localStore)
@@ -404,6 +410,22 @@ if (app.Services.GetRequiredService<IObjectStore>() is LocalObjectStore localSto
         await localStore.WriteUploadAsync(key, ms.ToArray(), contentType, ct);
         return Results.NoContent();
     }).DisableRateLimiting();
+
+    // api.md 11.6: the part URLs of a map package's multipart upload. The
+    // route writes one part file and answers its ETag as S3 does; 404 when
+    // the upload is not open.
+    app.MapPut("/local-upload/parts/{uploadId}/{partNumber:int}", async (
+        string uploadId,
+        int partNumber,
+        HttpRequest request,
+        HttpResponse response,
+        CancellationToken ct) =>
+    {
+        var etag = await localStore.WritePartAsync(uploadId, partNumber, request.Body, ct);
+        if (etag is null) return Results.NotFound();
+        response.Headers.ETag = etag;
+        return Results.Ok();
+    }).WithBodyLimit(BodyLimits.LocalMultipartPart).DisableRateLimiting();
 }
 
 app.MapOpenApi();

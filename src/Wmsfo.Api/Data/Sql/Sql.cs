@@ -745,6 +745,14 @@ delete from preview_token where expires_at < now() - interval '24 hours';";
 delete from media_asset
 where state = 'pending' and created_at < now() - interval '2 days';";
 
+    // 9.7 Pending map sweep: the rows, then one delete per row whose
+    // objects and open uploads are gone.
+    public const string PendingMapSweepRows = @"
+select id, prefix from tracker_map where state = 'pending' and created_at < now() - interval '1 day';";
+
+    public const string PendingMapSweepDelete = @"
+delete from tracker_map where id = @id and state = 'pending';";
+
     // 9.6 Media orphan collection.
     public const string MediaOrphanRefs = @"
 with refs as (
