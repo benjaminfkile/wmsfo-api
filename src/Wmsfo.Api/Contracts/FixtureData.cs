@@ -209,8 +209,8 @@ public static class FixtureData
                 {
                     Id = 7,
                     Renderer = "maplibre",
-                    Key = "route-light",
-                    Name = "Route light",
+                    Key = "light",
+                    Name = "Light",
                     StyleUrl = $"{CdnBase}/themes/{RouteLightStyleSha}.json",
                     SpriteUrl = $"{CdnBase}/themes/7/sprites/{RouteLightSpriteSha}/sprite",
                     ThumbnailMediaId = null,

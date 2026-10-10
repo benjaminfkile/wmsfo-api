@@ -31,7 +31,7 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
         """{"version":8,"sources":{"basemap":{"type":"vector"},"terrain":{"type":"raster-dem"}},"layers":[{"id":"bg","type":"background","paint":{"background-color":"#fafafa"}},{"id":"water","type":"fill","source":"basemap","source-layer":"water"}]}""";
 
     private static readonly string[] SeedOrder =
-        ["standard", "expedition", "blizzard", "charcoal", "night", "nebula", "route-light", "route-dark"];
+        ["standard", "expedition", "blizzard", "charcoal", "night", "nebula", "light", "dark"];
 
     private readonly PostgresFixture _fixture;
     private A95Host? _host;
@@ -62,8 +62,8 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
             "delete from api_key;",
             "delete from tracker_theme where created_by <> 'seed';",
             "update tracker_theme set default_light_mode = false, default_dark_mode = false;",
-            "update tracker_theme set default_light_mode = true where key in ('route-light', 'standard');",
-            "update tracker_theme set default_dark_mode = true where key in ('route-dark', 'night');",
+            "update tracker_theme set default_light_mode = true where key in ('light', 'standard');",
+            "update tracker_theme set default_dark_mode = true where key in ('dark', 'night');",
             "delete from audit_log where entity = 'tracker_theme';",
         })
         {
@@ -365,7 +365,7 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
     {
         using var created = await CreateAsync("maplibre", "a95-default", MapLibreStyle);
         var id = Id(created);
-        var routeLight = await ThemeIdAsync("route-light");
+        var routeLight = await ThemeIdAsync("light");
 
         var response = await SendAsync(HttpMethod.Post, $"/admin/themes/{id}/default", """{"light":true}""");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -377,7 +377,7 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
         }
         Assert.False(await ScalarAsync<bool>($"select default_light_mode from tracker_theme where id = {routeLight}"));
         Assert.Equal(1, await CountAsync("select count(*)::int from tracker_theme where renderer = $1::text and default_light_mode", "maplibre"));
-        Assert.True(await ScalarAsync<bool>($"select default_dark_mode from tracker_theme where key = 'route-dark'"));
+        Assert.True(await ScalarAsync<bool>($"select default_dark_mode from tracker_theme where key = 'dark'"));
 
         // Both flags on one theme, then false clears it on this theme.
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, $"/admin/themes/{id}/default", """{"dark":true}""")).StatusCode);

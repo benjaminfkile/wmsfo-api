@@ -939,7 +939,7 @@ where id = 1;", conn);
         }
         Assert.Equal(8, expectedThemes.Count);
         Assert.Equal(
-            new[] { "route-light", "standard", "route-dark", "expedition", "blizzard", "charcoal", "night", "nebula" },
+            new[] { "light", "standard", "dark", "expedition", "blizzard", "charcoal", "night", "nebula" },
             expectedThemes.Select(t => t.Key).ToArray());
 
         var bytes = await GetLatestSnapshotBytesAsync();
