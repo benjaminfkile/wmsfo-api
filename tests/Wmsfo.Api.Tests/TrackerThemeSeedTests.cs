@@ -43,7 +43,7 @@ public class TrackerThemeSeedTests
     }
 
     // Each fixture's bytes hash to its row. The six Google bodies are exactly
-    // SerializeOpaqueToUtf8Bytes of themselves. route-light and route-dark
+    // SerializeOpaqueToUtf8Bytes of themselves. light and dark
     // hold characters the default encoder escapes (the copyright sign, < and
     // >), and their files carry them unescaped, so for those two only the
     // key order and the parsed value are checked against the opaque form.

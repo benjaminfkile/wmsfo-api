@@ -22,12 +22,12 @@ public static class TrackerThemeSeed
 
     public static readonly IReadOnlyList<ThemeRow> Themes =
     [
-        new("maplibre", "route-light", "Route light", 10,
+        new("maplibre", "light", "Light", 10,
             "aa712987ac12773666971239fd2dac5bccb269df30c2bf524c2dd86347cbda1d", 63798,
             """{"accent":"#1a56c4","bg":"#ffffff","fg":"#5f6368","panel":"#ffffffe6","text":"#202124","tile":"#e8f0fe","tileFg":"#1a56c4"}""",
             """{"arrowColor":"#1a56c4","routeColor":"#1a56c4","routeOpacity":0.9,"timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828"}""",
             DefaultLightMode: true, DefaultDarkMode: false),
-        new("maplibre", "route-dark", "Route dark", 20,
+        new("maplibre", "dark", "Dark", 20,
             "a49464e361dbedd95861d2f52c8b45fb0f8f5b437d807c374f614462fa795386", 63797,
             """{"accent":"#33d6ff","bg":"#0f1a2b","fg":"#8fa3c2","panel":"#0b1220e6","text":"#f2f6ff","tile":"#1e2b40","tileFg":"#f2f6ff"}""",
             """{"arrowColor":"#33d6ff","routeColor":"#33d6ff","routeOpacity":0.85,"timeLabelBg":"#0f1a2b","timeLabelFg":"#f2f6ff","timeLabelOpacity":1,"userColor":"#ffb74d"}""",

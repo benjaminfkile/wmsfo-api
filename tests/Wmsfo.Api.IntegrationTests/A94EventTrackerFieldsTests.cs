@@ -211,8 +211,8 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
     {
         using var ev = await CreateAsync(2026);
         var id = Id(ev);
-        var routeLight = await ThemeIdAsync("route-light");
-        var routeDark = await ThemeIdAsync("route-dark");
+        var routeLight = await ThemeIdAsync("light");
+        var routeDark = await ThemeIdAsync("dark");
         var standard = await ThemeIdAsync("standard");
         var nebula = await ThemeIdAsync("nebula");
 
@@ -242,7 +242,7 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
         var id = Id(ev);
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, $"/admin/events/{id}/current", "")).StatusCode);
         var night = await ThemeIdAsync("night");
-        var routeDark = await ThemeIdAsync("route-dark");
+        var routeDark = await ThemeIdAsync("dark");
         var valley = await ValleyMapIdAsync();
 
         var patch = await PatchAsync(id, new JsonObject
