@@ -1302,7 +1302,7 @@
     "page": "Tracker themes",
     "label": "Style file",
     "title": "What the style file must be",
-    "body": "For Google Maps, the file is a JSON array of rules, each with only featureType, elementType, and stylers.\n\nFor MapLibre, the file is a version 8 style whose sources are basemap and, optionally, terrain, with no URLs in them. Every layer that has a source names one of the two. Layers that draw places carry \"metadata\": { \"wmsfo:places\": true } so the site can apply the places chosen in Site settings.\n\nTo make a MapLibre style: download the starter style, open it in Maputnik, edit it, export it, and drop the exported file here. The file is checked on upload and refused with the reason when it breaks a rule.",
+    "body": "For Google Maps, the file is a JSON array of rules, each with only featureType, elementType, and stylers.\n\nFor MapLibre, the file is a version 8 style whose sources are basemap and, optionally, terrain. Every layer that has a source names one of the two. Layers that draw places carry \"metadata\": { \"wmsfo:places\": true } so the site can apply the places chosen in Site settings. Any URL on a source, the glyphs template, and the sprite are dropped on import, because the map, the API, and the theme's sprite upload supply them.\n\nTo make or change a MapLibre style: download the starter style, or a theme's style from its menu, open it in Maputnik, edit it, export it, and drop the export here as it is. The file is checked on upload and refused with the reason when it breaks a rule.",
     "links": [
       { "label": "Site settings", "to": "/site-settings" }
     ]
@@ -1312,7 +1312,7 @@
     "page": "Tracker themes",
     "label": "Starter style",
     "title": "The style to start a MapLibre theme from",
-    "body": "The starter style is the seeded light route style, with the sources and the places layer already set up the way the site needs them.\n\nDownload it, change colours and layers in Maputnik, and import the result as a new MapLibre theme. Starting here saves you from the source and metadata rules.",
+    "body": "The starter style is the seeded light route style, with the sources and the places layer already set up the way the site needs them.\n\nThe download carries the glyph template and the tile sources of the configured basemap, so Maputnik shows labels and tiles at once. Change colours and layers in Maputnik and import the result as a new MapLibre theme. A saved theme downloads the same way from its card menu, ready for another edit.",
     "links": []
   },
   {
