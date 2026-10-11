@@ -44,7 +44,7 @@ public sealed class A92TrackerMapsThemesMigrationTests : IClassFixture<PostgresF
 
         // The seeded map, on every event, with the valley box.
         var mapId = await ScalarAsync<long>(
-            $"select id from tracker_map where prefix = 'basemap' and name = 'Missoula valley' and state = 'ready' and package_key = '{TrackerThemeSeed.ValleyPackageKey}' and min_zoom = 0 and max_zoom = 15 and terrain_max_zoom = 13;");
+            $"select id from tracker_map where prefix = 'basemap' and name = 'Missoula valley' and state = 'ready' and package_key = '{TrackerThemeSeed.ValleyPackageKey}' and min_zoom = 0 and max_zoom = 15 and terrain_max_zoom = {TrackerThemeSeed.ValleyTerrainMaxZoom};");
         Assert.Equal(1L, await ScalarAsync<long>("select count(*) from tracker_map;"));
         Assert.Equal(2L, await ScalarAsync<long>(
             $"select count(*) from event where tracker_map_id = {mapId} and tracker_bbox = '{TrackerThemeSeed.ValleyBboxJson}'::jsonb;"));

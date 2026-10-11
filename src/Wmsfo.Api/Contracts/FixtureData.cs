@@ -18,7 +18,7 @@ public static class FixtureData
     public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
     public const string HangarDarkMediaId  = "9d4b2e6f-3c8a-4f1d-8e7b-1a5c0f9d2b55";
     public const string StandardStyleSha    = "7cf1ed24d4964827d29f251a64b726e2ce5f3b4ba6213d9f50eb668936576b98";
-    public const string RouteLightStyleSha  = "aa712987ac12773666971239fd2dac5bccb269df30c2bf524c2dd86347cbda1d";
+    public const string RouteLightStyleSha  = "587558ba6ff20a68d01cccca65d956b0260f74739cc534878c1fdd9230ca2999";
     public const string RouteLightSpriteSha = "ee5500000000000000000000000000000000000000000000000000000000ffff";
 
     public static string SnapshotUrl => $"{CdnBase}/snapshots/{SnapshotSha}.json";
@@ -159,7 +159,7 @@ public static class FixtureData
                     Bbox = new Bbox { West = -114.75, South = 46.35, East = -113.30, North = 47.25 },
                     MinZoom = 0,
                     MaxZoom = 15,
-                    TerrainMaxZoom = 13,
+                    TerrainMaxZoom = 15,
                     TilesUrl = $"{CdnBase}/basemap/tiles.pmtiles",
                     TerrainUrl = $"{CdnBase}/basemap/terrain.pmtiles",
                 },

@@ -51,8 +51,8 @@ where jsonb_typeof(data) = 'object'
             var prefix = Literal(TrackerThemeSeed.ValleyPrefix);
             sql.Append($@"
 insert into tracker_map (name, package_key, prefix, bbox, min_zoom, max_zoom, terrain_max_zoom, state, created_by, updated_by)
-select {Literal(TrackerThemeSeed.ValleyName)}, {Literal(TrackerThemeSeed.ValleyPackageKey)}, {prefix}, {bbox}::jsonb,
-       {TrackerThemeSeed.ValleyMinZoom}, {TrackerThemeSeed.ValleyMaxZoom}, {TrackerThemeSeed.ValleyTerrainMaxZoom}, 'ready', 'seed', 'seed'
+select {Literal(TrackerThemeSeed.ValleyName)}, {Literal(TrackerThemeSeed.ValleyInsertPackageKey)}, {prefix}, {bbox}::jsonb,
+       {TrackerThemeSeed.ValleyMinZoom}, {TrackerThemeSeed.ValleyMaxZoom}, {TrackerThemeSeed.ValleyInsertTerrainMaxZoom}, 'ready', 'seed', 'seed'
 where not exists (select 1 from tracker_map where prefix = {prefix});
 
 update event

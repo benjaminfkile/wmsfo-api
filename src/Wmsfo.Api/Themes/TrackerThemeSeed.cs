@@ -5,7 +5,9 @@ namespace Wmsfo.Api.Themes;
 // The seeded tracker rows of sql.md 6: the eight themes of
 // contracts/fixtures/themes/seed.json in file order, and the Missoula valley
 // map whose tiles the operator placed under `basemap`. The A92TrackerMapsThemes
-// migration inserts these values; a unit test holds them equal to the fixture.
+// migration inserts these values (the map at ValleyInsertTerrainMaxZoom, which
+// A105ValleyTerrainZoom15 moves to ValleyTerrainMaxZoom); a unit test holds
+// them equal to the fixture.
 public static class TrackerThemeSeed
 {
     public sealed record ThemeRow(
@@ -23,12 +25,12 @@ public static class TrackerThemeSeed
     public static readonly IReadOnlyList<ThemeRow> Themes =
     [
         new("maplibre", "light", "Light", 10,
-            "aa712987ac12773666971239fd2dac5bccb269df30c2bf524c2dd86347cbda1d", 63798,
+            "587558ba6ff20a68d01cccca65d956b0260f74739cc534878c1fdd9230ca2999", 63813,
             """{"accent":"#1a56c4","bg":"#ffffff","fg":"#5f6368","panel":"#ffffffe6","text":"#202124","tile":"#e8f0fe","tileFg":"#1a56c4"}""",
             """{"arrowColor":"#1a56c4","routeColor":"#1a56c4","routeOpacity":0.9,"timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828"}""",
             DefaultLightMode: true, DefaultDarkMode: false),
         new("maplibre", "dark", "Dark", 20,
-            "a49464e361dbedd95861d2f52c8b45fb0f8f5b437d807c374f614462fa795386", 63797,
+            "f608f3a3280a715a90c63996d03e9255660ed3a71da4af1421a63c38cb81a7c1", 63812,
             """{"accent":"#33d6ff","bg":"#0f1a2b","fg":"#8fa3c2","panel":"#0b1220e6","text":"#f2f6ff","tile":"#1e2b40","tileFg":"#f2f6ff"}""",
             """{"arrowColor":"#33d6ff","routeColor":"#33d6ff","routeOpacity":0.85,"timeLabelBg":"#0f1a2b","timeLabelFg":"#f2f6ff","timeLabelOpacity":1,"userColor":"#ffb74d"}""",
             DefaultLightMode: false, DefaultDarkMode: true),
@@ -76,13 +78,20 @@ public static class TrackerThemeSeed
     public const double ValleyNorth = 47.25;
     public const int ValleyMinZoom = 0;
     public const int ValleyMaxZoom = 15;
-    public const int ValleyTerrainMaxZoom = 13;
+    public const int ValleyTerrainMaxZoom = 15;
 
     // The box as the event.tracker_bbox column default writes it.
     public const string ValleyBboxJson = """{"west":-114.75,"south":46.35,"east":-113.30,"north":47.25}""";
 
     // Lowercase hex SHA-256 of the canonical JSON of ValleyIdentity.
-    public const string ValleyPackageKey = "660ecae3f635b40d8b88525e15012ec4992db199774c055539abe7a541cbd4ec";
+    public const string ValleyPackageKey = "552f18181159a20b06b12218e990beb12f4a562c0577026f8ea1fa81d17ede51";
+
+    // The terrain zoom and package key the A92TrackerMapsThemes migration
+    // inserts the valley row with, inside that migration's terrain bound of 8
+    // to 13. A105ValleyTerrainZoom15 then moves the row to
+    // ValleyTerrainMaxZoom and ValleyPackageKey.
+    public const int ValleyInsertTerrainMaxZoom = 13;
+    public const string ValleyInsertPackageKey = "660ecae3f635b40d8b88525e15012ec4992db199774c055539abe7a541cbd4ec";
 
     public static PackageIdentity ValleyIdentity =>
         new(new PackageBbox(ValleyWest, ValleySouth, ValleyEast, ValleyNorth),
