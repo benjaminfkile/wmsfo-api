@@ -177,7 +177,7 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `WMSFO_SCAN_SALT` | string | required, non-empty; salts `qr_scan.ip_hash` (section 11b) |
 | `WMSFO_SES_FROM_ADDRESS` | mailbox | `Name <address>` or bare address |
 | `WMSFO_SES_CONFIGURATION_SET` | string | may be empty |
-| `WMSFO_CONTACT_NOTIFY_EMAIL` | address | valid |
+| `WMSFO_CONTACT_NOTIFY_EMAIL` | address list | one or more valid addresses, comma separated; each contact message goes to all of them in one email |
 | `WMSFO_ALERT_SEND_PER_SEC` | int | 1 to 50, default 10 |
 | `WMSFO_ENROLLMENT_ENCRYPTION_KEY` | base64 | decodes to exactly 32 bytes |
 | `WMSFO_RECONCILE_TICK_MS` | int | 250 to 10000, default 1000 |

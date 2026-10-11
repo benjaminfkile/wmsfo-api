@@ -179,7 +179,7 @@ public sealed class OutboxPublisher
         };
         await _sender.SendAsync(new SesMessage(
             TemplateName: EmailTemplates.SubscriptionVerify,
-            ToAddress: address,
+            ToAddresses: [address],
             Values: values), ct).ConfigureAwait(false);
 
         await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
@@ -219,7 +219,7 @@ public sealed class OutboxPublisher
         };
         await _sender.SendAsync(new SesMessage(
             TemplateName: EmailTemplates.ContactReceived,
-            ToAddress: _options.ContactNotifyEmail,
+            ToAddresses: _options.ContactNotifyEmailList(),
             Values: values,
             ReplyTo: email), ct).ConfigureAwait(false);
 

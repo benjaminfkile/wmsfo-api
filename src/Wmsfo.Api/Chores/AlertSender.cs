@@ -186,7 +186,7 @@ public sealed class AlertSender
         };
         return new SesMessage(
             TemplateName: template,
-            ToAddress: row.Address,
+            ToAddresses: [row.Address],
             Values: values,
             UnsubscribeUrl: apiUnsubscribe);
     }
@@ -216,7 +216,7 @@ public sealed class AlertSender
         };
         return new SesMessage(
             TemplateName: EmailTemplates.EventMessage,
-            ToAddress: row.Address,
+            ToAddresses: [row.Address],
             Values: values,
             UnsubscribeUrl: apiUnsubscribe);
     }

@@ -20,7 +20,7 @@ public interface ISesSender
 
 public sealed record SesMessage(
     string TemplateName,
-    string ToAddress,
+    IReadOnlyList<string> ToAddresses,
     IReadOnlyDictionary<string, string> Values,
     string? ReplyTo = null,
     string? UnsubscribeUrl = null,
@@ -53,7 +53,7 @@ public sealed class SesSender : ISesSender
         {
             _logger.LogInformation(
                 "SES DRY RUN: template={Template} to={To} subject={Subject} htmlBytes={HtmlBytes} textBytes={TextBytes}",
-                message.TemplateName, message.ToAddress, rendered.Subject,
+                message.TemplateName, string.Join(",", message.ToAddresses), rendered.Subject,
                 System.Text.Encoding.UTF8.GetByteCount(rendered.Html),
                 System.Text.Encoding.UTF8.GetByteCount(rendered.Text));
             return "dryrun-" + Guid.NewGuid().ToString("N");
@@ -62,7 +62,7 @@ public sealed class SesSender : ISesSender
         var request = new SendEmailRequest
         {
             FromEmailAddress = _options.SesFromAddress,
-            Destination = new Destination { ToAddresses = new List<string> { message.ToAddress } },
+            Destination = new Destination { ToAddresses = message.ToAddresses.ToList() },
             Content = new EmailContent
             {
                 Simple = new Message

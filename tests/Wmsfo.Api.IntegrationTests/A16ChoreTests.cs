@@ -167,7 +167,7 @@ insert into outbox (topic, payload) values (
         Assert.True(published);
         var sent = Assert.Single(host.Sender.Sent);
         Assert.Equal(EmailTemplates.SubscriptionVerify, sent.TemplateName);
-        Assert.Equal("jane@example.com", sent.ToAddress);
+        Assert.Equal(["jane@example.com"], sent.ToAddresses);
         Assert.Contains("verifyUrl", sent.Values.Keys);
         Assert.Contains("wsv_abc", sent.Values["verifyUrl"]);
     }
@@ -210,9 +210,33 @@ insert into outbox (topic, payload) values (
         Assert.True(published);
         var sent = Assert.Single(host.Sender.Sent);
         Assert.Equal(EmailTemplates.ContactReceived, sent.TemplateName);
-        Assert.Equal(host.Options.ContactNotifyEmail, sent.ToAddress);
+        Assert.Equal([host.Options.ContactNotifyEmail], sent.ToAddresses);
         Assert.Equal("alex@example.com", sent.ReplyTo);
         Assert.Equal("Alex", sent.Values["contactName"]);
+    }
+
+    [Fact]
+    public async Task Outbox_contact_received_sends_one_email_to_every_notify_address()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        long contactId;
+        await using (var cmd = new NpgsqlCommand(
+            "insert into contact_message (name, email, body, client_ip) values ('Sam', 'sam@example.com', 'Hi there', '127.0.0.1') returning id;", conn))
+        {
+            contactId = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+        }
+        var outboxId = await InsertOutboxAsync(conn, "contact.received", $"{{\"contactMessageId\":{contactId}}}");
+
+        var host = Host();
+        host.Options.ContactNotifyEmail = "inbox@example.com, records@example.org";
+        await host.Outbox.RunOnceAsync(CancellationToken.None);
+
+        var (published, _) = await ReadOutboxAsync(conn, outboxId);
+        Assert.True(published);
+        var sent = Assert.Single(host.Sender.Sent);
+        Assert.Equal(["inbox@example.com", "records@example.org"], sent.ToAddresses);
+        Assert.Equal("sam@example.com", sent.ReplyTo);
     }
 
     // ---------- alert: fan-out uniqueness (subscriber_id, outbox_id) ----------

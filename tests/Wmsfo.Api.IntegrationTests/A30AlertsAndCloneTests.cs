@@ -171,7 +171,7 @@ order by h.id desc limit 1;", conn);
         // Send: bumps sent_count on the history row.
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
         var sent = Assert.Single(_host.Sender.Sent);
-        Assert.Equal("alerter@wmsfo.test", sent.ToAddress);
+        Assert.Equal(["alerter@wmsfo.test"], sent.ToAddresses);
         Assert.Equal(EmailTemplates.EventScheduled, sent.TemplateName);
         Assert.Equal("Come out at 6 tonight!", sent.Values["customMessage"]);
 

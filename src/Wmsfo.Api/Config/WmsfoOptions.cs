@@ -107,6 +107,13 @@ public sealed class WmsfoOptions
         return HasSeparateAdminPool ? SplitCsv(CognitoAdminClientIds) : SplitCsv(CognitoClientIds);
     }
 
+    // WMSFO_CONTACT_NOTIFY_EMAIL holds one or more addresses, comma separated;
+    // every contact message goes to all of them in one email.
+    public IReadOnlyList<string> ContactNotifyEmailList()
+    {
+        return SplitCsv(ContactNotifyEmail);
+    }
+
     public IReadOnlyList<string> CorsOriginList()
     {
         return SplitCsv(CorsOrigins);
@@ -220,7 +227,8 @@ public sealed class WmsfoOptionsValidator : IValidateOptions<WmsfoOptions>
         // WMSFO_SCAN_SALT: any non-empty string; the API hashes it with the client IP.
         Require(WmsfoOptions.Keys.ScanSalt, !string.IsNullOrWhiteSpace(o.ScanSalt));
         Require(WmsfoOptions.Keys.SesFromAddress, IsMailbox(o.SesFromAddress));
-        Require(WmsfoOptions.Keys.ContactNotifyEmail, IsEmail(o.ContactNotifyEmail));
+        var notify = o.ContactNotifyEmailList();
+        Require(WmsfoOptions.Keys.ContactNotifyEmail, notify.Count > 0 && notify.All(IsEmail));
         Require(WmsfoOptions.Keys.AlertSendPerSec, o.AlertSendPerSec is >= 1 and <= 50);
         Require(WmsfoOptions.Keys.EnrollmentEncryptionKey, IsBase64OfLength(o.EnrollmentEncryptionKey, 32));
         Require(WmsfoOptions.Keys.ReconcileTickMs, o.ReconcileTickMs is >= 250 and <= 10000);
