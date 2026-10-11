@@ -571,7 +571,7 @@ Any other trigger source is returned untouched.
 
 The instance role's SES permission is section 6.
 
-**Inbound mail.** `contact-us@<mail-domain>` is the operator's own mailbox and is always one of the addresses in the API's `WMSFO_CONTACT_NOTIFY_EMAIL` list, so it and the `contact_message` table keep a record of every contact form message. The list may name further inboxes (one email to all of them, reply-to the sender). The site settings' `contactEmail` (the contact section's mailto) is the address shown to visitors and may be any of those inboxes; mail sent straight to an address other than `contact-us@<mail-domain>` reaches only that inbox. The mailbox is AWS WorkMail: `<mail-domain>` is a mail domain of the account's existing WorkMail organization (registered against the already-verified SES identity, so ownership and DKIM verified immediately), the apex MX points at SES inbound, and WorkMail's own receipt rule in the active rule set delivers the domain. The mailbox credentials live in the secrets manager (`wmsfo-contact-us-mailbox`); webmail is the organization's awsapps address. WorkMail is closed to new customers and will sunset; when it does, every mailbox in the organization moves together (section 17).
+**Inbound mail.** `contact-us@<mail-domain>` is the operator's own mailbox and is always one of the addresses in the API's `WMSFO_CONTACT_NOTIFY_EMAIL` list, so it and the `contact_message` table keep a record of every contact form message. The list may name further inboxes (one email to all of them, reply-to the sender). The site settings' `contactEmail` (the contact section's mailto) is the address shown to visitors and may be any of those inboxes; mail sent straight to an address other than `contact-us@<mail-domain>` reaches only that inbox. The mailboxes are hosted on Zoho Mail: the apex MX points at Zoho, and SES receives nothing. The apex SPF record is a single record naming both Zoho and SES (`include:zohomail.com include:amazonses.com`); a second SPF record would invalidate both, so a new sender is merged into it. Zoho signs with its own DKIM selector beside the SES ones, and the SES MAIL FROM subdomain keeps its own MX for bounces. The mailbox credentials live in the secrets manager (`wmsfo-contact-us-mailbox`, and `wmsfo-admin-mailbox` for `admin@<mail-domain>`). A new notify address must exist in Zoho before it goes into `WMSFO_CONTACT_NOTIFY_EMAIL`, or the notification bounces and the bounce counts against the SES account.
 
 ---
 
@@ -883,7 +883,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 
 ## 17. Needs a decision
 
-- **A new home for the mailboxes when WorkMail sunsets.** WorkMail is closed to new customers and will eventually end for existing ones. The organization holds four mailboxes (three on the personal domain, plus contact-us@<mail-domain>); they migrate together to whatever replaces it. Nothing to do until AWS names a date.
+Nothing open.
 
 ## 18. Operator to-do
 
