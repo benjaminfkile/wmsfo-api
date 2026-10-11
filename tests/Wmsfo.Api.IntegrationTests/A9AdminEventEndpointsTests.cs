@@ -464,6 +464,96 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
         Assert.Equal(before, after);
     }
 
+    // ---------- DELETE /admin/events/{id}/current ----------
+
+    [Fact]
+    public async Task Clear_current_on_planned_event_rebuilds_with_no_event_and_audits()
+    {
+        var id = await CreateEvent(year: 2071);
+        await SetStatusAsync(id, 1, setCurrent: true);
+        var versionBefore = await ReadSnapshotVersionAsync();
+        var auditBefore = await CountAsync(
+            "select count(*) from audit_log where entity = 'event' and entity_id = $1::text and action = 'current';", id);
+
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/events/{id}/current", "");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(id, dto.RootElement.GetProperty("id").GetInt64());
+        Assert.False(dto.RootElement.GetProperty("isCurrent").GetBoolean());
+
+        Assert.Equal(0, await CountAsync("select count(*) from event where is_current;"));
+        Assert.True(await ReadSnapshotVersionAsync() > versionBefore);
+        using (var snapshot = await ReadSnapshotAsync())
+            Assert.Equal(JsonValueKind.Null, snapshot.RootElement.GetProperty("event").ValueKind);
+        Assert.Equal(auditBefore + 1, await CountAsync(
+            "select count(*) from audit_log where entity = 'event' and entity_id = $1::text and action = 'current';", id));
+
+        // The live object is written after the response; wait for one with no event.
+        byte[]? published = null;
+        for (var i = 0; i < 40; i++)
+        {
+            published = _host!.Gateway.LastPublished;
+            if (published is not null)
+            {
+                using var doc = JsonDocument.Parse(published);
+                if (doc.RootElement.GetProperty("eventStatusId").ValueKind == JsonValueKind.Null) break;
+            }
+            await Task.Delay(50);
+        }
+        Assert.NotNull(published);
+        using var live = JsonDocument.Parse(published!);
+        Assert.Equal(JsonValueKind.Null, live.RootElement.GetProperty("eventStatusId").ValueKind);
+    }
+
+    [Fact]
+    public async Task Clear_current_on_non_current_event_is_200_with_no_rebuild()
+    {
+        var current = await CreateEvent(year: 2072);
+        await SetStatusAsync(current, 1, setCurrent: true);
+        var other = await CreateEvent(year: 2073);
+        var versionBefore = await ReadSnapshotVersionAsync();
+
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/events/{other}/current", "");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.False(dto.RootElement.GetProperty("isCurrent").GetBoolean());
+        Assert.Equal(versionBefore, await ReadSnapshotVersionAsync());
+        Assert.Equal(1, await CountAsync("select count(*) from event where is_current and id = $1;", current));
+    }
+
+    [Fact]
+    public async Task Clear_current_on_live_event_is_409_current_event_live()
+    {
+        var id = await CreateEvent(year: 2074);
+        await SetStatusAsync(id, 3, setCurrent: true);
+        var versionBefore = await ReadSnapshotVersionAsync();
+
+        var response = await SendAdminAsync(HttpMethod.Delete, $"/admin/events/{id}/current", "");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("current_event_live", await ReadCodeAsync(response));
+        Assert.Equal(1, await CountAsync("select count(*) from event where is_current and id = $1;", id));
+        Assert.Equal(versionBefore, await ReadSnapshotVersionAsync());
+    }
+
+    [Fact]
+    public async Task Clear_current_unknown_id_is_404()
+    {
+        var response = await SendAdminAsync(HttpMethod.Delete, "/admin/events/987654321/current", "");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Clear_current_as_editor_is_403()
+    {
+        var id = await CreateEvent(year: 2075);
+        await SetStatusAsync(id, 1, setCurrent: true);
+        using var req = new HttpRequestMessage(HttpMethod.Delete, $"/admin/events/{id}/current");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", DevStaticTokens.EditorToken);
+        var response = await _host!.Client.SendAsync(req);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(1, await CountAsync("select count(*) from event where is_current and id = $1;", id));
+    }
+
     // ---------- POST /admin/events/{id}/status ----------
 
     [Fact]

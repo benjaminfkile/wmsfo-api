@@ -562,6 +562,23 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "AdminEvents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventDto"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/events/{id}/status": {

@@ -32,6 +32,7 @@ public static class AdminEventEndpoints
         MapPatch(app);
         MapDelete(app);
         MapCurrent(app);
+        MapClearCurrent(app);
         MapStatus(app);
         MapNotify(app);
         MapClone(app);
@@ -577,6 +578,82 @@ where e.id = $1;", conn))
                     {
                         set.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await set.ExecuteNonQueryAsync(token);
+                    }
+
+                    var dto = await ReadEventByIdAsync(conn, tx, id, token);
+                    if (dto is null) throw NotFound();
+                    var stamp = await audit.RecordAsync(conn, tx, "current", "event",
+                        id.ToString(CultureInfo.InvariantCulture),
+                        before, dto, token);
+                    dto.Audit = stamp;
+                    return dto;
+                }, ct);
+                return Results.Ok(result);
+            })
+            .WithTags("AdminEvents")
+            .Produces<EventDto>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Admin)
+            .RequireCapability(ApiKeyCapabilities.Events)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // DELETE /admin/events/{id}/current [snapshot]. Clears the flag on the
+    // current event so no event is current: the rebuilt snapshot carries
+    // `event` null and the live object `eventStatusId` null, which the site
+    // renders as the no_event page. Idempotent on an event that is not
+    // current - no snapshot rebuild, no live-object write. 409
+    // current_event_live while the event is current and live.
+    private static void MapClearCurrent(IEndpointRouteBuilder app)
+    {
+        app.MapDelete("/admin/events/{id:long}/current",
+            async (long id, HttpContext ctx, AdminSnapshotTransaction snap, AuditRecorder audit,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                _ = AdminHelpers.RequireAdminEmail(ctx);
+
+                // Fast path: not current → return the row with no rebuild.
+                await using (var conn = new NpgsqlConnection(connections.App))
+                {
+                    await conn.OpenAsync(ct);
+                    await using var read = new NpgsqlCommand("select is_current from event where id = $1;", conn);
+                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                    var r = await read.ExecuteScalarAsync(ct);
+                    if (r is null || r is DBNull) throw NotFound();
+                    if (!(bool)r)
+                    {
+                        var dto = await ReadEventByIdAsync(conn, null, id, ct);
+                        return Results.Ok(dto);
+                    }
+                }
+
+                var (result, _) = await snap.RunAsync<EventDto>(async (conn, tx, token) =>
+                {
+                    await using (var read = new NpgsqlCommand(
+                        "select is_current, status_id from event where id = $1 for update;", conn, tx))
+                    {
+                        read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await using var reader = await read.ExecuteReaderAsync(token);
+                        if (!await reader.ReadAsync(token)) throw NotFound();
+                        var isCurrent = reader.GetBoolean(0);
+                        var statusId = reader.GetInt16(1);
+                        await reader.CloseAsync();
+                        if (!isCurrent)
+                        {
+                            var same = await ReadEventByIdAsync(conn, tx, id, token);
+                            if (same is null) throw NotFound();
+                            return same;
+                        }
+                        if (statusId == 3)
+                            throw new ApiException(StatusCodes.Status409Conflict,
+                                "current_event_live", "the live event cannot be cleared as current");
+                    }
+                    var before = await ReadEventByIdAsync(conn, tx, id, token);
+
+                    await using (var clr = new NpgsqlCommand(
+                        "update event set is_current = false, updated_at = now() where id = $1;", conn, tx))
+                    {
+                        clr.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+                        await clr.ExecuteNonQueryAsync(token);
                     }
 
                     var dto = await ReadEventByIdAsync(conn, tx, id, token);
