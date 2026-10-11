@@ -13,24 +13,30 @@ namespace Wmsfo.Api.Chores;
 // Claim up to 50 rows with skip-locked, process each per topic, mark
 // published on success and last_error on failure. Overlapping leaders claim
 // disjoint rows (skip-locked) and the alert_delivery unique constraint
-// bounds the damage from any second attempt.
+// bounds the damage from any second attempt. The subscription_verify and
+// contact_received sends resolve the layout's logo and site name through
+// EmailLogoResolver, as the alert emails do (the bundled logo and
+// DefaultSiteName without one).
 public sealed class OutboxPublisher
 {
     private readonly WmsfoConnectionStrings _connections;
     private readonly WmsfoOptions _options;
     private readonly ISesSender _sender;
     private readonly ILogger<OutboxPublisher> _logger;
+    private readonly EmailLogoResolver? _logo;
 
     public OutboxPublisher(
         WmsfoConnectionStrings connections,
         WmsfoOptions options,
         ISesSender sender,
-        ILogger<OutboxPublisher> logger)
+        ILogger<OutboxPublisher> logger,
+        EmailLogoResolver? logo = null)
     {
         _connections = connections;
         _options = options;
         _sender = sender;
         _logger = logger;
+        _logo = logo;
     }
 
     // One pass: returns how many rows were processed (success + skipped).
@@ -177,10 +183,11 @@ public sealed class OutboxPublisher
             ["verifyUrl"] = verifyUrl,
             ["siteUrl"] = _options.SiteBaseUrl,
         };
-        await _sender.SendAsync(new SesMessage(
+        var brand = await ResolveBrandAsync(ct).ConfigureAwait(false);
+        await _sender.SendAsync(EmailBrand.Apply(new SesMessage(
             TemplateName: EmailTemplates.SubscriptionVerify,
             ToAddresses: [address],
-            Values: values), ct).ConfigureAwait(false);
+            Values: values), brand), ct).ConfigureAwait(false);
 
         await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
     }
@@ -217,14 +224,21 @@ public sealed class OutboxPublisher
             ["contactEmail"] = email,
             ["contactMessage"] = body,
         };
-        await _sender.SendAsync(new SesMessage(
+        var brand = await ResolveBrandAsync(ct).ConfigureAwait(false);
+        await _sender.SendAsync(EmailBrand.Apply(new SesMessage(
             TemplateName: EmailTemplates.ContactReceived,
             ToAddresses: _options.ContactNotifyEmailList(),
             Values: values,
-            ReplyTo: email), ct).ConfigureAwait(false);
+            ReplyTo: email), brand), ct).ConfigureAwait(false);
 
         await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
     }
+
+    // The layout's logo and site name; null without a resolver, so the render
+    // supplies the bundled logo and DefaultSiteName. The resolver logs its own
+    // failures at Warning and answers the fallback, so it never fails a send.
+    private async Task<EmailBrand?> ResolveBrandAsync(CancellationToken ct) =>
+        _logo is null ? null : await _logo.ResolveAsync(ct).ConfigureAwait(false);
 
     private static async Task FanOutAsync(long outboxId, NpgsqlConnection conn, CancellationToken ct)
     {

@@ -85,7 +85,7 @@ public sealed class AlertSender
             if (!lease.IsAcquired) continue;
             try
             {
-                var message = WithBrand(BuildMessage(row), brand);
+                var message = EmailBrand.Apply(BuildMessage(row), brand);
                 var messageId = await _sender.SendAsync(message, ct).ConfigureAwait(false);
                 await MarkSuccessAsync(row.Id, messageId, conn, ct).ConfigureAwait(false);
                 // sql.md 9.3: bump sent_count on the row that owns the outbox
@@ -126,18 +126,6 @@ public sealed class AlertSender
         }
     }
 
-    // The message with the layout's logoUrl and siteName set from `brand`;
-    // unchanged when there is none, so the render supplies the defaults.
-    private static SesMessage WithBrand(SesMessage message, EmailBrand? brand)
-    {
-        if (brand is null) return message;
-        var values = new Dictionary<string, string>(message.Values, StringComparer.Ordinal)
-        {
-            ["logoUrl"] = brand.LogoUrl,
-            ["siteName"] = brand.SiteName,
-        };
-        return message with { Values = values };
-    }
 
     private SesMessage BuildMessage(DeliveryRow row)
     {
