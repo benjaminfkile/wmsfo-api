@@ -336,6 +336,10 @@ public static class EndpointStubs
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK);
 
+        app.MapDelete("/admin/events/{id:long}/current", NotImplemented)
+            .WithTags("AdminEvents")
+            .Produces<EventDto>(StatusCodes.Status200OK);
+
         app.MapPost("/admin/events/{id:long}/status", NotImplemented)
             .WithTags("AdminEvents")
             .Accepts<ChangeEventStatusRequest>("application/json")
