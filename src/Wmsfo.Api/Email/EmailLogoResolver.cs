@@ -8,8 +8,22 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Email;
 
-// The layout's {{logoUrl}} and {{siteName}} of an alert email.
-public sealed record EmailBrand(string LogoUrl, string SiteName);
+// The layout's {{logoUrl}} and {{siteName}} of an email the API sends.
+public sealed record EmailBrand(string LogoUrl, string SiteName)
+{
+    // The message with the layout's logoUrl and siteName set from `brand`;
+    // unchanged when there is none, so the render supplies the defaults.
+    public static SesMessage Apply(SesMessage message, EmailBrand? brand)
+    {
+        if (brand is null) return message;
+        var values = new Dictionary<string, string>(message.Values, StringComparer.Ordinal)
+        {
+            ["logoUrl"] = brand.LogoUrl,
+            ["siteName"] = brand.SiteName,
+        };
+        return message with { Values = values };
+    }
+}
 
 // What the resolver reads from the published site settings: `siteName`, and
 // the media_asset row `logoMedia` names (null when absent or gone).

@@ -44,7 +44,10 @@ public sealed class A16Host : IDisposable
         Store = store;
     }
 
-    public static A16Host Create(string connectionString, IObjectStore? store = null)
+    // `withLogoResolver` hands the outbox publisher and the alert sender an
+    // EmailLogoResolver over `store`, so their emails carry the published logo
+    // and site name; without it they carry the render's defaults.
+    public static A16Host Create(string connectionString, IObjectStore? store = null, bool withLogoResolver = false)
     {
         var options = new WmsfoOptions
         {
@@ -84,8 +87,13 @@ public sealed class A16Host : IDisposable
         var loggerFactory = NullLoggerFactory.Instance;
 
         var state = new NodeStateService(connections, loggerFactory.CreateLogger<NodeStateService>());
-        var outbox = new OutboxPublisher(connections, options, sender, loggerFactory.CreateLogger<OutboxPublisher>());
-        var alerts = new AlertSender(connections, options, sender, loggerFactory.CreateLogger<AlertSender>());
+        var logo = withLogoResolver
+            ? new EmailLogoResolver(connections, options, effectiveStore,
+                EmailTemplates.Load(TestPaths.EmailTemplatesDir, options.CdnBaseUrl, options.SiteBaseUrl),
+                loggerFactory.CreateLogger<EmailLogoResolver>())
+            : null;
+        var outbox = new OutboxPublisher(connections, options, sender, loggerFactory.CreateLogger<OutboxPublisher>(), logo);
+        var alerts = new AlertSender(connections, options, sender, loggerFactory.CreateLogger<AlertSender>(), logo);
         var stale = new StaleBeaconFlagger(connections, state, loggerFactory.CreateLogger<StaleBeaconFlagger>());
         var orphan = new MediaOrphanCollector(connections, effectiveStore, loggerFactory.CreateLogger<MediaOrphanCollector>());
         var nightly = new NightlyCleanup(connections, loggerFactory.CreateLogger<NightlyCleanup>());

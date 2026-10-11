@@ -1,10 +1,15 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Wmsfo.Api.Chores;
+using Wmsfo.Api.Contracts;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Email;
+using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.IntegrationTests;
 
@@ -15,6 +20,8 @@ namespace Wmsfo.Api.IntegrationTests;
 // - stale beacon flag set and cleared
 // - orphan collector's four transitions with a clock stub
 // - nightly cleanup counts each of the six deletes
+// - subscription.verify and contact.received carry the published logo tile and
+//   site name, or the bundled logo and the default name without a logoMedia
 public sealed class A16ChoreTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -33,9 +40,9 @@ public sealed class A16ChoreTests : IClassFixture<PostgresFixture>, IAsyncLifeti
         return Task.CompletedTask;
     }
 
-    private A16Host Host(InMemoryObjectStore? store = null)
+    private A16Host Host(InMemoryObjectStore? store = null, bool withLogoResolver = false)
     {
-        _host = A16Host.Create(_fixture.ConnectionString, store);
+        _host = A16Host.Create(_fixture.ConnectionString, store, withLogoResolver);
         return _host;
     }
 
@@ -237,6 +244,57 @@ insert into outbox (topic, payload) values (
         var sent = Assert.Single(host.Sender.Sent);
         Assert.Equal(["inbox@example.com", "records@example.org"], sent.ToAddresses);
         Assert.Equal("sam@example.com", sent.ReplyTo);
+    }
+
+    // ---------- outbox: verify and contact emails carry the published logo ----------
+
+    [Fact]
+    public async Task Outbox_verify_and_contact_carry_the_published_logo_tile_and_site_name()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        var store = new InMemoryObjectStore();
+        var png = LogoPng();
+        var mediaId = await InsertLogoMediaAsync(conn, store, png);
+        await PublishSettingsAsync(conn, "North Pole Flight Desk", mediaId);
+        await InsertVerifyAndContactAsync(conn);
+
+        var host = Host(store, withLogoResolver: true);
+        Assert.Equal(2, await host.Outbox.RunOnceAsync(CancellationToken.None));
+
+        var key = EmailLogo.KeyFor(EmailLogo.DeriveTile(png, "image/png"));
+        var url = EmailLogo.UrlFor(host.Options.CdnBaseUrl, key);
+        Assert.NotNull(await store.HeadObjectAsync(key));
+        Assert.Equal(2, host.Sender.Sent.Count);
+        Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
+        Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.ContactReceived);
+        foreach (var sent in host.Sender.Sent)
+        {
+            Assert.Equal(url, sent.Values["logoUrl"]);
+            Assert.Equal("North Pole Flight Desk", sent.Values["siteName"]);
+        }
+    }
+
+    [Fact]
+    public async Task Outbox_verify_and_contact_without_logo_media_carry_the_bundled_logo_and_default_name()
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await PublishSettingsAsync(conn, "", mediaId: null);
+        await InsertVerifyAndContactAsync(conn);
+
+        var host = Host(new InMemoryObjectStore(), withLogoResolver: true);
+        Assert.Equal(2, await host.Outbox.RunOnceAsync(CancellationToken.None));
+
+        var bundled = EmailTemplates.Load(TestPaths.EmailTemplatesDir, host.Options.CdnBaseUrl, host.Options.SiteBaseUrl).Logo.Url;
+        Assert.Equal(2, host.Sender.Sent.Count);
+        Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
+        Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.ContactReceived);
+        foreach (var sent in host.Sender.Sent)
+        {
+            Assert.Equal(bundled, sent.Values["logoUrl"]);
+            Assert.Equal(EmailTemplates.DefaultSiteName, sent.Values["siteName"]);
+        }
     }
 
     // ---------- alert: fan-out uniqueness (subscriber_id, outbox_id) ----------
@@ -547,6 +605,64 @@ values ($1, 'stale.png', 'image/png', 'raster', 'pending', 'media/x/stale.png', 
     }
 
     // ---------- helpers ----------
+
+    // An unverified subscriber with its subscription.verify row and a contact
+    // message with its contact.received row.
+    private static async Task InsertVerifyAndContactAsync(NpgsqlConnection conn)
+    {
+        var personId = await InsertPersonAsync(conn, "logo@example.com");
+        var subscriberId = await InsertSubscriberAsync(conn, personId, "logo@example.com", verified: false);
+        await InsertOutboxAsync(conn, "subscription.verify",
+            $"{{\"subscriberId\":{subscriberId}, \"verifyToken\":\"wsv_logo\"}}");
+        long contactId;
+        await using (var cmd = new NpgsqlCommand(
+            "insert into contact_message (name, email, body, client_ip) values ('Robin', 'robin@example.com', 'Hello', '127.0.0.1') returning id;", conn))
+        {
+            contactId = Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+        }
+        await InsertOutboxAsync(conn, "contact.received", $"{{\"contactMessageId\":{contactId}}}");
+    }
+
+    private static byte[] LogoPng()
+    {
+        using var image = new Image<Rgba32>(300, 120, new Rgba32(10, 120, 200, 255));
+        using var ms = new MemoryStream();
+        image.SaveAsPng(ms);
+        return ms.ToArray();
+    }
+
+    // A ready png media_asset whose original `png` is in `store`.
+    private static async Task<Guid> InsertLogoMediaAsync(NpgsqlConnection conn, InMemoryObjectStore store, byte[] png)
+    {
+        var id = Guid.NewGuid();
+        var s3Key = $"media/{id:D}/logo.png";
+        await store.PutObjectAsync(s3Key, png, "image/png", EmailLogo.ImmutableCacheControl);
+        await using var cmd = new NpgsqlCommand(@"
+insert into media_asset (id, filename, content_type, kind, state, s3_key, uploaded_by, alt, title, variants, created_at, confirmed_at)
+values ($1, 'logo.png', 'image/png', 'raster', 'ready', $2, 'seed', '', '', '{}'::jsonb, now(), now());", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = s3Key });
+        await cmd.ExecuteNonQueryAsync();
+        return id;
+    }
+
+    // Publishes a content version whose settings carry `siteName` and, when
+    // given, `logoMedia` naming `mediaId`.
+    private static async Task PublishSettingsAsync(NpgsqlConnection conn, string siteName, Guid? mediaId)
+    {
+        var doc = FixtureData.BuildContentDocument();
+        doc.Settings.SiteName = siteName;
+        doc.Settings.LogoMedia = mediaId is null
+            ? null
+            : new JsonObject { ["mediaId"] = mediaId.Value.ToString("D"), ["alt"] = "Logo" };
+        var bytes = CanonicalJson.SerializeToUtf8Bytes(doc);
+        await using var cmd = new NpgsqlCommand(@"
+insert into content_version (document, sha256, media_ids, label, published_by)
+values ($1::jsonb, $2, '{}'::uuid[], 'a107', 'seed');", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = System.Text.Encoding.UTF8.GetString(bytes) });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = CanonicalJson.Sha256Hex(bytes) });
+        await cmd.ExecuteNonQueryAsync();
+    }
 
     private static async Task<long> InsertOutboxAsync(NpgsqlConnection conn, string topic, string payload)
     {
