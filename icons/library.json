@@ -217,6 +217,15 @@
       ]
     },
     {
+      "id": "home",
+      "name": "Home",
+      "tags": [
+        "utility",
+        "navigation",
+        "house"
+      ]
+    },
+    {
       "id": "instagram",
       "name": "Instagram",
       "tags": [
@@ -379,6 +388,16 @@
       "tags": [
         "holiday",
         "award"
+      ]
+    },
+    {
+      "id": "route",
+      "name": "Route",
+      "tags": [
+        "utility",
+        "navigation",
+        "map",
+        "path"
       ]
     },
     {
