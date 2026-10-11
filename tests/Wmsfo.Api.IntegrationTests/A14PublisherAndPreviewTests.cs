@@ -950,7 +950,7 @@ where id = 1;", conn);
 
         var map = ev.GetProperty("trackerMap");
         Assert.Equal("Missoula valley", map.GetProperty("name").GetString());
-        Assert.Equal(13, map.GetProperty("terrainMaxZoom").GetInt32());
+        Assert.Equal(15, map.GetProperty("terrainMaxZoom").GetInt32());
         Assert.Equal(cdn + "/basemap/tiles.pmtiles", map.GetProperty("tilesUrl").GetString());
         Assert.Equal(cdn + "/basemap/terrain.pmtiles", map.GetProperty("terrainUrl").GetString());
 
@@ -986,7 +986,7 @@ where id = 1;", conn);
             await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
             await conn.OpenAsync();
             await using var cmd = new NpgsqlCommand(
-                "update tracker_map set terrain_max_zoom = 13 where prefix = 'basemap';", conn);
+                "update tracker_map set terrain_max_zoom = 15 where prefix = 'basemap';", conn);
             await cmd.ExecuteNonQueryAsync();
         }
     }

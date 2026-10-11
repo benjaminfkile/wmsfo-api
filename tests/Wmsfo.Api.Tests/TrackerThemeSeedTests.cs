@@ -92,7 +92,7 @@ public class TrackerThemeSeedTests
     {
         var bytes = CanonicalJson.SerializeToUtf8Bytes(TrackerThemeSeed.ValleyIdentity);
         Assert.Equal(
-            "{\"bbox\":{\"west\":-114.75,\"south\":46.35,\"east\":-113.3,\"north\":47.25},\"minZoom\":0,\"maxZoom\":15,\"terrainMaxZoom\":13}",
+            "{\"bbox\":{\"west\":-114.75,\"south\":46.35,\"east\":-113.3,\"north\":47.25},\"minZoom\":0,\"maxZoom\":15,\"terrainMaxZoom\":15}",
             System.Text.Encoding.UTF8.GetString(bytes));
         Assert.Equal(TrackerThemeSeed.ValleyPackageKey, CanonicalJson.Sha256Hex(bytes));
         Assert.Equal(TrackerThemeSeed.ValleyPackageKey, TrackerThemeSeed.PackageKeyOf(TrackerThemeSeed.ValleyIdentity));
