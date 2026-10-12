@@ -246,10 +246,10 @@ insert into outbox (topic, payload) values (
         Assert.Equal("sam@example.com", sent.ReplyTo);
     }
 
-    // ---------- outbox: verify and contact emails carry the published logo ----------
+    // ---------- outbox: the verify email carries the published logo; contact is plain ----------
 
     [Fact]
-    public async Task Outbox_verify_and_contact_carry_the_published_logo_tile_and_site_name()
+    public async Task Outbox_verify_carries_the_published_logo_tile_and_site_name_and_contact_carries_neither()
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
@@ -268,15 +268,16 @@ insert into outbox (topic, payload) values (
         Assert.Equal(2, host.Sender.Sent.Count);
         Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
         Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.ContactReceived);
-        foreach (var sent in host.Sender.Sent)
-        {
-            Assert.Equal(url, sent.Values["logoUrl"]);
-            Assert.Equal("North Pole Flight Desk", sent.Values["siteName"]);
-        }
+        var verify = Assert.Single(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
+        Assert.Equal(url, verify.Values["logoUrl"]);
+        Assert.Equal("North Pole Flight Desk", verify.Values["siteName"]);
+        var contact = Assert.Single(host.Sender.Sent, m => m.TemplateName == EmailTemplates.ContactReceived);
+        Assert.False(contact.Values.ContainsKey("logoUrl"));
+        Assert.False(contact.Values.ContainsKey("siteName"));
     }
 
     [Fact]
-    public async Task Outbox_verify_and_contact_without_logo_media_carry_the_bundled_logo_and_default_name()
+    public async Task Outbox_verify_without_logo_media_carries_the_bundled_logo_and_default_name()
     {
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
@@ -290,11 +291,9 @@ insert into outbox (topic, payload) values (
         Assert.Equal(2, host.Sender.Sent.Count);
         Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
         Assert.Contains(host.Sender.Sent, m => m.TemplateName == EmailTemplates.ContactReceived);
-        foreach (var sent in host.Sender.Sent)
-        {
-            Assert.Equal(bundled, sent.Values["logoUrl"]);
-            Assert.Equal(EmailTemplates.DefaultSiteName, sent.Values["siteName"]);
-        }
+        var verify = Assert.Single(host.Sender.Sent, m => m.TemplateName == EmailTemplates.SubscriptionVerify);
+        Assert.Equal(bundled, verify.Values["logoUrl"]);
+        Assert.Equal(EmailTemplates.DefaultSiteName, verify.Values["siteName"]);
     }
 
     // ---------- alert: fan-out uniqueness (subscriber_id, outbox_id) ----------

@@ -16,6 +16,8 @@ namespace Wmsfo.Api.Email;
 // the HTML part, raw in the text part. The layout tokens {{subject}},
 // {{preheader}}, {{logoUrl}}, {{ornamentsUrl}}, {{lightsUrl}},
 // {{siteName}}, {{siteUrl}}, and {{footerReason}} are supplied by Render.
+// A plain template (contact_received) is only its .txt, sent as-is with no
+// layout and no HTML part, so a reply quotes nothing but the message.
 public sealed class EmailTemplates
 {
     private static readonly Regex TokenPattern = new(@"\{\{([a-zA-Z]+)\}\}", RegexOptions.Compiled);
@@ -63,8 +65,9 @@ public sealed class EmailTemplates
     // otherwise the template's stock paragraph. The preheader is the hidden
     // line inbox previews show; it and the footer reason are substituted
     // like the subject before they reach the layout. Pill is the status pill
-    // of the header band (none on contact_received); Link is the footer line
-    // after the reason (the unsubscribe link on alerts).
+    // of the header band; Link is the footer line after the reason (the
+    // unsubscribe link on alerts). Plain marks a text-only template without
+    // the layout: contact_received, which has no preheader or footer.
     public static readonly IReadOnlyDictionary<string, TemplateSpec> Specs =
         new Dictionary<string, TemplateSpec>(StringComparer.Ordinal)
         {
@@ -126,8 +129,9 @@ public sealed class EmailTemplates
             [ContactReceived] = new("Contact form: {{contactName}}",
                 RequiredTokens: ImmutableArray.Create("contactName", "contactEmail", "contactMessage"),
                 SubjectTokens: ImmutableArray.Create("contactName"),
-                Preheader: "{{contactName}} sent a message through the Santa Tracker contact form.",
-                FooterReason: "You are receiving this because this address receives the Santa Tracker contact form."),
+                Preheader: "",
+                FooterReason: "",
+                Plain: true),
         };
 
     // The template selected for an event.status_changed or
@@ -187,7 +191,7 @@ public sealed class EmailTemplates
 
     // Load, compose, and validate every template under templates/email/.
     // A missing layout, layout without {{content}}, bundled image, fragment .html or
-    // .txt, or a composed template that does not contain each substitution
+    // .txt (only the .txt of a plain template), or a composed template that does not contain each substitution
     // the spec lists throws so boot fails fast. `cdnBaseUrl` is
     // WMSFO_CDN_BASE_URL (the base of the image URLs); `siteUrl` is
     // WMSFO_SITE_BASE_URL, the layout's {{siteUrl}} when the values of a
@@ -210,6 +214,20 @@ public sealed class EmailTemplates
         {
             var htmlPath = Path.Combine(templatesDir, name + ".html");
             var textPath = Path.Combine(templatesDir, name + ".txt");
+            if (spec.Plain)
+            {
+                if (!File.Exists(textPath))
+                    throw new InvalidOperationException($"Missing email template: {textPath}");
+                var plain = File.ReadAllText(textPath);
+                foreach (var required in spec.RequiredTokens)
+                {
+                    var marker = "{{" + required + "}}";
+                    if (!plain.Contains(marker, StringComparison.Ordinal))
+                        throw new InvalidOperationException($"Template {name}.txt missing substitution {marker}.");
+                }
+                builder[name] = new LoadedTemplate(spec.Subject, spec.Preheader, spec.FooterReason, "", plain, Plain: true);
+                continue;
+            }
             if (!File.Exists(htmlPath))
                 throw new InvalidOperationException($"Missing email template: {htmlPath}");
             if (!File.Exists(textPath))
@@ -267,13 +285,16 @@ public sealed class EmailTemplates
     // layout tokens: subject, preheader, and footerReason from the spec;
     // ornamentsUrl and lightsUrl (the bundled images); logoUrl (the bundled
     // logo), siteName (DefaultSiteName), and siteUrl (the configured site
-    // URL), each unless `values` carries it.
+    // URL), each unless `values` carries it. A plain template renders its
+    // text alone, raw, with an empty HTML part.
     public RenderedTemplate Render(string name, IReadOnlyDictionary<string, string> values)
     {
         if (!_templates.TryGetValue(name, out var tpl))
             throw new InvalidOperationException($"Unknown email template: {name}");
 
         var subject = Substitute(tpl.Subject, values, htmlEscape: false);
+        if (tpl.Plain)
+            return new RenderedTemplate(subject, "", Substitute(tpl.Text, values, htmlEscape: false));
         var all = new Dictionary<string, string>(values, StringComparer.Ordinal)
         {
             ["subject"] = subject,
@@ -342,7 +363,8 @@ public sealed class EmailTemplates
         string Preheader,
         string FooterReason,
         StatusPill? Pill = null,
-        FooterLink? Link = null);
+        FooterLink? Link = null,
+        bool Plain = false);
 
     // The header band's pill: the label on its background, in its colour,
     // classed `pill` and its Tone (one of pillAccent, pillOk, pillDim,
@@ -361,7 +383,9 @@ public sealed class EmailTemplates
     // are substituted like the body's.
     public sealed record FooterLink(string Html, string Text);
 
-    public sealed record LoadedTemplate(string Subject, string Preheader, string FooterReason, string Html, string Text);
+    public sealed record LoadedTemplate(string Subject, string Preheader, string FooterReason, string Html, string Text,
+        bool Plain = false);
 
+    // Html is empty for a plain template, and the sender leaves that part out.
     public sealed record RenderedTemplate(string Subject, string Html, string Text);
 }

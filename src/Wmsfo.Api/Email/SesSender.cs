@@ -9,7 +9,8 @@ namespace Wmsfo.Api.Email;
 // templates/email/<name>.html and .txt with {{token}} substitution
 // (HTML-escaped in the HTML body), sets From, To, Subject,
 // List-Unsubscribe and List-Unsubscribe-Post on alert templates, Reply-To
-// on contact_received, and the configuration set when non-empty. When
+// on contact_received, and the configuration set when non-empty. A plain
+// template (contact_received) goes as a text-only message. When
 // WMSFO_SES_DRY_RUN=true, logs the rendered message instead of sending
 // (returns a synthetic ses_message_id).
 public interface ISesSender
@@ -70,7 +71,9 @@ public sealed class SesSender : ISesSender
                     Subject = new Amazon.SimpleEmailV2.Model.Content { Data = rendered.Subject, Charset = "UTF-8" },
                     Body = new Body
                     {
-                        Html = new Amazon.SimpleEmailV2.Model.Content { Data = rendered.Html, Charset = "UTF-8" },
+                        Html = rendered.Html.Length == 0
+                            ? null
+                            : new Amazon.SimpleEmailV2.Model.Content { Data = rendered.Html, Charset = "UTF-8" },
                         Text = new Amazon.SimpleEmailV2.Model.Content { Data = rendered.Text, Charset = "UTF-8" },
                     },
                 },

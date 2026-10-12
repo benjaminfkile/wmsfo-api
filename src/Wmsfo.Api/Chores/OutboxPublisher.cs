@@ -13,10 +13,10 @@ namespace Wmsfo.Api.Chores;
 // Claim up to 50 rows with skip-locked, process each per topic, mark
 // published on success and last_error on failure. Overlapping leaders claim
 // disjoint rows (skip-locked) and the alert_delivery unique constraint
-// bounds the damage from any second attempt. The subscription_verify and
-// contact_received sends resolve the layout's logo and site name through
-// EmailLogoResolver, as the alert emails do (the bundled logo and
-// DefaultSiteName without one).
+// bounds the damage from any second attempt. The subscription_verify send
+// resolves the layout's logo and site name through EmailLogoResolver, as the
+// alert emails do (the bundled logo and DefaultSiteName without one); the
+// contact_received send is plain text without the layout.
 public sealed class OutboxPublisher
 {
     private readonly WmsfoConnectionStrings _connections;
@@ -224,12 +224,11 @@ public sealed class OutboxPublisher
             ["contactEmail"] = email,
             ["contactMessage"] = body,
         };
-        var brand = await ResolveBrandAsync(ct).ConfigureAwait(false);
-        await _sender.SendAsync(EmailBrand.Apply(new SesMessage(
+        await _sender.SendAsync(new SesMessage(
             TemplateName: EmailTemplates.ContactReceived,
             ToAddresses: _options.ContactNotifyEmailList(),
             Values: values,
-            ReplyTo: email), brand), ct).ConfigureAwait(false);
+            ReplyTo: email), ct).ConfigureAwait(false);
 
         await MarkPublishedAsync(row.Id, conn, ct).ConfigureAwait(false);
     }

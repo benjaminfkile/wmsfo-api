@@ -45,9 +45,6 @@ public sealed class EmailTemplatesTests
     [InlineData(EmailTemplates.EventPostponed, "unsubscribeUrl")]
     [InlineData(EmailTemplates.EventMessage, "messageBody")]
     [InlineData(EmailTemplates.EventMessage, "unsubscribeUrl")]
-    [InlineData(EmailTemplates.ContactReceived, "contactName")]
-    [InlineData(EmailTemplates.ContactReceived, "contactEmail")]
-    [InlineData(EmailTemplates.ContactReceived, "contactMessage")]
     public void Both_html_and_text_bodies_contain_every_required_substitution(string name, string token)
     {
         // The fragment or, for the unsubscribe link, the template's footer link.
@@ -157,6 +154,20 @@ public sealed class EmailTemplatesTests
     }
 
     [Fact]
+    public void Contact_received_is_plain_text_without_the_layout()
+    {
+        Assert.False(File.Exists(Path.Combine(TemplatesDir, EmailTemplates.ContactReceived + ".html")));
+        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
+        var rendered = templates.Render(EmailTemplates.ContactReceived, TrickyValues(EmailTemplates.ContactReceived));
+
+        // No HTML part, and the text is the sender and the message, raw.
+        Assert.Equal("", rendered.Html);
+        Assert.Equal(
+            "From: contactName <b> & \"x\" <contactEmail <b> & \"x\">\n\ncontactMessage <b> & \"x\"\n",
+            rendered.Text);
+    }
+
+    [Fact]
     public void Event_message_subject_is_first_60_characters_of_body()
     {
         var templates = EmailTemplates.Load(TemplatesDir);
@@ -217,12 +228,13 @@ public sealed class EmailTemplatesTests
             EmailTemplates.EventCancelled,
             EmailTemplates.EventPostponed,
             EmailTemplates.EventMessage,
-            EmailTemplates.ContactReceived,
         })
         {
             File.Copy(Path.Combine(TemplatesDir, name + ".html"), Path.Combine(tmp.Path, name + ".html"));
             File.Copy(Path.Combine(TemplatesDir, name + ".txt"), Path.Combine(tmp.Path, name + ".txt"));
         }
+        File.Copy(Path.Combine(TemplatesDir, EmailTemplates.ContactReceived + ".txt"),
+            Path.Combine(tmp.Path, EmailTemplates.ContactReceived + ".txt"));
         Assert.Throws<InvalidOperationException>(() => EmailTemplates.Load(tmp.Path));
     }
 
@@ -242,8 +254,12 @@ public sealed class EmailTemplatesTests
         return values;
     }
 
+    // The templates that render inside the layout (every one but the plain).
+    private static IEnumerable<string> LayoutNames =>
+        EmailTemplates.Specs.Where(kv => !kv.Value.Plain).Select(kv => kv.Key);
+
     public static IEnumerable<object[]> TemplateNames() =>
-        EmailTemplates.Specs.Keys.Select(n => new object[] { n });
+        LayoutNames.Select(n => new object[] { n });
 
     [Theory]
     [MemberData(nameof(TemplateNames))]
@@ -496,7 +512,7 @@ public sealed class EmailTemplatesTests
     public void Every_coloured_element_carries_a_class()
     {
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
-        foreach (var name in EmailTemplates.Specs.Keys)
+        foreach (var name in LayoutNames)
         {
             var html = templates.Render(name, TrickyValues(name)).Html;
             var body = html[html.IndexOf("<body", StringComparison.Ordinal)..];
@@ -515,7 +531,7 @@ public sealed class EmailTemplatesTests
     public void Every_background_is_declared_by_attribute_and_colour()
     {
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
-        foreach (var name in EmailTemplates.Specs.Keys)
+        foreach (var name in LayoutNames)
         {
             var html = templates.Render(name, TrickyValues(name)).Html;
             var bgcolors = System.Text.RegularExpressions.Regex.Matches(html, "bgcolor=\"(#[0-9a-f]{6})\" style=\"([^\"]*)\"");
@@ -553,21 +569,6 @@ public sealed class EmailTemplatesTests
         Assert.False(await image.EnsureWrittenAsync(store));
     }
 
-    [Fact]
-    public void The_contact_render_carries_no_pill_and_no_footer_link()
-    {
-        var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
-        var rendered = templates.Render(EmailTemplates.ContactReceived, TrickyValues(EmailTemplates.ContactReceived));
-
-        Assert.DoesNotContain(EmailTemplates.StatusPill.Style, rendered.Html);
-        Assert.DoesNotContain("<span", rendered.Html);
-        Assert.DoesNotContain("&#9733;", rendered.Html);
-        Assert.DoesNotContain("unsubscribe", rendered.Html);
-        Assert.DoesNotContain("unsubscribe", rendered.Text);
-        // The footer reason is followed directly by the site link.
-        Assert.EndsWith(EmailTemplates.Specs[EmailTemplates.ContactReceived].FooterReason + "\n" + SiteBase + "\n", rendered.Text);
-    }
-
     [Theory]
     [InlineData(EmailTemplates.SubscriptionVerify, "Confirm", "#e6f0fa", "#0b6bb5", "pillAccent")]
     [InlineData(EmailTemplates.EventPlanned, "Planned", "#e6f0fa", "#0b6bb5", "pillAccent")]
@@ -598,7 +599,8 @@ public sealed class EmailTemplatesTests
             foreach (var token in spec.RequiredTokens)
             {
                 var value = TrickyValues(name)[token];
-                Assert.Contains(System.Net.WebUtility.HtmlEncode(value), rendered.Html);
+                if (!spec.Plain)
+                    Assert.Contains(System.Net.WebUtility.HtmlEncode(value), rendered.Html);
                 Assert.Contains(value, rendered.Text);
             }
         }
