@@ -1168,7 +1168,7 @@ type ContentBundle = { content: ContentDocument; media: { [id: string]: MediaEnt
 type PreviewToken = { token: string; url: string; expiresAt: string; audit: AuditStamp | null };
 ```
 
-List endpoints that page use `?limit=` (default 50, max 500) and `?cursor=` (opaque, from `nextCursor`). Lists without `nextCursor` in their response are unpaged.
+List endpoints that page use `?limit=` (max 500; default 50 for `GET /admin/media`, 100 for `GET /admin/contact-messages`, `GET /admin/subscribers`, `GET /admin/people`, and `GET /admin/events/{id}/locations`; `GET /admin/audit` has its own default of 50 and cap of 200, Audit below) and `?cursor=` (opaque, from `nextCursor`). Lists without `nextCursor` in their response are unpaged.
 
 ### 4.1 Health
 
