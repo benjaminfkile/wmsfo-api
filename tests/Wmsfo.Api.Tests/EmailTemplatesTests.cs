@@ -102,41 +102,14 @@ public sealed class EmailTemplatesTests
     }
 
     [Fact]
-    public void StockParagraph_renders_in_america_denver_when_no_zone_is_set()
+    public void StockParagraph_for_scheduled_carries_no_time_and_no_zone()
     {
-        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
-        var stock = EmailTemplates.StockParagraph(2, "Santa 2026", scheduled);
-        Assert.Contains("Santa 2026", stock);
-        Assert.Contains("Sat, Dec 19 2026 at 6:00 PM (America/Denver)", stock);
-        Assert.DoesNotContain("Mountain time", stock);
-    }
-
-    [Fact]
-    public void StockParagraph_renders_in_the_event_zone_when_set()
-    {
-        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
-        var stock = EmailTemplates.StockParagraph(2, "Santa 2026", scheduled, "America/Chicago");
-        Assert.Contains("Sat, Dec 19 2026 at 7:00 PM (America/Chicago)", stock);
-        Assert.DoesNotContain("America/Denver", stock);
-        Assert.DoesNotContain("Mountain time", stock);
-    }
-
-    [Fact]
-    public void FormatScheduleTime_falls_back_to_america_denver_for_an_unknown_zone()
-    {
-        var scheduled = new DateTimeOffset(2026, 12, 20, 1, 0, 0, TimeSpan.Zero);
-        Assert.Equal("Sat, Dec 19 2026 at 6:00 PM (America/Denver)",
-            EmailTemplates.FormatScheduleTime(scheduled, "Nowhere/Nothing"));
-        Assert.Equal("Sat, Dec 19 2026 at 6:00 PM (America/Denver)",
-            EmailTemplates.FormatScheduleTime(scheduled, null));
-    }
-
-    [Fact]
-    public void StockParagraph_falls_back_when_no_schedule()
-    {
-        var stock = EmailTemplates.StockParagraph(2, "Santa 2027", null);
-        Assert.Contains("Santa 2027", stock);
-        Assert.DoesNotContain("Mountain time", stock);
+        // The paragraph is the same whether or not the event has a scheduled
+        // time: the site shows that time in the visitor's own zone.
+        var stock = EmailTemplates.StockParagraph(2, "Santa 2026");
+        Assert.Equal("Santa 2026 is scheduled.", stock);
+        Assert.DoesNotContain("(", stock);
+        Assert.DoesNotContain("/", stock);
     }
 
     [Fact]

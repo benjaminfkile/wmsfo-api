@@ -122,7 +122,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
         var sent = Assert.Single(_host.Sender.Sent);
         Assert.Equal(EmailTemplates.EventScheduled, sent.TemplateName);
         var rendered = _templates!.Render(sent.TemplateName, sent.Values);
-        var stock = EmailTemplates.StockParagraph(2, "Event 2101", Scheduled);
+        var stock = EmailTemplates.StockParagraph(2, "Event 2101");
         Assert.Contains(Text, rendered.Text);
         Assert.Contains(Text, rendered.Html);
         Assert.DoesNotContain(stock, rendered.Text);
@@ -164,7 +164,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
             "{\"statusId\":2,\"notify\":true}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var stock = EmailTemplates.StockParagraph(2, "Event 2103", Scheduled);
+        var stock = EmailTemplates.StockParagraph(2, "Event 2103");
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(stock, message.Body);
         Assert.False(message.Notify);
@@ -230,7 +230,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
         Assert.Equal(EmailTemplates.EventPlanned, sent.TemplateName);
         var rendered = _templates!.Render(sent.TemplateName, sent.Values);
         Assert.Contains(Text, rendered.Text);
-        Assert.DoesNotContain(EmailTemplates.StockParagraph(1, "Event 2104", Scheduled), rendered.Text);
+        Assert.DoesNotContain(EmailTemplates.StockParagraph(1, "Event 2104"), rendered.Text);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class A74StatusMessageTests : IClassFixture<PostgresFixture>, IAsy
 
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
         var sent = Assert.Single(_host.Sender.Sent);
-        var stock = EmailTemplates.StockParagraph(2, "Event 2106", Scheduled);
+        var stock = EmailTemplates.StockParagraph(2, "Event 2106");
         Assert.Equal(stock, sent.Values["customMessage"]);
         var rendered = _templates!.Render(sent.TemplateName, sent.Values);
         Assert.Contains(stock, rendered.Text);

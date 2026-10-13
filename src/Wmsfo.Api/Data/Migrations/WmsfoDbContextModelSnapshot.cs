@@ -795,7 +795,7 @@ namespace Wmsfo.Api.Data.Migrations
                     b.Property<string>("ScheduleTimeZone")
                         .HasColumnType("text")
                         .HasColumnName("schedule_time_zone")
-                        .HasComment("IANA zone id the scheduled time was entered in; alert emails render scheduled_at in it (America/Denver when null).");
+                        .HasComment("IANA zone id the admin panel enters scheduled_at in; null means unset. No email renders the scheduled time.");
 
                     b.Property<DateTimeOffset?>("ScheduledAt")
                         .HasColumnType("timestamptz")

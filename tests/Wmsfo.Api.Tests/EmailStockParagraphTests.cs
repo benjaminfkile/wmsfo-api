@@ -30,7 +30,7 @@ public sealed class EmailStockParagraphTests
         var templates = EmailTemplates.Load(TemplatesDir);
         // The outbox chore substitutes StockParagraph when the payload's
         // message is null. Mimic that here to prove the template accepts it.
-        var stock = EmailTemplates.StockParagraph(3, "Santa Flyover 2027", null);
+        var stock = EmailTemplates.StockParagraph(3, "Santa Flyover 2027");
         var rendered = templates.Render(EmailTemplates.EventLive, new Dictionary<string, string>
         {
             ["customMessage"] = stock,
@@ -57,14 +57,14 @@ public sealed class EmailStockParagraphTests
     {
         Assert.Equal(
             "Santa Flyover 2027 is postponed. A new time will be announced when it is known.",
-            EmailTemplates.StockParagraph(6, "Santa Flyover 2027", null));
+            EmailTemplates.StockParagraph(6, "Santa Flyover 2027"));
     }
 
     [Fact]
     public void Postponed_template_renders_the_stock_paragraph_and_subject()
     {
         var templates = EmailTemplates.Load(TemplatesDir);
-        var stock = EmailTemplates.StockParagraph(6, "Santa Flyover 2027", null);
+        var stock = EmailTemplates.StockParagraph(6, "Santa Flyover 2027");
         var rendered = templates.Render(EmailTemplates.TemplateForStatus(6), new Dictionary<string, string>
         {
             ["customMessage"] = stock,

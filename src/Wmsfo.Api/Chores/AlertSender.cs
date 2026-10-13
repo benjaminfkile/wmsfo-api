@@ -163,9 +163,8 @@ public sealed class AlertSender
         string unsubscribeUrl, string apiUnsubscribe)
     {
         var eventName = LookupEventName(eventId);
-        var (scheduledAt, scheduleTimeZone) = LookupEventSchedule(eventId);
         var template = EmailTemplates.TemplateForStatus(statusId);
-        var body = customMessage ?? EmailTemplates.StockParagraph(statusId, eventName, scheduledAt, scheduleTimeZone);
+        var body = customMessage ?? EmailTemplates.StockParagraph(statusId, eventName);
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["customMessage"] = body,
@@ -217,19 +216,6 @@ public sealed class AlertSender
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         var r = cmd.ExecuteScalar();
         return r is string s ? s : "Santa tracker";
-    }
-
-    private (DateTimeOffset? ScheduledAt, string? ScheduleTimeZone) LookupEventSchedule(long eventId)
-    {
-        using var conn = new NpgsqlConnection(_connections.App);
-        conn.Open();
-        using var cmd = new NpgsqlCommand("select scheduled_at, schedule_time_zone from event where id = $1", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-        using var reader = cmd.ExecuteReader();
-        if (!reader.Read()) return (null, null);
-        DateTimeOffset? scheduledAt = reader.IsDBNull(0) ? null : reader.GetFieldValue<DateTimeOffset>(0);
-        string? zone = reader.IsDBNull(1) ? null : reader.GetString(1);
-        return (scheduledAt, zone);
     }
 
     private string? LookupMessageBody(long messageId)
