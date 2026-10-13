@@ -43,16 +43,20 @@ public sealed class Snapshot
     // tags in ascending string order; absent tags open the home page.
     [JsonPropertyOrder(2)] public SortedDictionary<string, SnapshotQrCode> QrCodes { get; set; } = new(StringComparer.Ordinal);
     [JsonPropertyOrder(3)] public IList<SnapshotSponsor> Sponsors { get; set; } = new List<SnapshotSponsor>();
-    [JsonPropertyOrder(4)] public IList<SnapshotCookieType> CookieTypes { get; set; } = new List<SnapshotCookieType>();
+    // The year `sponsors` lists (contracts 1.3): the current event's year, or
+    // with no current event the greatest year with a listable row; null when
+    // there is no such year.
+    [JsonPropertyOrder(4)] public int? SponsorsYear { get; set; }
+    [JsonPropertyOrder(5)] public IList<SnapshotCookieType> CookieTypes { get; set; } = new List<SnapshotCookieType>();
     // The published content document (contracts 1.3a) verbatim.
-    [JsonPropertyOrder(5)] public ContentDocument Content { get; set; } = new();
+    [JsonPropertyOrder(6)] public ContentDocument Content { get; set; } = new();
     // Keys in ascending string order (contracts 1.3).
-    [JsonPropertyOrder(6)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
+    [JsonPropertyOrder(7)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
     // Keys in ascending string order (contracts 1.3).
-    [JsonPropertyOrder(7)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
+    [JsonPropertyOrder(8)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
     // The current event's enabled themes, both renderers, in `sortOrder`, `id`
     // order (contracts 1.3); empty when no event is current. The last key.
-    [JsonPropertyOrder(8), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
+    [JsonPropertyOrder(9), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
 }
 
 // One resolved QR code inside `qrCodes` (contracts 1.3, 4.5a).

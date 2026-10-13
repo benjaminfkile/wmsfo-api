@@ -26,7 +26,7 @@ public class KeyOrderTests
     {
         var expected = new[]
         {
-            "schemaVersion", "event", "qrCodes", "sponsors", "cookieTypes", "content", "media", "icons",
+            "schemaVersion", "event", "qrCodes", "sponsors", "sponsorsYear", "cookieTypes", "content", "media", "icons",
             "trackerThemes",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json"));

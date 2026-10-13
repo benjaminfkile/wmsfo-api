@@ -408,7 +408,8 @@ on conflict (sponsor_id, event_year) do update set
     }
 
     // POST /admin/sponsors/{id}/years/{eventYear}/copy-from/{sourceYear}
-    // [snapshot when eventYear is the current event's year] per contracts 4.5,
+    // [snapshot when eventYear is the current event's year or no event is
+    // current] per contracts 4.5,
     // sql.md 8.4c. Copies the sponsor's sourceYear row to eventYear and
     // answers with the new SponsorYear row. 404 (sponsor, or no sourceYear
     // row) / 409 year_exists.
@@ -431,8 +432,10 @@ on conflict (sponsor_id, event_year) do update set
                 _ = AdminHelpers.RequireAdminEmail(ctx);
 
                 // snapshot-affecting when the target year is the current
-                // event's year (sql.md 8.4c). Look up the current event's year
-                // ahead of the transaction; if it matches we run through the
+                // event's year, or when no event is current (the snapshot then
+                // lists the greatest listable year, which the copy may change;
+                // sql.md 8.4c). Look up the current event's year ahead of the
+                // transaction; on either case we run through the
                 // AdminSnapshotTransaction, otherwise a plain transaction.
                 int? currentYear = null;
                 await using (var lookup = new NpgsqlConnection(connections.App))
@@ -445,7 +448,7 @@ on conflict (sponsor_id, event_year) do update set
                 }
 
                 SponsorYearDto dto;
-                if (currentYear == eventYear)
+                if (currentYear is null || currentYear == eventYear)
                 {
                     var (result, _) = await snap.RunAsync<SponsorYearDto>(async (conn, tx, token) =>
                     {
@@ -471,8 +474,8 @@ on conflict (sponsor_id, event_year) do update set
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/sponsors/import [snapshot when toYear is current] per
-    // contracts 4.5 and sql.md 8.4c. One transaction: for each sponsorId, copy
+    // POST /admin/sponsors/import [snapshot when toYear is current or no event
+    // is current] per contracts 4.5 and sql.md 8.4c. One transaction: for each sponsorId, copy
     // its fromYear row to toYear (unless one already exists at toYear).
     private static void MapImport(IEndpointRouteBuilder app)
     {
@@ -506,7 +509,7 @@ on conflict (sponsor_id, event_year) do update set
                 }
 
                 SponsorImportResponse result;
-                if (currentYear == body.ToYear)
+                if (currentYear is null || currentYear == body.ToYear)
                 {
                     var (rs, _) = await snap.RunAsync<SponsorImportResponse>(async (conn, tx, token) =>
                     {

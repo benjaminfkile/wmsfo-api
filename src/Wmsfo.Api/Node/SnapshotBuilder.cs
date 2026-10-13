@@ -126,7 +126,6 @@ returning version;", connection, transaction);
     {
         var snap = new Snapshot { SchemaVersion = 1 };
         SnapshotEvent? currentEvent = null;
-        int? currentYear = null;
         long? currentRouteId = null;
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
@@ -184,7 +183,6 @@ where e.is_current;", conn, tx))
                     TrackerBbox = ReadJson<Bbox>(reader.GetString(10)),
                     TrackerMap = null,
                 };
-                currentYear = currentEvent.Year;
                 currentRouteId = reader.IsDBNull(8) ? null : reader.GetInt64(8);
             }
         }
@@ -314,14 +312,17 @@ order by t.sort_order, t.id;", conn, tx))
 
         snap.Event = currentEvent;
 
-        // 5. sponsors of the current event's year. Order (contracts 1.3):
+        // 5. sponsors of the sponsor year (SponsorsYearAsync): the current
+        // event's year, or with no current event the greatest year with a
+        // listable row. Order (contracts 1.3):
         // rows with `pinned_position` first (asc), then the rest by
         // `amount_donated` desc (nulls last), `name` asc, `id` asc.
         // `lingerMs` uses `linger_ms_override` when set, otherwise the formula
         // `max(sponsor_linger_min_ms, round(amount * sponsor_linger_ms_per_dollar))`
         // with the floor when `amount_donated` is null.
         var sponsors = new List<SnapshotSponsor>();
-        if (currentYear is not null)
+        var sponsorsYear = await SponsorsYearAsync(conn, tx, ct).ConfigureAwait(false);
+        if (sponsorsYear is not null)
         {
             await using var cmd = new NpgsqlCommand(@"
 select s.id, s.name, s.website_url, s.fb_url, s.ig_url, s.logo_media_id,
@@ -340,7 +341,7 @@ order by
   y.amount_donated desc nulls last,
   s.name asc,
   s.id asc;", conn, tx);
-            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = currentYear });
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = sponsorsYear });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
@@ -387,6 +388,7 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
         }
 
         snap.Sponsors = sponsors;
+        snap.SponsorsYear = sponsorsYear;
         snap.CookieTypes = cookieTypes;
 
         // 6a. qrCodes: every active printed code already resolved (contracts 4.5a).
@@ -522,9 +524,25 @@ order by m.id;", conn, tx);
         return snap;
     }
 
+    // The year the snapshot's sponsors list (contracts 1.3): the current
+    // event's year when an event is current, otherwise the greatest
+    // `event_year` among active, not anonymous, can advertise rows; null when
+    // there is no such row. The snapshot read and the snapshot-level media ids
+    // both take the year from here.
+    public static async Task<int?> SponsorsYearAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(@"
+select coalesce(
+  (select year from event where is_current),
+  (select max(event_year) from sponsor_year where active and not anonymous and can_advertise));", conn, tx);
+        var result = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return result is null or DBNull ? null : Convert.ToInt32(result);
+    }
+
     // The media ids the snapshot carries beyond the content document: logos of
-    // the sponsors the snapshot lists (the current event's year, active, not
-    // anonymous, can advertise), media icons of active cookie types, and the
+    // the sponsors the snapshot lists (the sponsor year of SponsorsYearAsync,
+    // active, not anonymous, can advertise), media icons of active cookie types, and the
     // thumbnails of the current event's enabled tracker themes. The
     // snapshot media map, the preview document, and the draft response all add
     // this set to the document's referenced media.
@@ -532,14 +550,16 @@ order by m.id;", conn, tx);
         NpgsqlConnection conn, NpgsqlTransaction? tx, CancellationToken ct)
     {
         var ids = new HashSet<Guid>();
-        await using (var cmd = new NpgsqlCommand(@"
+        var sponsorsYear = await SponsorsYearAsync(conn, tx, ct).ConfigureAwait(false);
+        if (sponsorsYear is not null)
+        {
+            await using var cmd = new NpgsqlCommand(@"
 select s.logo_media_id
 from sponsor s
-join sponsor_year y on y.sponsor_id = s.id
-join event e on e.is_current and y.event_year = e.year
-where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is not null;", conn, tx))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
-        {
+join sponsor_year y on y.sponsor_id = s.id and y.event_year = $1
+where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is not null;", conn, tx);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = sponsorsYear });
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
             while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(reader.GetGuid(0));
         }
         await using (var cmd = new NpgsqlCommand(
