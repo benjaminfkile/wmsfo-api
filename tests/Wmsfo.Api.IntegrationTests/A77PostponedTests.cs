@@ -75,7 +75,7 @@ public sealed class A77PostponedStatusTests : IClassFixture<PostgresFixture>, IA
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
         var sent = Assert.Single(_host.Sender.Sent);
         Assert.Equal(EmailTemplates.EventPostponed, sent.TemplateName);
-        var stock = EmailTemplates.StockParagraph(6, "Event 2201", null);
+        var stock = EmailTemplates.StockParagraph(6, "Event 2201");
         Assert.Equal("Event 2201 is postponed. A new time will be announced when it is known.", stock);
         Assert.Equal(stock, sent.Values["customMessage"]);
         var rendered = _templates!.Render(sent.TemplateName, sent.Values);

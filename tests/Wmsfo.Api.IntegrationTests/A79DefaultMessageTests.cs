@@ -74,7 +74,9 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
             "{\"statusId\":2,\"notify\":false}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var stock = EmailTemplates.StockParagraph(2, "Event 2201", Scheduled);
+        var stock = EmailTemplates.StockParagraph(2, "Event 2201");
+        // The event has a scheduled time; the posted paragraph carries no time and no zone.
+        Assert.Equal("Event 2201 is scheduled.", stock);
         var message = Assert.Single(await ReadMessagesAsync(id));
         Assert.Equal(stock, message.Body);
         Assert.False(message.Notify);
@@ -137,7 +139,7 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
 
         var items = await ReadMyAlertsAsync();
         Assert.Equal(3, items.Count);
-        var stock = EmailTemplates.StockParagraph(1, "Event 2203", Scheduled);
+        var stock = EmailTemplates.StockParagraph(1, "Event 2203");
         var messageAlert = items.Single(i => i.GetProperty("kind").GetString() == "event_message");
         Assert.Equal("Cookies are ready", messageAlert.GetProperty("message").GetString());
         var statusAlerts = items.Where(i => i.GetProperty("kind").GetString() == "event_status").ToList();
