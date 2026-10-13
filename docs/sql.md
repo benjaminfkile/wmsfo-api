@@ -1199,7 +1199,8 @@ join tracker_theme t on t.id = et.theme_id
 where et.event_id = $event_id
 order by t.sort_order, t.id;
 
--- sponsors of the current event's year
+-- sponsors of the sponsor year: the current event's year, or with no current event
+-- select max(event_year) from sponsor_year where active and not anonymous and can_advertise
 select s.id, s.name, s.website_url, s.fb_url, s.ig_url, s.logo_media_id,
        y.amount_donated, y.can_advertise,
        agg.latest_year, agg.years_as_sponsor
@@ -1422,12 +1423,12 @@ Not snapshot-affecting: the new event is neither current nor live, and the snaps
 
 ```sql
 begin;
-select * from snapshot where id = 1 for update;                              -- snapshot-affecting when eventYear is the current event's year
+select * from snapshot where id = 1 for update;                              -- snapshot-affecting when eventYear is the current event's year or no event is current
 select * from sponsor_year where sponsor_id = $sponsor and event_year = $source for update;   -- none: 404
 insert into sponsor_year (sponsor_id, event_year, amount_donated, active, can_advertise, anonymous)
 values ($sponsor, $target, $amount, $active, $can_advertise, $anonymous);   -- 23505: 409 year_exists
 insert into audit_log (...) values ($actor, 'copy', 'sponsor_year', $sponsor || ':' || $target, null, $after, $request_id);
--- build the snapshot when $target is the current event's year (8.5)
+-- build the snapshot when $target is the current event's year or no event is current (8.5)
 commit;
 ```
 

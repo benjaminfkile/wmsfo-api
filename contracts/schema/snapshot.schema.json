@@ -368,6 +368,12 @@
         "additionalProperties": false
       }
     },
+    "sponsorsYear": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
     "cookieTypes": {
       "type": "array",
       "items": {

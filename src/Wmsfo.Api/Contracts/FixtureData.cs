@@ -179,6 +179,7 @@ public static class FixtureData
                     LingerMs = 12000,
                 },
             },
+            SponsorsYear = 2026,
             CookieTypes = new List<SnapshotCookieType>
             {
                 new() { Id = 1, Name = "Chocolate chip", Icon = new IconValue { Source = "library", Id = "cookie" }, Sort = 10 },
