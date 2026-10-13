@@ -699,9 +699,8 @@ where e.id = $1;", conn))
                     bool isCurrent = false;
                     DateTimeOffset? scheduledAt = null;
                     string eventName = "";
-                    string? scheduleTimeZone = null;
                     await using (var read = new NpgsqlCommand(
-                        "select status_id, is_current, scheduled_at, name, schedule_time_zone from event where id = $1 for update;", conn, tx))
+                        "select status_id, is_current, scheduled_at, name from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(token);
@@ -710,7 +709,6 @@ where e.id = $1;", conn))
                         isCurrent = reader.GetBoolean(1);
                         scheduledAt = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2);
                         eventName = reader.GetString(3);
-                        scheduleTimeZone = reader.IsDBNull(4) ? null : reader.GetString(4);
                     }
                     var before = await ReadEventByIdAsync(conn, tx, id, token);
 
@@ -846,7 +844,7 @@ where id = $" + idParamIndex + @";";
                     // The event_message row the history references: the typed text,
                     // or the stock paragraph the email renders when none was given.
                     long? messageId = await InsertStatusMessageAsync(conn, tx, id,
-                        message ?? EmailTemplates.StockParagraph(to, eventName, scheduledAt, scheduleTimeZone),
+                        message ?? EmailTemplates.StockParagraph(to, eventName),
                         email, token);
 
                     // outbox row: event.status_changed { eventId, fromStatusId, toStatusId, notify, messageId, historyId }.

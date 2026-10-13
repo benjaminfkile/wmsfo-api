@@ -118,7 +118,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.ScheduledAt).HasColumnType("timestamptz")
                 .HasComment("Admin-entered. Required while status_id = 2.");
             e.Property(x => x.ScheduleTimeZone).HasColumnType("text")
-                .HasComment("IANA zone id the scheduled time was entered in; alert emails render scheduled_at in it (America/Denver when null).");
+                .HasComment("IANA zone id the admin panel enters scheduled_at in; null means unset. No email renders the scheduled time.");
             e.Property(x => x.WentLiveAt).HasColumnType("timestamptz")
                 .HasComment("Stamped now() on every entry into status 3; admin-patchable.");
             e.Property(x => x.EndedAt).HasColumnType("timestamptz")
