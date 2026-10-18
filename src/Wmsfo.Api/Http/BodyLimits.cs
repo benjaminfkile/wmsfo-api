@@ -4,10 +4,10 @@ using Microsoft.AspNetCore.Http.Features;
 namespace Wmsfo.Api.Http;
 
 // api.md 5 body size limits: JSON default 64 KB, section / item / site settings
-// 256 KB, route uploads 5 MB, beacon logs 2 MB, heartbeats 32 KB. Attached as
-// endpoint metadata; the middleware below reads the metadata on the matched
-// endpoint and reconfigures the request's max body size. Kestrel's default
-// (~28 MB) is a safety cap only.
+// 256 KB, route uploads 5 MB, beacon logs 2 MB, heartbeats 32 KB, beacon state
+// writes 16 KB. Attached as endpoint metadata; the middleware below reads the
+// metadata on the matched endpoint and reconfigures the request's max body
+// size. Kestrel's default (~28 MB) is a safety cap only.
 public sealed record RequestBodyLimit(long MaxBytes);
 
 public static class BodyLimits
@@ -15,6 +15,8 @@ public static class BodyLimits
     public const long JsonDefault = 64L * 1024;
     public const long SectionOrItem = 256L * 1024;
     public const long Heartbeat = 32L * 1024;
+    // PUT /beacons/me/state: the whole body, the state document and expectedVersion.
+    public const long BeaconState = 16L * 1024;
     public const long BeaconLog = 2L * 1024 * 1024;
     public const long RouteUpload = 5L * 1024 * 1024;
     // A theme create or patch: a style of up to 512 KB canonical plus the rest.

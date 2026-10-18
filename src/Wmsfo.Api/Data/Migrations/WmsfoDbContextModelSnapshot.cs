@@ -381,6 +381,23 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("stale_since")
                         .HasComment("Set by the stale-beacon chore; cleared by a heartbeat or a stored location.");
 
+                    b.Property<JsonDocument>("State")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("state")
+                        .HasComment("The beacon's own state document (contracts 4.2): any JSON object, stored as the beacon wrote it and never interpreted by the API; null until the first write.");
+
+                    b.Property<DateTimeOffset?>("StateUpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("state_updated_at")
+                        .HasComment("When state was last written; null until the first write.");
+
+                    b.Property<long>("StateVersion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L)
+                        .HasColumnName("state_version")
+                        .HasComment("Incremented by every write of state; a write names the version it read and changes nothing when the row holds another.");
+
                     b.Property<JsonDocument>("Telemetry")
                         .HasColumnType("jsonb")
                         .HasColumnName("telemetry")

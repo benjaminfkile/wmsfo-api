@@ -17,7 +17,8 @@ namespace Wmsfo.Api.Endpoints;
 // contracts 4.2 beacon endpoints. Rate limits, body limits, and the serverTime
 // filter come from api.md 4.0 and 5. Enroll runs sql.md 8.11 enroll; me stamps
 // last_seen_at; locations goes through LocationIngest; heartbeat is sql.md 8.3;
-// logs stores the body.
+// logs stores the body; me/state reads and writes the beacon's state document
+// (sql.md 8.3a).
 public static class BeaconEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -27,6 +28,7 @@ public static class BeaconEndpoints
         MapLocations(app);
         MapHeartbeat(app);
         MapLogs(app);
+        MapState(app);
     }
 
     private static void MapEnroll(IEndpointRouteBuilder app)
@@ -128,9 +130,10 @@ for update of t;", conn, tx))
                 await conn.OpenAsync(ct);
                 string name;
                 bool isActive;
+                long stateVersion;
                 await using (var cmd = new NpgsqlCommand(@"
 update beacon set last_seen_at = now(), updated_at = now() where id = $1
-returning name, is_active;", conn))
+returning name, is_active, state_version;", conn))
                 {
                     cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                     await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -140,6 +143,7 @@ returning name, is_active;", conn))
                     }
                     name = reader.GetString(0);
                     isActive = reader.GetBoolean(1);
+                    stateVersion = reader.GetInt64(2);
                 }
 
                 long? liveEventId = null;
@@ -159,6 +163,7 @@ returning name, is_active;", conn))
                     HubUrl = options.HubUrl,
                     IngestChannel = $"{options.ServiceName}:ingest",
                     LiveEventId = liveEventId,
+                    StateVersion = stateVersion,
                     ServerTime = clock.UtcNow(),
                 });
             })
@@ -217,6 +222,7 @@ returning name, is_active;", conn))
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 bool isActive = false;
+                long stateVersion = 0;
                 var jsonText = System.Text.Encoding.UTF8.GetString(bodyBytes);
                 await using (var upd = new NpgsqlCommand(@"
 update beacon
@@ -226,16 +232,17 @@ set telemetry = $1::jsonb,
     stale_since = null,
     updated_at = now()
 where id = $2
-returning is_active;", conn))
+returning is_active, state_version;", conn))
                 {
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = jsonText });
                     upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
-                    var r = await upd.ExecuteScalarAsync(ct);
-                    if (r is null)
+                    await using var reader = await upd.ExecuteReaderAsync(ct);
+                    if (!await reader.ReadAsync(ct))
                     {
                         throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
                     }
-                    isActive = (bool)r;
+                    isActive = reader.GetBoolean(0);
+                    stateVersion = reader.GetInt64(1);
                 }
 
                 long? liveEventId = null;
@@ -252,6 +259,7 @@ returning is_active;", conn))
                     ReceivedAt = now,
                     LiveEventId = liveEventId,
                     IsActive = isActive,
+                    StateVersion = stateVersion,
                     ServerTime = now,
                 });
             })
@@ -320,6 +328,116 @@ returning id, received_at;", conn);
             .AddServerTime();
     }
 
+    // Contracts 4.2 beacon state: one JSON document per beacon, stored as the
+    // beacon wrote it and never interpreted. The read does not stamp
+    // last_seen_at. The write is one conditional update on the version the
+    // beacon read; no row means another write got there first (409 with the
+    // current version) or the key was revoked since it authenticated (401).
+    // No audit row: a machine write, like a heartbeat.
+    private static void MapState(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/beacons/me/state",
+            async (HttpContext ctx, WmsfoConnectionStrings connections, IServerClock clock, CancellationToken ct) =>
+            {
+                var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
+                    ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using var cmd = new NpgsqlCommand(@"
+select state::text, state_version, state_updated_at
+from beacon
+where id = $1 and revoked_at is null;", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                await using var reader = await cmd.ExecuteReaderAsync(ct);
+                if (!await reader.ReadAsync(ct))
+                {
+                    throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
+                }
+
+                JsonElement? state = null;
+                if (!reader.IsDBNull(0))
+                {
+                    using var doc = JsonDocument.Parse(reader.GetString(0));
+                    state = doc.RootElement.Clone();
+                }
+
+                return Results.Ok(new BeaconStateResponse
+                {
+                    State = state,
+                    StateVersion = reader.GetInt64(1),
+                    UpdatedAt = reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+                    ServerTime = clock.UtcNow(),
+                });
+            })
+            .WithTags("Beacon")
+            .Produces<BeaconStateResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Beacon)
+            .RequireRateLimiting(RateLimitPolicies.BeaconStateReadPerBeacon)
+            .AddServerTime();
+
+        app.MapPut("/beacons/me/state",
+            async (HttpRequest request, HttpContext ctx, WmsfoConnectionStrings connections, IServerClock clock, CancellationToken ct) =>
+            {
+                var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
+                    ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
+
+                var bodyBytes = await ReadBodyWithCapAsync(request, BodyLimits.BeaconState, ct);
+                var parsed = BeaconStateRules.Parse(bodyBytes);
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using (var upd = new NpgsqlCommand(@"
+update beacon
+set state = $1::jsonb, state_version = state_version + 1, state_updated_at = now()
+where id = $2 and state_version = $3 and revoked_at is null
+returning state_version, state_updated_at;", conn))
+                {
+                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = parsed.StateJson });
+                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                    upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = parsed.ExpectedVersion });
+                    try
+                    {
+                        await using var reader = await upd.ExecuteReaderAsync(ct);
+                        if (await reader.ReadAsync(ct))
+                        {
+                            return Results.Ok(new BeaconStateWriteResponse
+                            {
+                                StateVersion = reader.GetInt64(0),
+                                UpdatedAt = reader.GetFieldValue<DateTimeOffset>(1),
+                                ServerTime = clock.UtcNow(),
+                            });
+                        }
+                    }
+                    catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UntranslatableCharacter)
+                    {
+                        // jsonb refuses the \u0000 escape in a string.
+                        RequestValidation.Throw("state", "must not contain \\u0000");
+                    }
+                }
+
+                // No row: re-read to tell a stale version from a key revoked since it authenticated.
+                await using var read = new NpgsqlCommand(
+                    "select state_version from beacon where id = $1 and revoked_at is null;", conn);
+                read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+                var current = await read.ExecuteScalarAsync(ct);
+                if (current is not long currentVersion)
+                {
+                    throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
+                }
+                throw new ApiException(StatusCodes.Status409Conflict, ApiErrorCodes.StateVersionConflict,
+                    $"expectedVersion {parsed.ExpectedVersion} is not the current version {currentVersion}",
+                    new { stateVersion = currentVersion });
+            })
+            .WithTags("Beacon")
+            .Accepts<BeaconStateBody>("application/json")
+            .Produces<BeaconStateWriteResponse>(StatusCodes.Status200OK)
+            .WithBodyLimit(BodyLimits.BeaconState)
+            .RequireAuthorization(AuthPolicies.Beacon)
+            .RequireRateLimiting(RateLimitPolicies.BeaconStateWritePerBeacon)
+            .AddServerTime();
+    }
+
     // Beacon socket states (contracts 0.5).
     private static readonly string[] BeaconSocketStates =
     {
@@ -370,7 +488,7 @@ returning id, received_at;", conn);
     // Depth of an element: a scalar is depth 1, an empty object or array is
     // depth 1, a container that holds other containers has one more than the
     // deepest child. Walks iteratively to keep the stack bounded.
-    private static int JsonDepth(JsonElement element)
+    public static int JsonDepth(JsonElement element)
     {
         int max = 0;
         var stack = new Stack<(JsonElement Node, int Depth)>();
