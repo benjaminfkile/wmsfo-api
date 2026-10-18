@@ -104,4 +104,42 @@ public class InlineTextTests
         Assert.Empty(r.Problems);
         Assert.Empty(r.Icons);
     }
+
+    [Fact]
+    public void Newtab_marker_after_a_link_sets_NewTab_and_is_not_text()
+    {
+        var r = InlineText.Parse("Give [here](https://example.com/give){newtab} today.");
+        Assert.Empty(r.Problems);
+        var link = Assert.Single(r.Links);
+        Assert.Equal("here", link.Label);
+        Assert.Equal("https://example.com/give", link.Href);
+        Assert.True(link.NewTab);
+    }
+
+    [Fact]
+    public void A_link_without_the_marker_has_NewTab_false()
+    {
+        var r = InlineText.Parse("[here](/about)");
+        Assert.False(Assert.Single(r.Links).NewTab);
+    }
+
+    [Fact]
+    public void Newtab_marker_after_a_space_or_not_after_a_link_is_literal()
+    {
+        var spaced = InlineText.Parse("[here](/about) {newtab}");
+        Assert.False(Assert.Single(spaced.Links).NewTab);
+        Assert.Empty(spaced.Problems);
+
+        var alone = InlineText.Parse("Plain {newtab} text");
+        Assert.Empty(alone.Links);
+        Assert.Empty(alone.Problems);
+    }
+
+    [Fact]
+    public void An_escaped_link_is_unaffected_by_the_marker()
+    {
+        var r = InlineText.Parse("\\[here](/about){newtab}");
+        Assert.Empty(r.Links);
+        Assert.Empty(r.Problems);
+    }
 }
