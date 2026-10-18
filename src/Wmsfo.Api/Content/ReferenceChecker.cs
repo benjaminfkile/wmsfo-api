@@ -21,6 +21,7 @@ namespace Wmsfo.Api.Content;
 //   - Presentation.anchor is unique across the sections of a page
 //   - `map` sections sit on the page with role `live`
 //   - Every Inline parses without malformed constructs
+//   - settings.route.routeId, when set, names a route row
 //
 // The walker recognises the primitive shapes, not the kinds, so a new section
 // kind picks up the checks without changes.
@@ -105,11 +106,29 @@ public sealed class ReferenceChecker
             }
         }
 
+        // The site route: a `routeId` must name a route row. The row is read
+        // `for share`, so a concurrent route delete either waits for this
+        // transaction (and then sees the version naming the route) or has
+        // already removed the row (and this check reports it).
+        if (SiteRoute.RouteId((workingSet.Settings as JsonObject)?["route"]) is long routeId)
+        {
+            await using var cmd = new NpgsqlCommand(
+                "select 1 from route where id = $1 for share;", connection, transaction);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = routeId });
+            var found = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if (found is null || found is DBNull)
+                problems.Add(NewProblem(SiteRouteIdPath, "route not found", null, null, null));
+        }
+
         // Then every problem the visitor already collected (library icons, hrefs,
         // anchors, inline grammar, `map` on non-live pages).
         problems.AddRange(visitor.Problems);
         return problems;
     }
+
+    // Where a missing site route is reported.
+    public const string SiteRouteIdPath = "/settings/route/routeId";
+
 
     private static ProblemRefDto NewProblem(string path, string message, long? pageId, long? sectionId, long? itemId) =>
         new()
@@ -251,6 +270,9 @@ public sealed class ReferenceChecker
                         WalkLandmarks(kv.Value, childPath);
                         continue;
                     }
+                    // `route` holds an id and display knobs, no primitives;
+                    // CheckAsync resolves its id.
+                    if (kv.Key == "route") continue;
                     var saved = _basePath;
                     _basePath = childPath;
                     WalkNode(kv.Value);

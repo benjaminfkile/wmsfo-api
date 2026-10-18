@@ -6,6 +6,7 @@ using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Node;
@@ -26,12 +27,85 @@ public static class AdminRouteEndpoints
 
     public static void MapAll(IEndpointRouteBuilder app)
     {
+        MapSiteRoute(app);
         MapList(app);
         MapGet(app);
         MapRouteMap(app);
         MapCreate(app);
         MapFromEvent(app);
         MapDelete(app);
+    }
+
+    // GET /admin/route → 200 { published, draft }: the site route of the
+    // newest published version, built exactly as the snapshot builds
+    // `routeMap` and `routeMapConfig`, and the site settings draft's route
+    // without the map; each null when its settings name no route. Editor and
+    // the `routes` capability, as GET /admin/routes/{id}/route-map, so the
+    // poster studio and the Routes page read it. Not snapshot-affecting.
+    private static void MapSiteRoute(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/admin/route",
+            async (WmsfoConnectionStrings connections, IObjectStore store, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            {
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                var response = new SiteRouteResponse();
+
+                var published = await SiteRoute.ReadPublishedAsync(conn, null, ct);
+                if (SiteRoute.RouteId(published) is long publishedId)
+                {
+                    var (name, s3Key) = await ReadNameAndKeyAsync(conn, publishedId, ct);
+                    RouteMap? routeMap = null;
+                    if (s3Key is not null)
+                    {
+                        try
+                        {
+                            routeMap = await BuildRouteMapAsync(conn, store, s3Key, ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            loggerFactory.CreateLogger("Wmsfo.Api.Endpoints.AdminRoutes")
+                                .LogWarning(ex, "site route map build failed; routeId={RouteId}", publishedId);
+                        }
+                    }
+                    response.Published = new PublishedSiteRouteDto
+                    {
+                        RouteId = publishedId,
+                        Name = name,
+                        RouteMap = routeMap,
+                        MapConfig = SiteRoute.MapConfig(published),
+                    };
+                }
+
+                var draft = await SiteRoute.ReadDraftAsync(conn, null, ct);
+                if (SiteRoute.RouteId(draft) is long draftId)
+                {
+                    var (name, _) = await ReadNameAndKeyAsync(conn, draftId, ct);
+                    response.Draft = new DraftSiteRouteDto
+                    {
+                        RouteId = draftId,
+                        Name = name,
+                        MapConfig = SiteRoute.MapConfig(draft),
+                    };
+                }
+                return Results.Ok(response);
+            })
+            .WithTags("AdminRoutes")
+            .Produces<SiteRouteResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Editor)
+            .RequireCapability(ApiKeyCapabilities.Routes)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
+    }
+
+    // The route row's name and s3_key; both null when the id names no row.
+    private static async Task<(string? Name, string? S3Key)> ReadNameAndKeyAsync(
+        NpgsqlConnection conn, long id, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand("select name, s3_key from route where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return (null, null);
+        return (reader.GetString(0), reader.GetString(1));
     }
 
     private static void MapList(IEndpointRouteBuilder app)
@@ -77,8 +151,8 @@ public static class AdminRouteEndpoints
 
     // GET /admin/routes/{id}/route-map → 200 { routeMap } built from this
     // recording with the current route_map_* settings, exactly as the
-    // snapshot builds event.routeMap; 404 for an unknown route. Editor, so the
-    // panel's poster composer renders any recording's map.
+    // snapshot builds routeMap; 404 for an unknown route. Editor, so the
+    // panel's Routes page and Site settings card preview any recording's map.
     private static void MapRouteMap(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/routes/{id:long}/route-map",
@@ -209,9 +283,12 @@ order by seq;", conn))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // DELETE /admin/routes/{id} - preview impact + apply (no-op) + delete row
-    // + audit + delete the object (api.md 5b). event.route_id and
-    // poster.route_id set null on delete (contracts 4.5 Delete impact).
+    // DELETE /admin/routes/{id} - 409 route_in_use with details.where
+    // ("draft", "published", or both) while the site settings draft or the
+    // newest published version names the route; else preview impact + apply
+    // (no-op) + delete row + audit + delete the object (api.md 5b). The route
+    // row is locked first, and publish reads it `for share`, so a concurrent
+    // publish naming it either waits for this delete or is seen here.
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/routes/{id:long}",
@@ -242,6 +319,10 @@ order by seq;", conn))
                 }
                 if (before is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
+                var usage = await Impact.RouteImpactQueries.SiteRouteUsageAsync(conn, tx, id, ct);
+                if (usage.Count > 0)
+                    throw new ApiException(StatusCodes.Status409Conflict, RouteInUseCode,
+                        "route is the site route", new RouteInUseDetails(usage));
                 var impact = await Impact.RouteImpactQueries.PreviewAsync(conn, tx, id, ct);
                 await Impact.RouteImpactQueries.ApplyAsync(conn, tx, id, ct);
                 await using (var del = new NpgsqlCommand("delete from route where id = $1;", conn, tx))
@@ -394,9 +475,20 @@ returning id;", conn, tx))
         }).ToList(),
     };
 
+    public const string RouteInUseCode = "route_in_use";
+
+    // details of 409 route_in_use: which site settings name the route.
+    public sealed record RouteInUseDetails(IReadOnlyList<string> Where);
+
+    // is_site_route: the newest content version's settings.route.routeId is
+    // this row; is_draft_route: the site settings draft's is.
     private const string RouteSelect = @"
 select r.id, r.name, r.url, r.s3_key, r.sha256, r.point_count, r.uploaded_by, r.created_at,
-       a.action, a.actor, a.at
+       a.action, a.actor, a.at,
+       coalesce((select v.document->'settings'->'route'->'routeId' = to_jsonb(r.id)
+                 from content_version v order by v.id desc limit 1), false) as is_site_route,
+       coalesce((select d.data->'route'->'routeId' = to_jsonb(r.id)
+                 from site_setting_draft d where d.id = 1), false) as is_draft_route
 from route r
 left join lateral (
   select action, actor, at from audit_log
@@ -416,6 +508,8 @@ left join lateral (
             PointCount = reader.GetInt32(5),
             UploadedBy = reader.GetString(6),
             CreatedAt = reader.GetFieldValue<DateTimeOffset>(7),
+            IsSiteRoute = reader.GetBoolean(11),
+            IsDraftRoute = reader.GetBoolean(12),
         };
         if (!reader.IsDBNull(8))
         {

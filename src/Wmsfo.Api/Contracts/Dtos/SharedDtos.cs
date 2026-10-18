@@ -21,10 +21,6 @@ public sealed class EventDto
     public DateTimeOffset? EndedAt { get; set; }
     public DateTimeOffset? StatusNotifiedAt { get; set; }
     public int FundsPercent { get; set; }
-    public long? RouteId { get; set; }
-    public string? RouteUrl { get; set; }
-    // The event's route map configuration (contracts 1.3); null when unset.
-    public RouteMapConfig? RouteMapConfig { get; set; }
     // The event's bounding box (contracts 1.3 event.trackerBbox), always set.
     public Bbox TrackerBbox { get; set; } = new();
     // The ready tracker map whose package contains the box; null means Google
@@ -93,6 +89,11 @@ public sealed class RouteDto
     public int PointCount { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
+    // Whether the newest published site settings name this route
+    // (`settings.route.routeId`).
+    public bool IsSiteRoute { get; set; }
+    // Whether the site settings draft names this route.
+    public bool IsDraftRoute { get; set; }
     public AuditStampDto? Audit { get; set; }
 }
 

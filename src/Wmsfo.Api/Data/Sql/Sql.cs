@@ -182,21 +182,11 @@ set is_current = true,
 where id = @event_id;";
 
     // 8.7 Create event.
-    public const string EventInheritRoute = @"
-select route_id
-from event
-where route_id is not null
-order by year desc
-limit 1;";
-
-    public const string EventCheckRoute = @"
-select 1 from route where id = @route_id;";
-
     public const string EventInsert = @"
-insert into event (year, name, status_id, scheduled_at, funds_percent, route_id, created_by)
-values (@year, @name, 1, @scheduled_at, @funds_percent, @route_id, @admin_email)
+insert into event (year, name, status_id, scheduled_at, funds_percent, created_by)
+values (@year, @name, 1, @scheduled_at, @funds_percent, @admin_email)
 returning id, year, name, status_id, is_current, scheduled_at, went_live_at, ended_at,
-          funds_percent, route_id, final_cookie_tally, next_seq, created_by, created_at, updated_at;";
+          funds_percent, final_cookie_tally, next_seq, created_by, created_at, updated_at;";
 
     // 8.8 Delete event.
     public const string EventLocationExists = @"
@@ -389,8 +379,14 @@ insert into route (name, s3_key, url, sha256, point_count, uploaded_by)
 values (@name, @s3_key, @url, @sha256, @point_count, @admin_email)
 returning id, name, s3_key, url, sha256, point_count, uploaded_by, created_at;";
 
+    // The site settings draft and the newest published version naming the
+    // route (409 route_in_use).
     public const string RouteInUse = @"
-select 1 from event where route_id = @route_id limit 1;";
+select
+  coalesce((select d.data->'route'->'routeId' = to_jsonb(@route_id::bigint)
+            from site_setting_draft d where d.id = 1), false) as in_draft,
+  coalesce((select v.document->'settings'->'route'->'routeId' = to_jsonb(@route_id::bigint)
+            from content_version v order by v.id desc limit 1), false) as in_published;";
 
     public const string RouteDelete = @"
 delete from route where id = @route_id;";

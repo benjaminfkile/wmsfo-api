@@ -8,7 +8,6 @@ public sealed class PosterSummaryDto
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
-    public long? RouteId { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
@@ -19,7 +18,6 @@ public sealed class PosterDto
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
-    public long? RouteId { get; set; }
     public JsonElement? Layout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
@@ -27,24 +25,22 @@ public sealed class PosterDto
     public AuditStampDto? Audit { get; set; }
 }
 
-// POST /admin/posters. RouteId and Layout are bare JsonElements so the
-// endpoint applies the same rules as PATCH: a route id or a JSON object sets
-// the value, null or absent leaves it null. Any other field is 400.
+// POST /admin/posters. Layout is a bare JsonElement so the endpoint applies
+// the same rules as PATCH: a JSON object sets the value, null or absent
+// leaves it null. Any other field (`routeId` included) is 400.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreatePosterRequest
 {
     public string Name { get; set; } = "";
-    public JsonElement RouteId { get; set; }
     public JsonElement Layout { get; set; }
 }
 
-// PATCH /admin/posters/{id}. RouteId and Layout are bare JsonElements so JSON
-// `null` (clear) yields `ValueKind == Null` and absent (leave unchanged)
-// yields `Undefined`. Any other field is 400.
+// PATCH /admin/posters/{id}. Layout is a bare JsonElement so JSON `null`
+// (clear) yields `ValueKind == Null` and absent (leave unchanged) yields
+// `Undefined`. Any other field (`routeId` included) is 400.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class PatchPosterRequest
 {
     public string? Name { get; set; }
-    public JsonElement RouteId { get; set; }
     public JsonElement Layout { get; set; }
 }

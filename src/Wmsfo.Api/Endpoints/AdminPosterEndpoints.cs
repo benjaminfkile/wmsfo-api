@@ -15,8 +15,9 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.5 Posters (Editor, the `events` capability). A poster is the
-// admin panel's own document: a name, an optional flight recording, and the
-// panel's layout, which the API stores opaquely and never reads. Nothing here
+// admin panel's own document: a name and the panel's layout, which the API
+// stores opaquely and never reads; the panel draws the published site route
+// into it. Nothing here
 // is snapshot-affecting, so every write runs in a plain transaction.
 public static class AdminPosterEndpoints
 {
@@ -42,7 +43,7 @@ public static class AdminPosterEndpoints
                 await conn.OpenAsync(ct);
                 var items = new List<PosterSummaryDto>();
                 await using var cmd = new NpgsqlCommand(
-                    "select id, name, route_id, updated_at from poster order by id desc;", conn);
+                    "select id, name, updated_at from poster order by id desc;", conn);
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct))
                 {
@@ -50,8 +51,7 @@ public static class AdminPosterEndpoints
                     {
                         Id = reader.GetInt64(0),
                         Name = reader.GetString(1),
-                        RouteId = reader.IsDBNull(2) ? null : reader.GetInt64(2),
-                        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(3),
+                        UpdatedAt = reader.GetFieldValue<DateTimeOffset>(2),
                     });
                 }
                 return Results.Ok(new ItemsResponse<PosterSummaryDto> { Items = items });
@@ -63,9 +63,8 @@ public static class AdminPosterEndpoints
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // POST /admin/posters → 201 Poster. name 1 to 200; routeId a route id or
-    // null (404 unknown route); layout a JSON object of at most 32 KB
-    // canonical or null.
+    // POST /admin/posters → 201 Poster. name 1 to 200; layout a JSON object
+    // of at most 32 KB canonical or null.
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/posters",
@@ -75,22 +74,19 @@ public static class AdminPosterEndpoints
                 var v = new RequestValidation();
                 if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Trim().Length > 200)
                     v.Field("name", "must be 1 to 200 characters");
-                var route = ReadRouteId(body.RouteId, v);
                 var layout = ReadLayout(body.Layout, v);
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
                 var dto = await snap.RunWithoutSnapshotAsync<PosterDto>(async (conn, tx, token) =>
                 {
-                    if (route.Value is long routeId) await RequireRouteAsync(conn, tx, routeId, token);
                     long newId;
                     await using (var insert = new NpgsqlCommand(@"
-insert into poster (name, route_id, layout, created_by, updated_at)
-values ($1, $2, $3, $4, now())
+insert into poster (name, layout, created_by, updated_at)
+values ($1, $2, $3, now())
 returning id;", conn, tx))
                     {
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)route.Value ?? DBNull.Value });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = (object?)layout.Value ?? DBNull.Value });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
@@ -130,10 +126,9 @@ returning id;", conn, tx))
             .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
-    // PATCH /admin/posters/{id} → 200 Poster. Any of name, routeId (a route id
-    // sets it, null clears it, 404 unknown route), layout (a JSON object of at
-    // most 32 KB canonical sets it, null clears it); an absent field is left
-    // unchanged.
+    // PATCH /admin/posters/{id} → 200 Poster. Any of name, layout (a JSON
+    // object of at most 32 KB canonical sets it, null clears it); an absent
+    // field is left unchanged.
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/posters/{id:long}",
@@ -143,7 +138,6 @@ returning id;", conn, tx))
                 var v = new RequestValidation();
                 if (body.Name is not null && (string.IsNullOrWhiteSpace(body.Name) || body.Name.Trim().Length > 200))
                     v.Field("name", "must be 1 to 200 characters");
-                var route = ReadRouteId(body.RouteId, v);
                 var layout = ReadLayout(body.Layout, v);
                 v.ThrowIfInvalid();
                 _ = AdminHelpers.RequireAdminEmail(ctx);
@@ -158,7 +152,6 @@ returning id;", conn, tx))
                         if (found is null || found is DBNull) throw NotFound();
                     }
                     var before = await ReadByIdAsync(conn, tx, id, token) ?? throw NotFound();
-                    if (route.Value is long routeId) await RequireRouteAsync(conn, tx, routeId, token);
 
                     var sets = new List<string>();
                     var parameters = new List<NpgsqlParameter>();
@@ -168,7 +161,6 @@ returning id;", conn, tx))
                         sets.Add($"{column} = ${parameters.Count}");
                     }
                     if (body.Name is not null) Set("name", NpgsqlDbType.Text, body.Name.Trim());
-                    if (route.Set) Set("route_id", NpgsqlDbType.Bigint, route.Value);
                     if (layout.Set) Set("layout", NpgsqlDbType.Jsonb, layout.Value);
                     sets.Add("updated_at = now()");
                     parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
@@ -238,24 +230,6 @@ returning id;", conn, tx))
 
     // --- shared plumbing ---
 
-    // routeId: a positive integer sets it, null clears it, absent leaves it
-    // unchanged; anything else is a validation failure on routeId.
-    private static (bool Set, long? Value) ReadRouteId(JsonElement el, RequestValidation v)
-    {
-        switch (el.ValueKind)
-        {
-            case JsonValueKind.Undefined:
-                return (false, null);
-            case JsonValueKind.Null:
-                return (true, null);
-            case JsonValueKind.Number when el.TryGetInt64(out var id) && id > 0:
-                return (true, id);
-            default:
-                v.Field("routeId", "must be a route id or null");
-                return (false, null);
-        }
-    }
-
     // layout: a JSON object whose canonical form is at most LayoutMaxBytes
     // sets it (the canonical text is what is stored), null clears it, absent
     // leaves it unchanged; anything else is a validation failure on layout.
@@ -281,17 +255,8 @@ returning id;", conn, tx))
         }
     }
 
-    private static async Task RequireRouteAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long routeId, CancellationToken ct)
-    {
-        await using var check = new NpgsqlCommand("select 1 from route where id = $1;", conn, tx);
-        check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = routeId });
-        var r = await check.ExecuteScalarAsync(ct);
-        if (r is null || r is DBNull)
-            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "route not found");
-    }
-
     private const string PosterSelectSql = @"
-select p.id, p.name, p.route_id, p.layout::text, p.created_by, p.created_at, p.updated_at,
+select p.id, p.name, p.layout::text, p.created_by, p.created_at, p.updated_at,
        a.action, a.actor, a.at
 from poster p
 left join lateral (
@@ -312,25 +277,24 @@ where p.id = $1;";
         {
             Id = reader.GetInt64(0),
             Name = reader.GetString(1),
-            RouteId = reader.IsDBNull(2) ? null : reader.GetInt64(2),
-            CreatedBy = reader.GetString(4),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(6),
+            CreatedBy = reader.GetString(3),
+            CreatedAt = reader.GetFieldValue<DateTimeOffset>(4),
+            UpdatedAt = reader.GetFieldValue<DateTimeOffset>(5),
         };
-        if (!reader.IsDBNull(3))
+        if (!reader.IsDBNull(2))
         {
             // jsonb reorders keys by length; the answer is the canonical form.
-            using var stored = JsonDocument.Parse(reader.GetString(3));
+            using var stored = JsonDocument.Parse(reader.GetString(2));
             using var canonical = JsonDocument.Parse(CanonicalJson.SerializeOpaqueToUtf8Bytes(stored.RootElement));
             dto.Layout = canonical.RootElement.Clone();
         }
-        if (!reader.IsDBNull(7))
+        if (!reader.IsDBNull(6))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(7),
-                By = reader.GetString(8),
-                At = reader.GetFieldValue<DateTimeOffset>(9),
+                Action = reader.GetString(6),
+                By = reader.GetString(7),
+                At = reader.GetFieldValue<DateTimeOffset>(8),
             };
         }
         return dto;

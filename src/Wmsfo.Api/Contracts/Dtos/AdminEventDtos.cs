@@ -4,15 +4,15 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.Contracts.Dtos;
 
-// POST /admin/events (contracts 4.5 Events).
+// POST /admin/events (contracts 4.5 Events). Any other field is 400
+// validation_failed.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreateEventRequest
 {
     public int Year { get; set; }
     public string Name { get; set; } = "";
     public DateTimeOffset? ScheduledAt { get; set; }
     public int FundsPercent { get; set; }
-    public long? RouteId { get; set; }
-    public bool InheritRoute { get; set; }
     // IANA zone id (e.g. America/Denver) the scheduled time was entered in.
     public string? ScheduleTimeZone { get; set; }
     // A Bbox sets the event's box; null or absent takes the published
@@ -36,15 +36,10 @@ public sealed class PatchEventRequest
     public JsonElement WentLiveAt { get; set; }
     public JsonElement EndedAt { get; set; }
     public int? FundsPercent { get; set; }
-    public long? RouteId { get; set; }
     // An IANA zone id sets the zone, null clears it, absent leaves the row
     // unchanged. Deserialized as a bare JsonElement so JSON `null` yields
     // `ValueKind == Null` and absent yields `Undefined`.
     public JsonElement ScheduleTimeZone { get; set; }
-    // A RouteMapConfig object sets the event's route map configuration, null
-    // clears it, absent leaves the row unchanged (the same bare JsonElement
-    // convention).
-    public JsonElement RouteMapConfig { get; set; }
     // A Bbox sets the event's box; null is refused (the box is required);
     // absent leaves it unchanged.
     public JsonElement TrackerBbox { get; set; }
@@ -79,11 +74,12 @@ public sealed class CloneEventRequest
     public CloneEventCopy? Copy { get; set; }
 }
 
+// `copy` lists `sponsors` and `tracker`; any other key is 400
+// validation_failed.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class CloneEventCopy
 {
     public bool Sponsors { get; set; }
-    public bool Route { get; set; }
-    public bool RouteMapConfig { get; set; }
     // The source's map and enabled theme set; without it they follow the
     // create rule. The box always copies.
     public bool Tracker { get; set; }
@@ -121,9 +117,8 @@ public sealed class PatchEventMessageRequest
     public string? Body { get; set; }
 }
 
-// GET /admin/events/{id}/route-map and GET /admin/routes/{id}/route-map: the
-// route map (contracts 1.3) of the event's linked recording or of the route
-// itself; null when the event has no recording linked.
+// GET /admin/routes/{id}/route-map: the route map (contracts 1.3) of the
+// route; null when its object cannot be read.
 public sealed class RouteMapResponse
 {
     public RouteMap? RouteMap { get; set; }

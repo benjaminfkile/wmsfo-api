@@ -6,7 +6,7 @@ using Wmsfo.Api.Contracts.Dtos;
 namespace Wmsfo.Api.Content;
 
 // SchemaValidator (api.md 11a.2): validates section data, item data, presentation, and
-// site settings at either level, and an event's route map configuration. `Draft` uses the derived lenient schema (`required`,
+// site settings at either level, and a route map configuration. `Draft` uses the derived lenient schema (`required`,
 // `minLength`, `minItems`, `minimum` stripped at every level); unknown properties are still
 // rejected. `Publish` uses the full schema. Semantic checks (references, hrefs, anchors,
 // map-on-live) live in `ReferenceChecker` (A13); this class does structural checks only.
@@ -124,8 +124,8 @@ public sealed class SchemaValidator
         return Evaluate(presentation, data);
     }
 
-    // An event's route map configuration (`$defs/RouteMapConfig`). It has no draft
-    // state, so the full schema always applies.
+    // A route map configuration (`$defs/RouteMapConfig`, the shape of
+    // settings.route.mapConfig) on its own; the full schema always applies.
     public IReadOnlyList<ProblemDto> ValidateRouteMapConfig(JsonNode? data) =>
         Evaluate(_routeMapConfig, data);
 

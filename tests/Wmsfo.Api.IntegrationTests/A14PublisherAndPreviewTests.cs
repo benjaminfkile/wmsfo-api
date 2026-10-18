@@ -643,7 +643,7 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
     public async Task Route_preview_three_keys_round_trip()
     {
         await BootstrapFirstBootAsync();
-        var (pageId, sectionId) = await FindSectionAsync("route", "route_preview");
+        var (pageId, sectionId) = await FindSectionAsync("scheduled", "route_preview");
 
         var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(""));
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
@@ -666,8 +666,8 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         AssertRoutePreviewThreeKeys(FindPublishedData(version.RootElement, sectionId));
     }
 
-    // The route map keys live on the event (routeMapConfig) and the landmarks
-    // in the site settings, and the section always draws the map, so a
+    // The route map keys live in the site settings (route.mapConfig and
+    // landmarks), and the section always draws the map, so a
     // route_preview section carrying `controls`, `landmarks`, `display`,
     // `pois`, or `style` is 400 validation_failed on the key.
     [Theory]
@@ -680,7 +680,7 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
     public async Task Route_preview_unknown_keys_are_400_on_the_key(string extra, string field)
     {
         await BootstrapFirstBootAsync();
-        var (_, sectionId) = await FindSectionAsync("route", "route_preview");
+        var (_, sectionId) = await FindSectionAsync("scheduled", "route_preview");
 
         var patch = await PatchSectionAsync(sectionId, RoutePreviewDataJson(extra));
         Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
@@ -709,6 +709,100 @@ values ($1::jsonb, $2, '{}'::uuid[], null, 'test');", conn);
         Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
         var fields = doc.RootElement.GetProperty("details").GetProperty("fields");
         Assert.True(fields.TryGetProperty("/routeMap", out _), $"no problem on /routeMap: {fields}");
+    }
+
+    // -------------------- the site route --------------------
+
+    // settings.route: a routeId naming no route fails publish at
+    // /settings/route/routeId; a real route with a full map configuration
+    // publishes, and the published document and the snapshot carry both; a
+    // null routeId and an absent route publish too, and the snapshot then
+    // carries no route map; a misshapen mapConfig is 400 on the draft write.
+    [Fact]
+    public async Task Site_route_publishes_when_it_names_a_route_and_is_refused_otherwise()
+    {
+        await BootstrapFirstBootAsync();
+        const string fullConfig =
+            "{\"display\":{\"timeLabelIntervalMinutes\":0,\"arrows\":false,\"arrowSize\":\"xlarge\",\"routeWidth\":\"xthick\",\"labelSize\":\"large\"},"
+            + "\"controls\":{\"fullscreen\":false,\"terrain\":false}}";
+
+        var bad = await PutSiteSettingsAsync(data => data["route"] = JsonNode.Parse(
+            "{\"routeId\":1,\"mapConfig\":{\"display\":{\"arrowSize\":\"huge\"}}}"));
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+        var unknown = await PutSiteSettingsAsync(data => data["route"] = new JsonObject { ["routeId"] = 987654321 });
+        Assert.Equal(HttpStatusCode.OK, unknown.StatusCode);
+        using (var req = _host!.EditorRequest(HttpMethod.Post, "/admin/content/publish"))
+        {
+            req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            var response = await _host.Client.SendAsync(req);
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(ApiErrorCodes.ContentInvalid, doc.RootElement.GetProperty("code").GetString());
+            var problem = Assert.Single(doc.RootElement.GetProperty("details").GetProperty("problems").EnumerateArray(),
+                p => p.GetProperty("path").GetString() == "/settings/route/routeId");
+            Assert.Equal("route not found", problem.GetProperty("message").GetString());
+        }
+
+        var routeId = await InsertRouteAsync("Site flight", 30);
+        var put = await PutSiteSettingsAsync(data => data["route"] = JsonNode.Parse(
+            $"{{\"routeId\":{routeId},\"mapConfig\":{fullConfig}}}"));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        await PublishAsync();
+        var (_, versionJson) = await ReadNewestVersionAsync();
+        using (var version = JsonDocument.Parse(versionJson))
+        {
+            var route = version.RootElement.GetProperty("settings").GetProperty("route");
+            Assert.Equal(routeId, route.GetProperty("routeId").GetInt64());
+            Assert.True(JsonNode.DeepEquals(JsonNode.Parse(fullConfig), JsonNode.Parse(route.GetProperty("mapConfig").GetRawText())));
+        }
+        using (var snap = JsonDocument.Parse((await GetLatestSnapshotBytesAsync())!))
+        {
+            Assert.Equal(fullConfig, snap.RootElement.GetProperty("routeMapConfig").GetRawText());
+            Assert.Equal(JsonValueKind.Object, snap.RootElement.GetProperty("routeMap").ValueKind);
+            Assert.Equal(routeId, snap.RootElement.GetProperty("content").GetProperty("settings")
+                .GetProperty("route").GetProperty("routeId").GetInt64());
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PutSiteSettingsAsync(data => data["route"] = new JsonObject { ["routeId"] = null })).StatusCode);
+        await PublishAsync();
+        using (var snap = JsonDocument.Parse((await GetLatestSnapshotBytesAsync())!))
+        {
+            Assert.Equal(JsonValueKind.Null, snap.RootElement.GetProperty("routeMap").ValueKind);
+            Assert.Equal(JsonValueKind.Null, snap.RootElement.GetProperty("routeMapConfig").ValueKind);
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PutSiteSettingsAsync(data => data.Remove("route"))).StatusCode);
+        await PublishAsync();
+        var (_, noneJson) = await ReadNewestVersionAsync();
+        using (var none = JsonDocument.Parse(noneJson))
+            Assert.False(none.RootElement.GetProperty("settings").TryGetProperty("route", out _));
+    }
+
+    // A route row and its object in the host's store, as POST /admin/routes
+    // writes them.
+    private async Task<long> InsertRouteAsync(string name, int count)
+    {
+        var start = DateTimeOffset.Parse("2025-12-22T01:00:00.000Z");
+        var points = Enumerable.Range(0, count)
+            .Select(i => new RoutePoint { Lat = 46.87 + i * 0.001, Lng = -114.0 + i * 0.001, RecordedAt = start.AddSeconds(i * 30) })
+            .ToList();
+        var bytes = CanonicalJson.SerializeToUtf8Bytes(new RouteObject { SchemaVersion = 1, Name = name, Points = points });
+        var sha = CanonicalJson.Sha256Hex(bytes);
+        var key = $"routes/{sha}.json";
+        await _host!.Store.PutObjectAsync(key, bytes, "application/json; charset=utf-8", "public, max-age=31536000, immutable");
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+insert into route (name, s3_key, url, sha256, point_count, uploaded_by)
+values ($1, $2, 'https://cdn.example/' || $2, $3, $4, 'test')
+on conflict (s3_key) do update set name = excluded.name
+returning id;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = key });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = count });
+        return (long)(await cmd.ExecuteScalarAsync())!;
     }
 
     // -------------------- landmarks --------------------

@@ -91,7 +91,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.Name).HasColumnType("text").IsRequired();
             e.Property(x => x.S3Key).HasColumnName("s3_key").HasColumnType("text").IsRequired().HasComment("routes/{sha256}.json. Content-hashed, so an identical upload resolves to the existing row.");
-            e.Property(x => x.Url).HasColumnType("text").IsRequired().HasComment("Absolute CDN URL of s3_key, carried into the snapshot as routeUrl.");
+            e.Property(x => x.Url).HasColumnType("text").IsRequired().HasComment("Absolute CDN URL of s3_key, carried in the admin Route as url.");
             e.Property(x => x.Sha256).HasColumnType("char(64)").IsRequired().HasComment("Lowercase hex SHA-256 of the canonical object bytes.");
             e.Property(x => x.PointCount).HasColumnType("integer").IsRequired();
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired().HasComment("Admin email claim, or 'migration'.");
@@ -125,8 +125,6 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Stamped now() on every entry into status 4; admin-patchable.");
             e.Property(x => x.FundsPercent).HasColumnType("integer").IsRequired().HasDefaultValue(0)
                 .HasComment("Cheer meter, 0 to 100.");
-            e.Property(x => x.RouteId).HasColumnType("bigint")
-                .HasComment("Route shown for this event; null when unlinked.");
             e.Property(x => x.FinalCookieTally).HasColumnType("jsonb");
             e.Property(x => x.StatusNotifiedAt).HasColumnType("timestamptz")
                 .HasComment("When the current status was last announced to subscribers (a status change with notify, or POST .../notify); null since the last change otherwise.");
@@ -134,8 +132,6 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
             e.Property(x => x.LatestFix).HasColumnType("jsonb").HasColumnName("latest_fix")
                 .HasComment("The last published fix on this event as { seq, beaconId, lat, lng, speedMps, altitudeM, headingDeg, accuracyM, recordedAt, receivedAt }, set in the same update that advances next_seq for the stored and the carried outcome alike (contracts 1.2, 7.2). Null when the event has never had a published fix and cleared by DELETE /admin/events/{id}/locations (contracts 4.5).");
-            e.Property(x => x.RouteMapConfig).HasColumnType("jsonb").HasColumnName("route_map_config")
-                .HasComment("The event's route map configuration { display?, controls? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.");
             e.Property(x => x.TrackerBbox).HasColumnType("jsonb").IsRequired()
                 .HasDefaultValueSql("'" + TrackerThemeSeed.ValleyBboxJson + "'::jsonb")
                 .HasComment("{ west, south, east, north } in degrees, west < east, south < north, at least 0.05 and at most 20 degrees on a side. Required on create (the API always writes it; the column default exists only so a rolled-back API that does not know the column can still insert events, which works because the event inserts name their columns). Both tracker renderers lock to it; the snapshot carries it; the tile CLI builds from it. The migration fills existing events with the Missoula valley box.");
@@ -148,8 +144,6 @@ public sealed class WmsfoDbContext : DbContext
 
             e.HasOne<EventStatus>().WithMany().HasForeignKey(x => x.StatusId)
                 .HasConstraintName("event_status_id_fkey").OnDelete(DeleteBehavior.NoAction);
-            e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
-                .HasConstraintName("event_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
 
             e.HasIndex(x => x.StatusId).HasDatabaseName("event_one_live").IsUnique().HasFilter("status_id = 3");
             e.HasIndex(x => x.IsCurrent).HasDatabaseName("event_one_current").IsUnique().HasFilter("is_current");
@@ -958,21 +952,17 @@ public sealed class WmsfoDbContext : DbContext
         {
             e.ToTable("poster", t =>
             {
-                t.HasComment("A poster the admin panel composes: a name, an optional flight recording for its map, and the panel's layout document. Admin only; never in the snapshot or on the site.");
+                t.HasComment("A poster the admin panel composes: a name and the panel's layout document; the panel draws the published site route into it. Admin only; never in the snapshot or on the site.");
                 t.HasCheckConstraint("poster_name_check", "char_length(name) between 1 and 200");
             });
             e.HasKey(x => x.Id).HasName("poster_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.Name).HasColumnType("text").IsRequired();
-            e.Property(x => x.RouteId).HasColumnType("bigint")
-                .HasComment("The flight recording the poster's map is built from; null when unlinked. Set null when the route is deleted.");
             e.Property(x => x.Layout).HasColumnType("jsonb")
                 .HasComment("The admin panel's poster composer layout, stored opaquely (contracts 4.5 Posters). A JSON object of at most 32 KB canonical; null when unset.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
-            e.HasOne<Route>().WithMany().HasForeignKey(x => x.RouteId)
-                .HasConstraintName("poster_route_id_fkey").OnDelete(DeleteBehavior.SetNull);
         });
 
         // 3.32 help_topic

@@ -232,10 +232,10 @@ public sealed class A18LegacyMigrationTests : IClassFixture<PostgresFixture>, IA
         }
     }
 
-    // ---------------- 2025 route is uploaded and event.route_id is linked ----------------
+    // ---------------- 2025 route is uploaded and becomes the draft's site route ----------------
 
     [Fact]
-    public async Task Route_2025_uploads_object_and_links_event()
+    public async Task Route_2025_uploads_object_and_becomes_the_draft_site_route()
     {
         var options = BuildOptions();
         await new LegacyMigrator(options, _store, _legacyLogos, new StringWriter())
@@ -243,8 +243,10 @@ public sealed class A18LegacyMigrationTests : IClassFixture<PostgresFixture>, IA
 
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();
-        await using (var cmd = new NpgsqlCommand(
-            "select r.s3_key, r.point_count, r.uploaded_by, e.route_id from route r join event e on e.route_id = r.id where e.year = 2025;", conn))
+        await using (var cmd = new NpgsqlCommand(@"
+select r.s3_key, r.point_count, r.uploaded_by
+from route r
+join site_setting_draft d on d.id = 1 and d.data->'route'->'routeId' = to_jsonb(r.id);", conn))
         {
             await using var reader = await cmd.ExecuteReaderAsync();
             Assert.True(await reader.ReadAsync(), "route/link missing");

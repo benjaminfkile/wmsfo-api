@@ -54,9 +54,29 @@ public sealed class Snapshot
     [JsonPropertyOrder(7)] public SortedDictionary<string, MediaEntry> Media { get; set; } = new(StringComparer.Ordinal);
     // Keys in ascending string order (contracts 1.3).
     [JsonPropertyOrder(8)] public SortedDictionary<string, string> Icons { get; set; } = new(StringComparer.Ordinal);
-    // The current event's enabled themes, both renderers, in `sortOrder`, `id`
-    // order (contracts 1.3); empty when no event is current. The last key.
-    [JsonPropertyOrder(9), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
+    // The site route (the published `settings.route.routeId`) processed for
+    // the route map (contracts 1.3); null when there is no site route or its
+    // object cannot be read. Present whether or not an event is current.
+    [JsonPropertyOrder(9), JsonRequired] public RouteMap? RouteMap { get; set; }
+    // The published `settings.route.mapConfig` (contracts 1.3); null when the
+    // settings carry none.
+    [JsonPropertyOrder(10), JsonRequired] public RouteMapConfig? RouteMapConfig { get; set; }
+    // The box and the tile package the route map frames (contracts 1.3): the
+    // current event's, else the newest event's, else the default box with no
+    // map.
+    [JsonPropertyOrder(11), JsonRequired] public SnapshotRouteView RouteView { get; set; } = new();
+    // The enabled themes of the routeView event (the current event, else the
+    // newest), both renderers, in `sortOrder`, `id` order (contracts 1.3);
+    // empty when there is no event at all. The last key.
+    [JsonPropertyOrder(12), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
+}
+
+// The snapshot's `routeView` (contracts 1.3): the box the route map locks to
+// and the tile package it renders with; `map` null means Google Maps.
+public sealed class SnapshotRouteView
+{
+    [JsonPropertyOrder(0), JsonRequired] public Bbox Bbox { get; set; } = new();
+    [JsonPropertyOrder(1), JsonRequired] public SnapshotTrackerMap? Map { get; set; }
 }
 
 // One resolved QR code inside `qrCodes` (contracts 1.3, 4.5a).
@@ -76,19 +96,15 @@ public sealed class SnapshotEvent
     [JsonPropertyOrder(5)] public DateTimeOffset? WentLiveAt { get; set; }
     [JsonPropertyOrder(6)] public DateTimeOffset? EndedAt { get; set; }
     [JsonPropertyOrder(7)] public int FundsPercent { get; set; }
+    // The site route's points thinned for the tracker (contracts 1.3); null
+    // when there is no site route or its object cannot be read.
     [JsonPropertyOrder(8)] public SnapshotFlightHistory? FlightHistory { get; set; }
-    // The linked recording processed for the route map (contracts 1.3); null
-    // when no recording is linked.
-    [JsonPropertyOrder(9)] public RouteMap? RouteMap { get; set; }
-    // The event's route map configuration (contracts 1.3); null when the event
-    // has none.
-    [JsonPropertyOrder(10)] public RouteMapConfig? RouteMapConfig { get; set; }
-    [JsonPropertyOrder(11)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    [JsonPropertyOrder(9)] public SnapshotLatestMessage? LatestMessage { get; set; }
     // The event's bounding box (contracts 1.3); both tracker renderers lock to it.
-    [JsonPropertyOrder(12), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
+    [JsonPropertyOrder(10), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
     // The event's ready tile package (contracts 1.3); null when the event has
     // no map. The last key of `event`.
-    [JsonPropertyOrder(13), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
+    [JsonPropertyOrder(11), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
 }
 
 // event.trackerMap (contracts 1.3): the tile package with its absolute CDN URLs.
@@ -160,7 +176,7 @@ public sealed class RouteMapTimelineEntry
     [JsonPropertyOrder(2)] public double Lng { get; set; }
 }
 
-// An event's route map configuration (contracts 1.3, `$defs/RouteMapConfig` in
+// The site route's map configuration (contracts 1.3, `$defs/RouteMapConfig` in
 // primitives.schema.json): the display knobs and the control switches of the
 // site's route map. Every key is optional and absent when null; an absent key
 // keeps the built-in behaviour.

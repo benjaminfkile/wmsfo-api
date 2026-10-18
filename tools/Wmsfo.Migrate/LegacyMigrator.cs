@@ -407,7 +407,7 @@ on conflict (event_id, lat, lng) do nothing;", target, tx))
         return yearToEventId;
     }
 
-    // ----- Step 6: 2025 route object + route row + event.route_id -----
+    // ----- Step 6: 2025 route object + route row + the settings draft's route -----
 
     private async Task Step6Route2025Async(NpgsqlConnection legacy, NpgsqlConnection target,
         IReadOnlyDictionary<int, long> yearToEventId, MigrationSummary summary, CancellationToken ct)
@@ -476,22 +476,31 @@ returning id;",
             step.Inserted++;
         }
 
-        // Only touch the event row if it does not already reference the route.
-        var currentRouteId = await ScalarLongAsync(target,
-            "select route_id from event where id = $1;", (NpgsqlDbType.Bigint, eventId2025));
-        if (currentRouteId is long current && current == routeId)
+        // The route becomes the site route: the site settings draft's
+        // `route.routeId`, only when the draft is an object naming no route.
+        // It reaches the site with the next publish.
+        var draftRouteId = await ScalarLongAsync(target,
+            "select (data->'route'->>'routeId')::bigint from site_setting_draft where id = 1 and jsonb_typeof(data->'route'->'routeId') = 'number';");
+        if (draftRouteId is long current)
         {
-            step.Notes.Add("event.route_id already set");
+            step.Notes.Add(current == routeId
+                ? "settings draft route already set"
+                : "settings draft names another route; left alone");
             return;
         }
         if (_options.DryRun)
         {
-            step.Notes.Add("dry run: would link event.route_id");
+            step.Notes.Add("dry run: would set the settings draft route");
             return;
         }
-        await ExecAsync(target,
-            "update event set route_id = $1, updated_at = now() where id = $2;",
-            (NpgsqlDbType.Bigint, routeId), (NpgsqlDbType.Bigint, eventId2025));
+        await ExecAsync(target, @"
+update site_setting_draft
+set data = jsonb_set(data, '{route}', jsonb_build_object('routeId', $1::bigint)
+                                      || coalesce(case when jsonb_typeof(data->'route'->'mapConfig') = 'object'
+                                                       then jsonb_build_object('mapConfig', data->'route'->'mapConfig') end, '{}'::jsonb)),
+    updated_at = now()
+where id = 1 and jsonb_typeof(data) = 'object';",
+            (NpgsqlDbType.Bigint, routeId));
     }
 
     // ----- Step 7: event_updates → event_message (id preserved) -----
@@ -673,9 +682,11 @@ union all select 'media_asset',     count(*) from media_asset
 union all select 'beacon',          count(*) from beacon
 order by t;"),
             ("event details", @"
-select year, name, status_id, funds_percent, route_id,
+select year, name, status_id, funds_percent,
        (select count(*) from location l where l.event_id = e.id) as loc_count
 from event e order by year;"),
+            ("site route (settings draft)", @"
+select data->'route' as route from site_setting_draft where id = 1;"),
             ("sponsor logos", @"
 select id, name, logo_media_id from sponsor order by id;"),
             ("app_setting sponsor_linger_ms_per_dollar", @"

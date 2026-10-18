@@ -328,10 +328,6 @@ public static class EndpointStubs
             .WithTags("AdminEvents")
             .Produces<EventDto>(StatusCodes.Status200OK);
 
-        app.MapGet("/admin/events/{id:long}/route-map", NotImplemented)
-            .WithTags("AdminEvents")
-            .Produces<RouteMapResponse>(StatusCodes.Status200OK);
-
         app.MapPatch("/admin/events/{id:long}", NotImplemented)
             .WithTags("AdminEvents")
             .Accepts<PatchEventRequest>("application/json")
@@ -406,6 +402,10 @@ public static class EndpointStubs
 
     private static void MapAdminRoutes(IEndpointRouteBuilder app)
     {
+        app.MapGet("/admin/route", NotImplemented)
+            .WithTags("AdminRoutes")
+            .Produces<SiteRouteResponse>(StatusCodes.Status200OK);
+
         app.MapGet("/admin/routes", NotImplemented)
             .WithTags("AdminRoutes")
             .Produces<ItemsResponse<RouteDto>>(StatusCodes.Status200OK);

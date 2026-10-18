@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Wmsfo.Api.Objects;
 using Json.Schema;
 using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts;
@@ -26,9 +27,11 @@ public class ContentSchemasTests
     public void Snapshot_fixture_route_map_config_is_valid_and_unknown_keys_are_refused()
     {
         var snapshot = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
-        var config = snapshot["event"]!["routeMapConfig"]!;
+        var config = snapshot["routeMapConfig"]!;
         var problems = Validator.ValidateRouteMapConfig(config);
         Assert.True(problems.Count == 0, string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
+        // It is the published settings.route.mapConfig.
+        Assert.True(JsonNode.DeepEquals(config, snapshot["content"]!["settings"]!["route"]!["mapConfig"]));
 
         foreach (var bad in new[]
         {
@@ -407,9 +410,14 @@ public class ContentSchemasTests
         var contentFixture = File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "content-document.json"));
         Assert.Equal(starter, contentFixture);
 
-        // The snapshot fixture's `content` key must carry the same bytes.
-        using var snapshotDoc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")));
-        var content = snapshotDoc.RootElement.GetProperty("content").GetRawText();
+        // The snapshot fixture's `content` key carries the same bytes once its
+        // `settings.route` (the example site route; the starter content names
+        // none) is taken out.
+        var snapshot = JsonNode.Parse(File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
+        var settings = snapshot["content"]!["settings"]!.AsObject();
+        Assert.Equal(3, settings["route"]!["routeId"]!.GetValue<long>());
+        settings.Remove("route");
+        var content = snapshot["content"]!.ToJsonString(CanonicalJson.Options);
         var expected = System.Text.Encoding.UTF8.GetString(starter);
         Assert.Equal(expected, content);
     }

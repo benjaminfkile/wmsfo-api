@@ -44,6 +44,12 @@ public sealed class SiteSettings
     // kept as written and validated by the schema and the box rules; absent
     // when null, and a reader treats absent as the built-in valley box.
     [JsonPropertyOrder(17), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? Tracker { get; set; }
+    // The site route (`{ routeId, mapConfig? }`): the recording the route map,
+    // the flight history, and the posters draw, and its route map
+    // configuration, kept as written and validated by the schema; absent when
+    // null, and a reader treats absent or a null `routeId` as no route and an
+    // absent or null `mapConfig` as every built-in default.
+    [JsonPropertyOrder(18), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public JsonNode? Route { get; set; }
 }
 
 public sealed class SiteTheme

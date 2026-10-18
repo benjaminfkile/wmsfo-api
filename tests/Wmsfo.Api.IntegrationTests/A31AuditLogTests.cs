@@ -288,7 +288,7 @@ public sealed class A31AuditLogTests : IClassFixture<PostgresFixture>, IAsyncLif
         {
             case "event":
                 created = await SendAdminAsync(HttpMethod.Post, "/admin/events",
-                    "{\"year\":2099,\"name\":\"Test Event\",\"fundsPercent\":100,\"inheritRoute\":false}");
+                    "{\"year\":2099,\"name\":\"Test Event\",\"fundsPercent\":100}");
                 Assert.Equal(HttpStatusCode.Created, created.StatusCode);
                 list = await SendAdminAsync(HttpMethod.Get, "/admin/events", null);
                 action = "create";

@@ -24,6 +24,15 @@ public static class ExceptionHandlingMiddleware
                     await WriteErrorAsync(context, StatusCodes.Status413PayloadTooLarge,
                         ApiErrorCodes.PayloadTooLarge, "request body exceeds the limit", null);
                 }
+                else if (context.Response is { HasStarted: false, StatusCode: StatusCodes.Status400BadRequest })
+                {
+                    // A request body that does not bind (malformed JSON, a wrong type,
+                    // or a field a strict DTO does not list) leaves 400 with no body;
+                    // fill it in as validation_failed (contracts 0.2).
+                    context.Response.ContentLength = null;
+                    await WriteErrorAsync(context, StatusCodes.Status400BadRequest,
+                        ApiErrorCodes.ValidationFailed, "malformed request", null);
+                }
             }
             catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
             {

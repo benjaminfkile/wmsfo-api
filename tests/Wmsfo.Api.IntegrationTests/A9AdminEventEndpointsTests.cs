@@ -97,7 +97,7 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     [Fact]
     public async Task Create_defaults_return_201_and_status_1()
     {
-        var body = "{\"year\":2027,\"name\":\"Santa Flyover 2027\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":true}";
+        var body = "{\"year\":2027,\"name\":\"Santa Flyover 2027\",\"scheduledAt\":null,\"fundsPercent\":0}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
@@ -110,34 +110,73 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     public async Task Create_conflicting_year_returns_409_year_taken()
     {
         await CreateEvent(year: 2028);
-        var body = "{\"year\":2028,\"name\":\"Duplicate\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":true}";
+        var body = "{\"year\":2028,\"name\":\"Duplicate\",\"scheduledAt\":null,\"fundsPercent\":0}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("year_taken", await ReadCodeAsync(response));
     }
 
-    [Fact]
-    public async Task Create_inherit_route_true_with_routeId_is_400()
+    // A113: the event carries no route; routeId, inheritRoute, and
+    // routeMapConfig are unknown fields on create and PATCH, and route and
+    // routeMapConfig unknown keys in the clone's copy, each 400
+    // validation_failed with nothing written.
+    [Theory]
+    [InlineData("\"routeId\":null")]
+    [InlineData("\"routeId\":10")]
+    [InlineData("\"inheritRoute\":true")]
+    [InlineData("\"inheritRoute\":false")]
+    [InlineData("\"routeMapConfig\":null")]
+    [InlineData("\"routeMapConfig\":{\"display\":{\"arrows\":false}}")]
+    public async Task Create_and_patch_refuse_the_removed_route_fields(string field)
     {
-        var body = "{\"year\":2029,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":10,\"inheritRoute\":true}";
-        var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
+        var create = await SendAdminAsync(HttpMethod.Post, "/admin/events",
+            "{\"year\":2029,\"name\":\"n\",\"fundsPercent\":0," + field + "}");
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(create));
+        Assert.Equal(0, await CountAsync("event", "year", 2029));
+
+        var id = await CreateEvent(year: 2030);
+        var patch = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"name\":\"renamed\"," + field + "}");
+        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(patch));
+        using var got = await ReadJsonAsync(await SendAdminAsync(HttpMethod.Get, $"/admin/events/{id}", ""));
+        Assert.NotEqual("renamed", got.RootElement.GetProperty("name").GetString());
+        foreach (var removed in new[] { "routeId", "routeUrl", "routeMapConfig" })
+            Assert.False(got.RootElement.TryGetProperty(removed, out _), removed);
+    }
+
+    [Theory]
+    [InlineData("{\"route\":true}")]
+    [InlineData("{\"route\":false}")]
+    [InlineData("{\"routeMapConfig\":true}")]
+    [InlineData("{\"sponsors\":true,\"route\":true}")]
+    public async Task Clone_refuses_the_removed_copy_keys(string copy)
+    {
+        var id = await CreateEvent(year: 2031);
+        var clone = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/clone",
+            "{\"year\":2032,\"name\":\"Clone\",\"copy\":" + copy + "}");
+        Assert.Equal(HttpStatusCode.BadRequest, clone.StatusCode);
+        Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(clone));
+        Assert.Equal(0, await CountAsync("event", "year", 2032));
+
+        var ok = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/clone",
+            "{\"year\":2032,\"name\":\"Clone\",\"copy\":{\"sponsors\":true,\"tracker\":true}}");
+        Assert.Equal(HttpStatusCode.Created, ok.StatusCode);
     }
 
     [Fact]
-    public async Task Create_unknown_routeId_is_404()
+    public async Task The_event_route_map_endpoint_is_gone()
     {
-        var body = "{\"year\":2030,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":9999999,\"inheritRoute\":false}";
-        var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
+        var id = await CreateEvent(year: 2033);
+        var response = await SendAdminAsync(HttpMethod.Get, $"/admin/events/{id}/route-map", "");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal(ApiErrorCodes.NotFound, await ReadCodeAsync(response));
     }
 
     [Fact]
     public async Task Create_bad_year_range_is_400()
     {
-        var body = "{\"year\":1000,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":true}";
+        var body = "{\"year\":1000,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
@@ -146,7 +185,7 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     [Fact]
     public async Task Create_with_scheduleTimeZone_stores_and_returns_it()
     {
-        var body = "{\"year\":2080,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":false,\"scheduleTimeZone\":\"America/Chicago\"}";
+        var body = "{\"year\":2080,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"scheduleTimeZone\":\"America/Chicago\"}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
@@ -168,7 +207,7 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     [Fact]
     public async Task Create_unknown_scheduleTimeZone_is_400_on_that_field()
     {
-        var body = "{\"year\":2081,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":false,\"scheduleTimeZone\":\"Mars/Olympus_Mons\"}";
+        var body = "{\"year\":2081,\"name\":\"n\",\"scheduledAt\":null,\"fundsPercent\":0,\"scheduleTimeZone\":\"Mars/Olympus_Mons\"}";
         var response = await SendAdminAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var doc = await ReadJsonAsync(response);

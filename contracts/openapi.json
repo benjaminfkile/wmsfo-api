@@ -572,25 +572,6 @@
         }
       }
     },
-    "/admin/events/{id}/route-map": {
-      "get": {
-        "tags": [
-          "AdminEvents"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RouteMapResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/admin/events/{id}/current": {
       "post": {
         "tags": [
@@ -888,6 +869,25 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DeleteImpactDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/route": {
+      "get": {
+        "tags": [
+          "AdminRoutes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteRouteResponse"
                 }
               }
             }
@@ -4695,16 +4695,11 @@
           "sponsors": {
             "type": "boolean"
           },
-          "route": {
-            "type": "boolean"
-          },
-          "routeMapConfig": {
-            "type": "boolean"
-          },
           "tracker": {
             "type": "boolean"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CloneEventRequest": {
         "type": "object",
@@ -5234,18 +5229,6 @@
             ],
             "format": "int32"
           },
-          "routeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "inheritRoute": {
-            "type": "boolean"
-          },
           "scheduleTimeZone": {
             "type": [
               "null",
@@ -5255,7 +5238,8 @@
           "trackerBbox": {
             "$ref": "#/components/schemas/JsonElement"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CreatePageRequest": {
         "type": "object",
@@ -5328,9 +5312,6 @@
         "properties": {
           "name": {
             "type": "string"
-          },
-          "routeId": {
-            "$ref": "#/components/schemas/JsonElement"
           },
           "layout": {
             "$ref": "#/components/schemas/JsonElement"
@@ -5598,6 +5579,35 @@
         },
         "additionalProperties": false
       },
+      "DraftSiteRouteDto": {
+        "type": "object",
+        "properties": {
+          "routeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "mapConfig": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapConfig"
+              }
+            ]
+          }
+        }
+      },
       "EmailQuota": {
         "type": "object",
         "properties": {
@@ -5800,31 +5810,6 @@
               "string"
             ],
             "format": "int32"
-          },
-          "routeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "routeUrl": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "routeMapConfig": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/RouteMapConfig"
-              }
-            ]
           },
           "trackerBbox": {
             "$ref": "#/components/schemas/Bbox"
@@ -7988,19 +7973,7 @@
             ],
             "format": "int32"
           },
-          "routeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
           "scheduleTimeZone": {
-            "$ref": "#/components/schemas/JsonElement"
-          },
-          "routeMapConfig": {
             "$ref": "#/components/schemas/JsonElement"
           },
           "trackerBbox": {
@@ -8114,9 +8087,6 @@
               "null",
               "string"
             ]
-          },
-          "routeId": {
-            "$ref": "#/components/schemas/JsonElement"
           },
           "layout": {
             "$ref": "#/components/schemas/JsonElement"
@@ -8712,15 +8682,6 @@
           "name": {
             "type": "string"
           },
-          "routeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
           "layout": {
             "oneOf": [
               {
@@ -8767,15 +8728,6 @@
           },
           "name": {
             "type": "string"
-          },
-          "routeId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
           },
           "updatedAt": {
             "type": "string",
@@ -8951,6 +8903,45 @@
             "type": [
               "null",
               "string"
+            ]
+          }
+        }
+      },
+      "PublishedSiteRouteDto": {
+        "type": "object",
+        "properties": {
+          "routeId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "routeMap": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMap"
+              }
+            ]
+          },
+          "mapConfig": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RouteMapConfig"
+              }
             ]
           }
         }
@@ -9456,6 +9447,12 @@
             "type": "string",
             "format": "date-time"
           },
+          "isSiteRoute": {
+            "type": "boolean"
+          },
+          "isDraftRoute": {
+            "type": "boolean"
+          },
           "audit": {
             "oneOf": [
               {
@@ -9921,6 +9918,31 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "SiteRouteResponse": {
+        "type": "object",
+        "properties": {
+          "published": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PublishedSiteRouteDto"
+              }
+            ]
+          },
+          "draft": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DraftSiteRouteDto"
+              }
+            ]
           }
         }
       },

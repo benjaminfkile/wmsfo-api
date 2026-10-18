@@ -16,10 +16,10 @@ namespace Wmsfo.Api.IntegrationTests;
 // Posters (contracts 4.5 Posters, Routes, Events):
 //   - poster CRUD round-trips; the layout comes back byte-equal to its
 //     canonical form; null clears, absent leaves; the 32 KB and object rules
-//   - the list is newest first and carries id, name, routeId, updatedAt
+//   - the list is newest first and carries id, name, updatedAt
 //   - the poster delete impact names the poster
-//   - deleting a linked route nulls poster.route_id and lists the poster
-//     under unlinks, in the preview and in the delete's audit row
+//   - a poster carries no route: routeId on create or PATCH is 400 and
+//     writes nothing; a route delete does not touch posters
 //   - GET /admin/routes/{id}/route-map answers for any recording and 404s
 //   - an event PATCH carrying posterLayout is 400; the Event has no posterLayout
 public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -82,12 +82,11 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
     [Fact]
     public async Task Poster_crud_round_trips_with_the_layout_byte_equal()
     {
-        var routeId = await UploadRouteAsync("Poster flight", Recording(20));
         var layout = SampleLayout();
         var expected = Canonical(layout);
 
         var create = await SendAsync(HttpMethod.Post, "/admin/posters",
-            $"{{\"name\":\"  Main street  \",\"routeId\":{routeId},\"layout\":{layout}}}");
+            $"{{\"name\":\"  Main street  \",\"layout\":{layout}}}");
         Assert.Equal(HttpStatusCode.Created, create.StatusCode);
         long id;
         using (var created = await ReadJsonAsync(create))
@@ -95,7 +94,7 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
             var root = created.RootElement;
             id = root.GetProperty("id").GetInt64();
             Assert.Equal("Main street", root.GetProperty("name").GetString());
-            Assert.Equal(routeId, root.GetProperty("routeId").GetInt64());
+            Assert.False(root.TryGetProperty("routeId", out _));
             Assert.Equal(expected, CanonicalJson.SerializeToUtf8Bytes(root.GetProperty("layout")));
             Assert.Equal("create", root.GetProperty("audit").GetProperty("action").GetString());
             Assert.False(string.IsNullOrEmpty(root.GetProperty("createdBy").GetString()));
@@ -104,7 +103,7 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
         using (var got = await GetPosterAsync(id))
         {
             Assert.Equal(expected, CanonicalJson.SerializeToUtf8Bytes(got.RootElement.GetProperty("layout")));
-            Assert.Equal(routeId, got.RootElement.GetProperty("routeId").GetInt64());
+            Assert.False(got.RootElement.TryGetProperty("routeId", out _));
         }
 
         // Properties come back in ordinal order at every depth.
@@ -123,28 +122,20 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
         using (var got = await GetPosterAsync(id))
         {
             Assert.Equal("Renamed", got.RootElement.GetProperty("name").GetString());
-            Assert.Equal(routeId, got.RootElement.GetProperty("routeId").GetInt64());
             Assert.Equal(JsonValueKind.Object, got.RootElement.GetProperty("layout").ValueKind);
             Assert.Equal("update", got.RootElement.GetProperty("audit").GetProperty("action").GetString());
         }
 
-        // An unknown route is 404 and changes nothing.
-        var unknownRoute = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", "{\"routeId\":987654321}");
-        Assert.Equal(HttpStatusCode.NotFound, unknownRoute.StatusCode);
-
-        // Null clears both.
-        var clear = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", "{\"routeId\":null,\"layout\":null}");
+        // Null clears the layout.
+        var clear = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", "{\"layout\":null}");
         Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
         using (var got = await GetPosterAsync(id))
-        {
-            Assert.Equal(JsonValueKind.Null, got.RootElement.GetProperty("routeId").ValueKind);
             Assert.Equal(JsonValueKind.Null, got.RootElement.GetProperty("layout").ValueKind);
-        }
-        Assert.True(await ScalarAsync<bool>($"select layout is null and route_id is null from poster where id = {id};"));
+        Assert.True(await ScalarAsync<bool>($"select layout is null from poster where id = {id};"));
 
-        // A route id sets it again.
-        var relink = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", $"{{\"routeId\":{routeId}}}");
-        Assert.Equal(HttpStatusCode.OK, relink.StatusCode);
+        // A layout sets it again.
+        var relayout = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", "{\"layout\":{\"a\":1}}");
+        Assert.Equal(HttpStatusCode.OK, relayout.StatusCode);
 
         // The editor group reaches every poster endpoint; a person does not.
         using (var editorGet = await SendAsync(HttpMethod.Get, $"/admin/posters/{id}", null, DevStaticTokens.EditorToken))
@@ -174,18 +165,13 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
         Assert.Equal(HttpStatusCode.Created, bare.StatusCode);
         using (var doc = await ReadJsonAsync(bare))
         {
-            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("routeId").ValueKind);
+            Assert.False(doc.RootElement.TryGetProperty("routeId", out _));
             Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("layout").ValueKind);
         }
 
         await AssertValidationFailedOnAsync(await SendAsync(HttpMethod.Post, "/admin/posters", "{\"name\":\"\"}"), "name");
         await AssertValidationFailedOnAsync(await SendAsync(HttpMethod.Post, "/admin/posters",
             "{\"name\":\"" + new string('n', 201) + "\"}"), "name");
-        await AssertValidationFailedOnAsync(await SendAsync(HttpMethod.Post, "/admin/posters",
-            "{\"name\":\"x\",\"routeId\":\"7\"}"), "routeId");
-        Assert.Equal(HttpStatusCode.NotFound,
-            (await SendAsync(HttpMethod.Post, "/admin/posters", "{\"name\":\"x\",\"routeId\":987654321}")).StatusCode);
-
         // Unknown fields are refused by the strict DTOs.
         var unknown = await SendAsync(HttpMethod.Post, "/admin/posters", "{\"name\":\"x\",\"eventId\":1}");
         Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
@@ -239,12 +225,11 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
     [Fact]
     public async Task List_is_newest_first_with_the_summary_fields()
     {
-        var routeId = await UploadRouteAsync("List flight", Recording(10));
         var first = await CreatePosterAsync("First");
         var second = await CreatePosterAsync("Second");
         var third = await CreatePosterAsync("Third");
         Assert.Equal(HttpStatusCode.OK,
-            (await SendAsync(HttpMethod.Patch, $"/admin/posters/{second}", $"{{\"routeId\":{routeId},\"layout\":{{\"a\":1}}}}")).StatusCode);
+            (await SendAsync(HttpMethod.Patch, $"/admin/posters/{second}", "{\"layout\":{\"a\":1}}")).StatusCode);
 
         var response = await SendAsync(HttpMethod.Get, "/admin/posters", null, DevStaticTokens.EditorToken);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -252,11 +237,9 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
         var items = doc.RootElement.GetProperty("items").EnumerateArray().ToList();
         Assert.Equal(new[] { third, second, first }, items.Select(i => i.GetProperty("id").GetInt64()).ToArray());
         Assert.Equal(new[] { "Third", "Second", "First" }, items.Select(i => i.GetProperty("name").GetString()).ToArray());
-        Assert.Equal(routeId, items[1].GetProperty("routeId").GetInt64());
-        Assert.Equal(JsonValueKind.Null, items[0].GetProperty("routeId").ValueKind);
         foreach (var item in items)
         {
-            Assert.Equal(new[] { "id", "name", "routeId", "updatedAt" },
+            Assert.Equal(new[] { "id", "name", "updatedAt" },
                 item.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
         }
     }
@@ -283,46 +266,46 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
             (await SendAsync(HttpMethod.Get, "/admin/posters/987654321/impact", null)).StatusCode);
     }
 
+    // A113: routeId is an unknown field on the poster writes; the body does
+    // not bind and nothing is written.
+    [Theory]
+    [InlineData("null")]
+    [InlineData("1")]
+    [InlineData("\"7\"")]
+    public async Task Poster_writes_refuse_routeId(string value)
+    {
+        var create = await SendAsync(HttpMethod.Post, "/admin/posters", "{\"name\":\"x\",\"routeId\":" + value + "}");
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+        using (var doc = await ReadJsonAsync(create))
+            Assert.Equal(ApiErrorCodes.ValidationFailed, doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from poster;"));
+
+        var id = await CreatePosterAsync("Kept");
+        var patch = await SendAsync(HttpMethod.Patch, $"/admin/posters/{id}", "{\"name\":\"Renamed\",\"routeId\":" + value + "}");
+        Assert.Equal(HttpStatusCode.BadRequest, patch.StatusCode);
+        using (var got = await GetPosterAsync(id))
+            Assert.Equal("Kept", got.RootElement.GetProperty("name").GetString());
+    }
+
     [Fact]
-    public async Task Deleting_a_linked_route_unlinks_its_posters_and_lists_them()
+    public async Task Deleting_a_route_leaves_the_posters_alone()
     {
         var routeId = await UploadRouteAsync("Doomed flight", Recording(10));
-        var otherRouteId = await UploadRouteAsync("Kept flight", Recording(12));
-        var linked = await CreatePosterAsync("Linked poster", routeId);
-        var kept = await CreatePosterAsync("Other poster", otherRouteId);
-        var eventId = await CreateEventAsync(2064);
-        Assert.Equal(HttpStatusCode.OK,
-            (await SendAsync(HttpMethod.Patch, $"/admin/events/{eventId}", $"{{\"routeId\":{routeId}}}")).StatusCode);
+        var poster = await CreatePosterAsync("Poster");
 
         var preview = await SendAsync(HttpMethod.Get, $"/admin/routes/{routeId}/impact", null);
         Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
         using (var doc = await ReadJsonAsync(preview))
         {
-            var unlinks = doc.RootElement.GetProperty("unlinks").EnumerateArray().ToList();
-            var posters = Assert.Single(unlinks, g => g.GetProperty("entity").GetString() == "poster");
-            Assert.Equal(1, posters.GetProperty("count").GetInt32());
-            Assert.Equal("Linked poster", Assert.Single(posters.GetProperty("names").EnumerateArray()).GetString());
-            Assert.Single(unlinks, g => g.GetProperty("entity").GetString() == "event");
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("blocked").ValueKind);
+            Assert.Empty(doc.RootElement.GetProperty("unlinks").EnumerateArray());
             Assert.Empty(doc.RootElement.GetProperty("deletes").EnumerateArray());
         }
 
         var delete = await SendAsync(HttpMethod.Delete, $"/admin/routes/{routeId}", null);
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-
-        using (var got = await GetPosterAsync(linked))
-            Assert.Equal(JsonValueKind.Null, got.RootElement.GetProperty("routeId").ValueKind);
-        using (var got = await GetPosterAsync(kept))
-            Assert.Equal(otherRouteId, got.RootElement.GetProperty("routeId").GetInt64());
-        Assert.True(await ScalarAsync<bool>($"select route_id is null from event where id = {eventId};"));
-
-        var before = await ScalarAsync<string>(
-            $"select before::text from audit_log where entity = 'route' and entity_id = '{routeId}' and action = 'delete';");
-        using (var beforeDoc = JsonDocument.Parse(before))
-        {
-            var unlinks = beforeDoc.RootElement.GetProperty("impact").GetProperty("unlinks").EnumerateArray().ToList();
-            var posters = Assert.Single(unlinks, g => g.GetProperty("entity").GetString() == "poster");
-            Assert.Equal("Linked poster", Assert.Single(posters.GetProperty("names").EnumerateArray()).GetString());
-        }
+        using (var got = await GetPosterAsync(poster))
+            Assert.Equal("Poster", got.RootElement.GetProperty("name").GetString());
     }
 
     [Fact]
@@ -349,11 +332,10 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
             }
         }
 
-        // The recording need not be linked to any event, and the event route-map endpoint stays.
-        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from event where route_id is not null;"));
+        // The recording need not be the site route, and the event route-map endpoint is gone.
         var eventId = await CreateEventAsync(2065);
         var eventMap = await SendAsync(HttpMethod.Get, $"/admin/events/{eventId}/route-map", null, DevStaticTokens.EditorToken);
-        Assert.Equal(HttpStatusCode.OK, eventMap.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, eventMap.StatusCode);
 
         var person = await SendAsync(HttpMethod.Get, $"/admin/routes/{timed}/route-map", null, DevStaticTokens.PersonToken);
         Assert.Equal(HttpStatusCode.Forbidden, person.StatusCode);
@@ -408,12 +390,9 @@ public sealed class A64PosterTests : IClassFixture<PostgresFixture>, IAsyncLifet
             $"expected a validation failure on {field}");
     }
 
-    private async Task<long> CreatePosterAsync(string name, long? routeId = null)
+    private async Task<long> CreatePosterAsync(string name)
     {
-        var body = routeId is null
-            ? $"{{\"name\":\"{name}\"}}"
-            : $"{{\"name\":\"{name}\",\"routeId\":{routeId}}}";
-        var response = await SendAsync(HttpMethod.Post, "/admin/posters", body);
+        var response = await SendAsync(HttpMethod.Post, "/admin/posters", $"{{\"name\":\"{name}\"}}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var doc = await ReadJsonAsync(response);
         return doc.RootElement.GetProperty("id").GetInt64();

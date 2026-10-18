@@ -50,7 +50,8 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
 
     // The sponsor_year pinned columns, their checks, and the
     // sponsor_year_pinned_ux partial unique index are in place after every
-    // migration; the event has no route image column.
+    // migration; the event has no route image column, and neither the event
+    // nor the poster links a route (the site route is a site setting).
     [Fact]
     public async Task Migrated_schema_has_the_pinned_columns_and_no_route_image()
     {
@@ -66,6 +67,11 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
 
         var columns = await ListColumnsAsync();
         Assert.DoesNotContain(("event", "route_image_media_id"), columns);
+        Assert.DoesNotContain(("event", "route_id"), columns);
+        Assert.DoesNotContain(("event", "route_map_config"), columns);
+        Assert.DoesNotContain(("poster", "route_id"), columns);
+        Assert.DoesNotContain("event_route_id_fkey", relations.Constraints);
+        Assert.DoesNotContain("poster_route_id_fkey", relations.Constraints);
         Assert.Contains(("sponsor_year", "pinned_position"), columns);
         Assert.Contains(("sponsor_year", "linger_ms_override"), columns);
     }
@@ -275,7 +281,7 @@ public sealed class MigrationTests : IClassFixture<PostgresFixture>
         "alert_delivery_pkey", "alert_delivery_subscriber_id_outbox_id_key",
         "icon_library_state_pkey",
         // Foreign keys.
-        "event_status_id_fkey", "event_route_id_fkey",
+        "event_status_id_fkey",
         "event_status_history_event_id_fkey",
         "event_status_history_from_status_id_fkey", "event_status_history_to_status_id_fkey",
         "event_message_event_id_fkey",

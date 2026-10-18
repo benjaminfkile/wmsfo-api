@@ -16,6 +16,10 @@ namespace Wmsfo.Api.IntegrationTests;
 // changes nothing.
 public sealed class A83GlobalLandmarksMigrationTests : IClassFixture<PostgresFixture>
 {
+    // The events lose route_map_config in A113SiteRoute; these tests seed
+    // and read it, so they stop at the migration before.
+    private const string BeforeA113 = "A111BeaconState";
+
     private readonly PostgresFixture _fixture;
 
     public A83GlobalLandmarksMigrationTests(PostgresFixture fixture)
@@ -40,7 +44,7 @@ values (2025, 'Older', 1, false, 'seed', now(),
        (2026, 'Current', 1, true, 'seed', now(),
         '{""display"":{""arrows"":false},""landmarks"":[{""name"":""Caras Park"",""lat"":46.8703,""lng"":-113.9958,""icon"":{""source"":""library"",""id"":""tree""}},{""name"":""Fort Missoula"",""lat"":46.8455,""lng"":-114.0569},{""name"":""Courthouse"",""lat"":46.87,""lng"":-113.99,""description"":""The tree lighting.""}]}'::jsonb);");
 
-        await MigrateToAsync(null);
+        await MigrateToAsync(BeforeA113);
 
         var (draft, updatedAt) = await ReadDraftAsync();
         Assert.Equal("Test site", draft.RootElement.GetProperty("siteName").GetString());
@@ -66,7 +70,7 @@ values (2025, 'Older', 1, false, 'seed', now(),
     [Fact]
     public async Task Fold_keeps_at_most_fifty_and_writes_nothing_without_event_landmarks()
     {
-        await MigrateToAsync(null);
+        await MigrateToAsync(BeforeA113);
         var many = string.Join(",", Enumerable.Range(0, 60)
             .Select(i => $"{{\"name\":\"L{i}\",\"lat\":46.{i:D2},\"lng\":-114}}"));
         await RunSqlAsync($@"
@@ -96,8 +100,8 @@ update event set route_map_config = '{""landmarks"":[]}'::jsonb;");
         Assert.False(untouched.RootElement.TryGetProperty("landmarks", out _));
     }
 
-    // Migrates the fixture database to the named migration, or to the newest
-    // when null, as the migrate role that owns the tables.
+    // Migrates the fixture database to the named migration as the migrate
+    // role that owns the tables.
     private async Task MigrateToAsync(string? target)
     {
         var options = new DbContextOptionsBuilder<WmsfoDbContext>()
