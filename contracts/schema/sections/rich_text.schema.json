@@ -9,7 +9,8 @@
       "items": { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/Block" },
       "minItems": 1,
       "maxItems": 200
-    }
+    },
+    "textSize": { "enum": ["normal", "large", null] }
   },
   "required": ["blocks"],
   "additionalProperties": false

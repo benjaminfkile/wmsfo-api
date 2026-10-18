@@ -5,7 +5,9 @@ namespace Wmsfo.Api.Content;
 // Reference grammar for the site's inline renderer (contracts 1.3a "Inline markdown").
 // Tokens: `**bold**`, `*italic*`, `` `code` ``, `[label](href)`, `{icon:<library-id>}`,
 // `{icon:media:<uuid>}`, `{event:name|year|scheduledAt}`, and a newline. Everything
-// else is literal text. Unbalanced markers are text, not errors; a malformed `{...}`
+// else is literal text. A link written `[label](href){newtab}` opens in a new tab: the
+// `{newtab}` marker is consumed only when it directly follows a link's `)`; anywhere
+// else it is literal text. Unbalanced markers are text, not errors; a malformed `{...}`
 // construct or a malformed `[label](href)` is a publish-level problem.
 //
 // Parse returns InlineParseResult carrying every extracted link and icon (used by
@@ -23,8 +25,12 @@ public static class InlineText
     public sealed record InlineIcon(string Source, string Id);
 
     // A `[label](href)` extracted from an inline value. `Label` is the raw label text
-    // (still constrained inline; not re-parsed).
-    public sealed record InlineLink(string Label, string Href);
+    // (still constrained inline; not re-parsed). `NewTab` is true when the link is
+    // directly followed by the `{newtab}` marker.
+    public sealed record InlineLink(string Label, string Href, bool NewTab = false);
+
+    // The marker that, written directly after a link's `)`, opens the link in a new tab.
+    public const string NewTabMarker = "{newtab}";
 
     public sealed class InlineParseResult
     {
@@ -137,8 +143,10 @@ public static class InlineText
         }
         var label = text.Substring(labelStart, labelEnd - labelStart);
         var href = text.Substring(hrefStart, hrefEnd - hrefStart);
-        into.Links.Add(new InlineLink(label, href));
-        return hrefEnd + 1;
+        var next = hrefEnd + 1;
+        var newTab = text.AsSpan(next).StartsWith(NewTabMarker, StringComparison.Ordinal);
+        into.Links.Add(new InlineLink(label, href, newTab));
+        return newTab ? next + NewTabMarker.Length : next;
     }
 
     // Try to parse `{icon:...}` or `{event:name|year|scheduledAt}`. A malformed
