@@ -97,6 +97,9 @@ public sealed class Beacon
     public long FixesStored { get; set; }
     public long FixesCarried { get; set; }
     public long FixesRateLimited { get; set; }
+    public JsonDocument? State { get; set; }
+    public long StateVersion { get; set; }
+    public DateTimeOffset? StateUpdatedAt { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

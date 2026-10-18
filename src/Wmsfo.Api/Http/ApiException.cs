@@ -56,4 +56,7 @@ public static class ApiErrorCodes
 
     // A26: /admin/api-keys mint (contracts 4.5 API keys).
     public const string NameTaken = "name_taken";
+
+    // A111: PUT /beacons/me/state when expectedVersion is not the row's version (contracts 4.2).
+    public const string StateVersionConflict = "state_version_conflict";
 }

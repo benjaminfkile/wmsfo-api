@@ -144,6 +144,8 @@ public sealed class A11Host : IAsyncDisposable
         yield return RateLimitPolicies.HeartbeatPerBeacon;
         yield return RateLimitPolicies.BeaconLogsPerBeacon;
         yield return RateLimitPolicies.BeaconMePerBeacon;
+        yield return RateLimitPolicies.BeaconStateReadPerBeacon;
+        yield return RateLimitPolicies.BeaconStateWritePerBeacon;
         yield return RateLimitPolicies.EnrollPerIp;
         yield return RateLimitPolicies.ContactPerIp;
         yield return RateLimitPolicies.SubscriptionsPerIp;

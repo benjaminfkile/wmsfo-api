@@ -19,6 +19,8 @@ public static class RateLimitPolicies
     public const string HeartbeatPerBeacon = "wmsfo:heartbeat";                  // 1/s burst 5 per beacon id
     public const string BeaconLogsPerBeacon = "wmsfo:beacon-logs";               // 1/min burst 2 per beacon id
     public const string BeaconMePerBeacon = "wmsfo:beacon-me";                   // 1/s burst 5 per beacon id
+    public const string BeaconStateReadPerBeacon = "wmsfo:beacon-state-read";    // 10/s burst 20 per beacon id
+    public const string BeaconStateWritePerBeacon = "wmsfo:beacon-state-write";  // 10/s burst 20 per beacon id
     public const string EnrollPerIp = "wmsfo:beacon-enroll";                     // 10/min burst 10 per client IP
     public const string ContactPerIp = "wmsfo:contact";                          // 5/hour burst 5 per client IP
     public const string SubscriptionsPerIp = "wmsfo:subscriptions";              // 30/min burst 30 per client IP
@@ -46,6 +48,8 @@ public static class RateLimitPipeline
             AddBeaconTokenBucket(options, RateLimitPolicies.HeartbeatPerBeacon, tokensPerPeriod: 1, period: TimeSpan.FromSeconds(1), burst: 5);
             AddBeaconTokenBucket(options, RateLimitPolicies.BeaconLogsPerBeacon, tokensPerPeriod: 1, period: TimeSpan.FromMinutes(1), burst: 2);
             AddBeaconTokenBucket(options, RateLimitPolicies.BeaconMePerBeacon, tokensPerPeriod: 1, period: TimeSpan.FromSeconds(1), burst: 5);
+            AddBeaconTokenBucket(options, RateLimitPolicies.BeaconStateReadPerBeacon, tokensPerPeriod: 10, period: TimeSpan.FromSeconds(1), burst: 20);
+            AddBeaconTokenBucket(options, RateLimitPolicies.BeaconStateWritePerBeacon, tokensPerPeriod: 10, period: TimeSpan.FromSeconds(1), burst: 20);
 
             AddIpTokenBucket(options, RateLimitPolicies.EnrollPerIp, tokensPerPeriod: 10, period: TimeSpan.FromMinutes(1), burst: 10);
             AddIpTokenBucket(options, RateLimitPolicies.ContactPerIp, tokensPerPeriod: 5, period: TimeSpan.FromHours(1), burst: 5);

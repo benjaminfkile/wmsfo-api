@@ -262,6 +262,12 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("Fixes accepted without a location row (within min distance, or a repeat of a position already stored in the event); these stamp last_location_at like a stored fix.");
             e.Property(x => x.FixesRateLimited).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("fixes_rate_limited")
                 .HasComment("Fixes dropped before the transaction by the per-beacon min interval; flushed at most every 5 s per beacon.");
+            e.Property(x => x.State).HasColumnType("jsonb").HasColumnName("state")
+                .HasComment("The beacon's own state document (contracts 4.2): any JSON object, stored as the beacon wrote it and never interpreted by the API; null until the first write.");
+            e.Property(x => x.StateVersion).HasColumnType("bigint").IsRequired().HasDefaultValue(0L).HasColumnName("state_version")
+                .HasComment("Incremented by every write of state; a write names the version it read and changes nothing when the row holds another.");
+            e.Property(x => x.StateUpdatedAt).HasColumnType("timestamptz").HasColumnName("state_updated_at")
+                .HasComment("When state was last written; null until the first write.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");

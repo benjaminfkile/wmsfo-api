@@ -16,6 +16,7 @@ public class SchemaValidationTests
         yield return new object[] { "route" };
         yield return new object[] { "location" };
         yield return new object[] { "heartbeat" };
+        yield return new object[] { "beacon-state" };
     }
 
     [Theory]

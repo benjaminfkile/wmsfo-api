@@ -461,4 +461,27 @@ public static class FixtureData
             Debug = doc.RootElement.Clone(),
         };
     }
+
+    public static BeaconStateBody BuildBeaconState()
+    {
+        // contracts 4.2: the beacon's own document plus the version it read.
+        // The document here is what a replaying service might keep so the
+        // next leader resumes where the last one stopped; the API never
+        // interprets it.
+        const string stateJson = """
+{
+  "mode": "replay",
+  "eventId": 7,
+  "speed": 4,
+  "cursor": { "index": 1832, "recordedAt": "2026-12-22T01:31:07.000Z" },
+  "startedAt": "2026-12-22T01:00:00.000Z"
+}
+""";
+        using var doc = System.Text.Json.JsonDocument.Parse(stateJson);
+        return new BeaconStateBody
+        {
+            State = doc.RootElement.Clone(),
+            ExpectedVersion = 3,
+        };
+    }
 }

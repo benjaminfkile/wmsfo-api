@@ -30,6 +30,8 @@ public sealed class BeaconMeResponse
     public string HubUrl { get; set; } = "";
     public string IngestChannel { get; set; } = "";
     public long? LiveEventId { get; set; }
+    // The beacon's state document version (GET /beacons/me/state); 0 until the first write.
+    public long StateVersion { get; set; }
     public DateTimeOffset ServerTime { get; set; }
 }
 
@@ -82,6 +84,37 @@ public sealed class HeartbeatResponse
     public DateTimeOffset ReceivedAt { get; set; }
     public long? LiveEventId { get; set; }
     public bool IsActive { get; set; }
+    // The beacon's state document version, so a beacon learns a newer document exists without reading it.
+    public long StateVersion { get; set; }
+    public DateTimeOffset ServerTime { get; set; }
+}
+
+// PUT /beacons/me/state body (contracts 4.2). Exactly two keys, both required:
+// `state` (any JSON object, nested at most 8 levels, stored as sent and never
+// interpreted) and `expectedVersion` (the stateVersion the beacon last read).
+// The handler parses the raw body with BeaconStateRules; this type carries the
+// shape into the OpenAPI document, the schema, and the fixture.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class BeaconStateBody
+{
+    public JsonElement State { get; set; }
+    public long ExpectedVersion { get; set; }
+}
+
+// GET /beacons/me/state (contracts 4.2). `state` is null and `updatedAt` is null until the first write.
+public sealed class BeaconStateResponse
+{
+    public JsonElement? State { get; set; }
+    public long StateVersion { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public DateTimeOffset ServerTime { get; set; }
+}
+
+// PUT /beacons/me/state answer (contracts 4.2).
+public sealed class BeaconStateWriteResponse
+{
+    public long StateVersion { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
     public DateTimeOffset ServerTime { get; set; }
 }
 

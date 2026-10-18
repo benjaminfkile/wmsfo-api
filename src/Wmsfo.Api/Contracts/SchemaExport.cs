@@ -30,6 +30,7 @@ public static class SchemaExport
         yield return ("route", Build(typeof(RouteObject)));
         yield return ("location", Build(typeof(LocationBody)));
         yield return ("heartbeat", Build(typeof(HeartbeatBody)));
+        yield return ("beacon-state", Build(typeof(BeaconStateBody)));
         yield return ("realtime-authorize", Build(typeof(RealtimeAuthorizeRequest)));
         yield return ("realtime-message", Build(typeof(RealtimeMessageRequest)));
         yield return ("qr-code", Build(typeof(QrCodeDto)));

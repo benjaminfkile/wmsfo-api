@@ -239,6 +239,15 @@ public static class EndpointStubs
             .WithTags("Beacon")
             .Accepts<string>("text/plain")
             .Produces<BeaconLogResponse>(StatusCodes.Status201Created);
+
+        app.MapGet("/beacons/me/state", NotImplemented)
+            .WithTags("Beacon")
+            .Produces<BeaconStateResponse>(StatusCodes.Status200OK);
+
+        app.MapPut("/beacons/me/state", NotImplemented)
+            .WithTags("Beacon")
+            .Accepts<BeaconStateBody>("application/json")
+            .Produces<BeaconStateWriteResponse>(StatusCodes.Status200OK);
     }
 
     private static void MapPublic(IEndpointRouteBuilder app, bool includePreviewStub)

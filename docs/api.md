@@ -66,7 +66,7 @@ wmsfo-api/
     Auth/ApiKeyAuthHandler.cs         # section 6.4: wak_ bearer scheme
     Auth/CapabilityAuthorization.cs   # RequireCapability, DenyApiKeys, CapabilityOrGroup
     Auth/DevStaticTokens.cs           # WMSFO_DEV_STATIC_TOKENS (section 20)
-    Endpoints/BeaconEndpoints.cs      # enroll, me, locations, heartbeat, logs
+    Endpoints/BeaconEndpoints.cs      # enroll, me, locations, heartbeat, logs, me/state (BeaconStateRules.cs: the state body rules)
     Endpoints/LocationIngest.cs       # the validate-and-store path shared by POST /locations and the hub message path (contracts 7.2)
     Endpoints/PublicWriteEndpoints.cs # contact, subscriptions verify and unsubscribe
     Endpoints/MeEndpoints.cs          # me, subscriptions, cookies, alerts
@@ -201,7 +201,7 @@ Middleware order in `Program.cs`, outermost first:
 2. **Forwarded headers**: `ForwardedHeadersMiddleware` with `ForwardLimit = WMSFO_TRUSTED_PROXY_HOPS`, known networks cleared, so `HttpContext.Connection.RemoteIpAddress` is the client IP counted from the right of `X-Forwarded-For`. It is mounted with `UseWhen` on every path except `/realtime/*`, because the middleware removes the `X-Forwarded-For` entries it consumes and the callback guard (section 12.1) must see the raw headers.
 3. **Request id and logging scope**: `Activity.Current?.Id ?? HttpContext.TraceIdentifier` becomes `requestId`; every log line in the request carries it.
 4. **Exception handler**: maps `ApiException` to its status and code, `BadHttpRequestException` (body too large, malformed JSON) to `413 payload_too_large` or `400 validation_failed`, `OperationCanceledException` on a client abort to nothing, everything else to `500 internal_error` with the stack logged at Error and never returned.
-5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 32 KB heartbeats. Media bytes never arrive here.
+5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 32 KB heartbeats, 16 KB beacon state writes. Media bytes never arrive here.
 6. **CORS**: one policy with the exact origins from `WMSFO_CORS_ORIGINS`, methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version, If-None-Match`, exposed header `ETag`, `SetPreflightMaxAge(600)`, credentials off. Applied to every route except the two callbacks and `/api/health`.
 7. **Authentication**: two schemes registered; each endpoint names the one it requires through `RequireAuthorization(policy)`. A request carrying both `Authorization` and `X-Beacon-Key` is `400 validation_failed` before any scheme runs.
 8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0, partitioned by beacon id, person id, or client IP as the table says; over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
@@ -282,10 +282,12 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 |---|---|---|---|
 | `GET /api/health` | none | ready flag and `select 1` with 2 s timeout | |
 | `POST /beacons/enroll` | none (IP-limited) | validate token format; one transaction: lock the token row by hash, check unconsumed and unexpired and the beacon not revoked, decrypt `key_ciphertext`, set `consumed_at`, null the ciphertext; respond with the key and URLs from options | sql.md 8 enroll |
-| `GET /beacons/me` | Beacon | stamp `last_seen_at`; read the live event id | |
+| `GET /beacons/me` | Beacon | stamp `last_seen_at`; read the live event id and `state_version` | |
 | `POST /locations` | Beacon | validate; the `BeaconRateLimiter` (section 8) drops fixes inside the beacon's effective min interval before any transaction and flushes a per-beacon count to `beacon.fixes_rate_limited` at most every 5 s; the location transaction (7.2) reads the beacon's last stored fix and decides `stored` vs `carried` per `location_min_distance_m`, and the unique `(event_id, lat, lng)` index carries any repeat of a position already in the event; the response body carries `outcome`; then `LiveObjectWriter.WriteForLocation` when `published` (carried publishes just like stored) | contracts 7.2 |
-| `POST /beacons/heartbeat` | Beacon | validate `sentAt`, the three optional `health` leaves, and the `debug` object's depth and size (section 15); store the body as telemetry, stamp `last_heartbeat_at`, `last_seen_at`, clear `stale_since`; respond with the live event id and `is_active` | |
+| `POST /beacons/heartbeat` | Beacon | validate `sentAt`, the three optional `health` leaves, and the `debug` object's depth and size (section 15); store the body as telemetry, stamp `last_heartbeat_at`, `last_seen_at`, clear `stale_since`; respond with the live event id, `is_active`, and `state_version` | |
 | `POST /beacons/logs` | Beacon | `text/plain` only; insert `beacon_log` | |
+| `GET /beacons/me/state` | Beacon (own bucket, 10/s burst 20) | read `state`, `state_version`, `state_updated_at` of an unrevoked row (none: `401`); stamps nothing, `last_seen_at` included | sql.md 8.3a |
+| `PUT /beacons/me/state` | Beacon (own bucket, 10/s burst 20) | read the body under the 16 KB cap; `BeaconStateRules.Parse`: exactly `state` (a JSON object, depth at most 8 by the heartbeat's `JsonDepth`) and `expectedVersion` (int64, 0 or more), else `400 validation_failed`; the one conditional update; no row: read the version again and answer `409 state_version_conflict` with `details.stateVersion`, or `401` when the row is revoked; a `\u0000` in a string, which `jsonb` refuses, is `400` at `state`; no audit row | sql.md 8.3a |
 | `POST /contact` | none (IP-limited) | validate; insert `contact_message` and outbox `contact.received` in one transaction | |
 | `POST /subscriptions/verify` | none | hash lookup; set `verified_at` per the contracts' three cases | |
 | `POST /subscriptions/unsubscribe` | none | token from query or JSON; accept form-urlencoded and ignore its body; set `unsubscribed_at` | |
@@ -590,10 +592,13 @@ Activate, deactivate, revoke follow contracts 3.4 exactly; activate runs the two
 
 ```sql
 update beacon set telemetry = $body::jsonb, last_heartbeat_at = now(), last_seen_at = now(), stale_since = null
-where id = $id;
+where id = $id
+returning is_active, state_version;
 ```
 
-Respond with `liveEventId` from memory and `isActive` from the row. Heartbeats arrive over HTTP only and never touch the live object.
+Respond with `liveEventId` from memory and `isActive` and `stateVersion` from the row. Heartbeats arrive over HTTP only and never touch the live object.
+
+The beacon's state document (contracts 4.2 and 9.5) sits on the same row and is not telemetry: the panel never shows it, the snapshot never carries it, and the API never reads inside it. Only `GET` and `PUT /beacons/me/state` touch the three columns; rotate and revoke leave them alone.
 
 ---
 
