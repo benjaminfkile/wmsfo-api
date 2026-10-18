@@ -17,6 +17,10 @@ namespace Wmsfo.Api.IntegrationTests;
 // choice. A second run changes nothing.
 public sealed class A88GlobalPlacesMigrationTests : IClassFixture<PostgresFixture>
 {
+    // The events lose route_map_config in A113SiteRoute; these tests seed
+    // and read it, so they stop at the migration before.
+    private const string BeforeA113 = "A111BeaconState";
+
     private readonly PostgresFixture _fixture;
 
     public A88GlobalPlacesMigrationTests(PostgresFixture fixture)
@@ -70,7 +74,7 @@ public sealed class A88GlobalPlacesMigrationTests : IClassFixture<PostgresFixtur
     [Fact]
     public async Task Fold_leaves_the_draft_untouched_when_nothing_carries_a_choice()
     {
-        await MigrateToAsync(null);
+        await MigrateToAsync(BeforeA113);
         await RunSqlAsync(SeedSql(
             "'{\"themes\":[\"night\"],\"poiFilter\":false}'",
             "'{\"themes\":[\"standard\"],\"poiKinds\":[\"park\"]}'",
@@ -117,8 +121,8 @@ insert into event (year, name, status_id, is_current, created_by, updated_at, ro
 values (2025, 'Older', 1, false, 'seed', now(), {olderConfig}::jsonb),
        (2026, 'Current', 1, true, 'seed', now(), {currentConfig}::jsonb);";
 
-    // Migrates the fixture database to the named migration, or to the newest
-    // when null, as the migrate role that owns the tables.
+    // Migrates the fixture database to the named migration as the migrate
+    // role that owns the tables.
     private async Task MigrateToAsync(string? target)
     {
         var options = new DbContextOptionsBuilder<WmsfoDbContext>()

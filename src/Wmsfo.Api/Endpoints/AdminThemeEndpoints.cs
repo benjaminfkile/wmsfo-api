@@ -23,7 +23,8 @@ namespace Wmsfo.Api.Endpoints;
 // theme's style body is an immutable CDN object at themes/{sha256}.json the
 // API writes once per distinct body; its sprite set lives under
 // themes/{id}/sprites/{indexSha256}/. Every write but create runs the
-// [snapshot] frame when the current event enables the theme (or the
+// [snapshot] frame when the routeView event (the current event, else the
+// newest) enables the theme (or the
 // replacement, or the flag's previous holder) and a plain transaction
 // otherwise; every write records an audit row on entity tracker_theme.
 public static partial class AdminThemeEndpoints
@@ -194,7 +195,7 @@ returning id;", conn, tx))
                     v.ThrowIfInvalid();
                     if (fields.Key is not null) await RequireKeyFreeAsync(conn, core.Renderer, fields.Key, id, ct);
                     if (fields.Thumbnail is Guid thumb) await RequireThumbnailAsync(conn, null, thumb, ct);
-                    snapshot = await OnCurrentEventAsync(conn, [id], ct);
+                    snapshot = await OnRouteViewEventAsync(conn, [id], ct);
                 }
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -336,7 +337,7 @@ returning id;", conn, tx))
                     if (core.Renderer != ThemeStyleValidator.MapLibre) v.Field("renderer", "sprites are for maplibre themes only");
                     if (!Sha256Pattern().IsMatch(index)) v.Field("indexSha256", "must be 64 lowercase hex characters");
                     v.ThrowIfInvalid();
-                    snapshot = await OnCurrentEventAsync(conn, [id], ct);
+                    snapshot = await OnRouteViewEventAsync(conn, [id], ct);
                 }
 
                 if (string.Equals(core.SpriteSha256, index, StringComparison.Ordinal))
@@ -484,7 +485,7 @@ where renderer = $1 and id <> $2 and ((default_light_mode and $3) or (default_da
                 await using var reader = await holders.ExecuteReaderAsync(ct);
                 while (await reader.ReadAsync(ct)) involved.Add(reader.GetInt64(0));
             }
-            snapshot = await OnCurrentEventAsync(conn, involved, ct);
+            snapshot = await OnRouteViewEventAsync(conn, involved, ct);
         }
 
         return await RunFrameAsync<TrackerThemeDto>(snap, snapshot, async (conn, tx, token) =>
@@ -534,7 +535,7 @@ where renderer = $1 and id <> $2 and ((default_light_mode and $3) or (default_da
                     _ = await ReadCoreAsync(conn, null, id, ct) ?? throw NotFound();
                     if (replacementId is long r)
                         await TrackerThemeImpactQueries.RequireReplacementAsync(conn, null, id, r, ct);
-                    snapshot = await OnCurrentEventAsync(conn,
+                    snapshot = await OnRouteViewEventAsync(conn,
                         replacementId is long rr ? [id, rr] : [id], ct);
                 }
 
@@ -793,14 +794,16 @@ where renderer = $1 and id <> $2 and ((default_light_mode and $3) or (default_da
             RequestValidation.Throw("thumbnailMediaId", "must be a raster media asset");
     }
 
-    // The [snapshot] rule of every theme write: the current event enables one
-    // of the themes.
-    private static async Task<bool> OnCurrentEventAsync(NpgsqlConnection conn, IReadOnlyList<long> ids, CancellationToken ct)
+    // The [snapshot] rule of every theme write: the routeView event (the
+    // current event, else the event with the greatest year) enables one of
+    // the themes.
+    private static async Task<bool> OnRouteViewEventAsync(NpgsqlConnection conn, IReadOnlyList<long> ids, CancellationToken ct)
     {
         await using var cmd = new NpgsqlCommand(@"
 select exists (
-  select 1 from event_tracker_theme et join event e on e.id = et.event_id
-  where e.is_current and et.theme_id = any($1));", conn);
+  select 1 from (" + Node.SnapshotBuilder.RouteViewEventIdSql + @") v
+  join event_tracker_theme et on et.event_id = v.id
+  where et.theme_id = any($1));", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = ids.ToArray() });
         return await cmd.ExecuteScalarAsync(ct) is true;
     }

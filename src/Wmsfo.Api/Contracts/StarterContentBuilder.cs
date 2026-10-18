@@ -71,7 +71,6 @@ public static class StarterContentBuilder
 
             BuildOrdinaryPage(pageId++, "about",    "About the flyover", "About",    10, ref sectionId, AboutStack),
             BuildOrdinaryPage(pageId++, "sponsors", "Sponsors",          "Sponsors", 20, ref sectionId, SponsorsStack),
-            BuildOrdinaryPage(pageId++, "route",    "The route",         "Route",    30, ref sectionId, RouteStack),
             BuildOrdinaryPage(pageId++, "donate",   "Support the flyover", "Donate", 40, ref sectionId, DonateStack),
             BuildOrdinaryPage(pageId++, "contact",  "Contact us",        "Contact",  50, ref sectionId, ContactStack),
             BuildOrdinaryPage(pageId++, "alerts",   "Get alerts",        "Alerts",   60, ref sectionId, AlertsStack),
@@ -185,17 +184,6 @@ public static class StarterContentBuilder
             Block("paragraph", new JsonObject { ["text"] = "Every dollar keeps the sleigh in the air." }),
         }));
         s.Add(SponsorGrid(id.Next()));
-    }
-
-    private static void RouteStack(List<ContentSection> s, RefLong id)
-    {
-        s.Add(RichText(id.Next(), new JsonArray
-        {
-            Block("heading", new JsonObject { ["level"] = 1, ["text"] = "This year's route", ["icon"] = null }),
-            Block("paragraph", new JsonObject { ["text"] = "Here is the planned path. Weather may adjust the details on the day." }),
-        }));
-        s.Add(RoutePreview(id.Next(),
-            "The route is a plan, not a promise. Wind, air traffic, and the pilot's judgement change it on the night. Use the live tracker for where Santa actually is."));
     }
 
     private static void DonateStack(List<ContentSection> s, RefLong id)

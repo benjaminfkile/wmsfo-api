@@ -799,16 +799,6 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("next_seq")
                         .HasComment("Next location.seq for this event. Read and incremented under the row lock in the location transaction, so seq order is commit order.");
 
-                    b.Property<long?>("RouteId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("route_id")
-                        .HasComment("Route shown for this event; null when unlinked.");
-
-                    b.Property<JsonDocument>("RouteMapConfig")
-                        .HasColumnType("jsonb")
-                        .HasColumnName("route_map_config")
-                        .HasComment("The event's route map configuration { display?, controls? } in canonical form, validated on write against $defs/RouteMapConfig (contracts 1.3, 4.5). Null means every built-in default; the snapshot carries it for the current event.");
-
                     b.Property<string>("ScheduleTimeZone")
                         .HasColumnType("text")
                         .HasColumnName("schedule_time_zone")
@@ -1762,11 +1752,6 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
-                    b.Property<long?>("RouteId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("route_id")
-                        .HasComment("The flight recording the poster's map is built from; null when unlinked. Set null when the route is deleted.");
-
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")
@@ -1778,7 +1763,7 @@ namespace Wmsfo.Api.Data.Migrations
 
                     b.ToTable("poster", null, t =>
                         {
-                            t.HasComment("A poster the admin panel composes: a name, an optional flight recording for its map, and the panel's layout document. Admin only; never in the snapshot or on the site.");
+                            t.HasComment("A poster the admin panel composes: a name and the panel's layout document; the panel draws the published site route into it. Admin only; never in the snapshot or on the site.");
 
                             t.HasCheckConstraint("poster_name_check", "char_length(name) between 1 and 200");
                         });
@@ -2070,7 +2055,7 @@ namespace Wmsfo.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("url")
-                        .HasComment("Absolute CDN URL of s3_key, carried into the snapshot as routeUrl.");
+                        .HasComment("Absolute CDN URL of s3_key, carried in the admin Route as url.");
 
                     b.HasKey("Id")
                         .HasName("route_pkey");
@@ -2843,12 +2828,6 @@ namespace Wmsfo.Api.Data.Migrations
 
             modelBuilder.Entity("Wmsfo.Api.Data.Event", b =>
                 {
-                    b.HasOne("Wmsfo.Api.Data.Route", null)
-                        .WithMany()
-                        .HasForeignKey("RouteId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("event_route_id_fkey");
-
                     b.HasOne("Wmsfo.Api.Data.EventStatus", null)
                         .WithMany()
                         .HasForeignKey("StatusId")
@@ -2976,15 +2955,6 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("place_parent_id_fkey");
-                });
-
-            modelBuilder.Entity("Wmsfo.Api.Data.Poster", b =>
-                {
-                    b.HasOne("Wmsfo.Api.Data.Route", null)
-                        .WithMany()
-                        .HasForeignKey("RouteId")
-                        .OnDelete(DeleteBehavior.SetNull)
-                        .HasConstraintName("poster_route_id_fkey");
                 });
 
             modelBuilder.Entity("Wmsfo.Api.Data.QrAttachment", b =>

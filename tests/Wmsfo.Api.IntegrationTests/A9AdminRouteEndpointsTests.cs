@@ -49,7 +49,6 @@ public sealed class A9AdminRouteEndpointsTests : IClassFixture<PostgresFixture>,
         await conn.OpenAsync();
         foreach (var sql in new[]
         {
-            "update event set route_id = null;",
             "delete from location;",
             "delete from event;",
             "delete from route;",
@@ -59,6 +58,7 @@ public sealed class A9AdminRouteEndpointsTests : IClassFixture<PostgresFixture>,
             await using var cmd = new NpgsqlCommand(sql, conn);
             await cmd.ExecuteNonQueryAsync();
         }
+        await SiteRouteSeed.ClearAsync(conn);
         await SnapshotSeed.EnsureAsync(conn);
     }
 
@@ -172,38 +172,74 @@ public sealed class A9AdminRouteEndpointsTests : IClassFixture<PostgresFixture>,
 
     // ---------- DELETE /admin/routes/{id} ----------
 
-    [Fact]
-    public async Task Delete_in_use_by_event_unlinks_the_event()
+    // A113: while the site settings draft or the newest published version
+    // names the route, the delete is 409 route_in_use with details.where and
+    // the impact preview is blocked; the route row and object stay. The
+    // route DTOs flag the two.
+    [Theory]
+    [InlineData(true, false, new[] { "draft" })]
+    [InlineData(false, true, new[] { "published" })]
+    [InlineData(true, true, new[] { "draft", "published" })]
+    public async Task Delete_of_the_site_route_is_409_route_in_use(bool draft, bool published, string[] where)
     {
-        // A36 / api.md 5b: routes no longer refuse when an event references
-        // them; the FK on event.route_id sets null and the event stays.
-        var body = "{\"name\":\"delete-me\",\"points\":[{\"lat\":1,\"lng\":1,\"recordedAt\":null},{\"lat\":2,\"lng\":2,\"recordedAt\":null}]}";
+        var body = "{\"name\":\"site\",\"points\":[{\"lat\":1,\"lng\":1,\"recordedAt\":null},{\"lat\":2,\"lng\":2,\"recordedAt\":null}]}";
         var upload = await SendAsync(HttpMethod.Post, "/admin/routes", body);
         var doc = await ReadJsonAsync(upload);
         var routeId = doc.RootElement.GetProperty("id").GetInt64();
+        var s3Key = doc.RootElement.GetProperty("s3Key").GetString()!;
+        Assert.False(doc.RootElement.GetProperty("isSiteRoute").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("isDraftRoute").GetBoolean());
 
-        var evt = await SeedEventAsync(2082);
-        await LinkRouteAsync(evt, routeId);
+        if (draft) await SiteRouteSeed.SetDraftAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId));
+        if (published) await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId));
 
-        // The impact preview lists one unlink (the event) and no deletes.
+        using (var got = await ReadJsonAsync(await SendAsync(HttpMethod.Get, $"/admin/routes/{routeId}", "")))
+        {
+            Assert.Equal(published, got.RootElement.GetProperty("isSiteRoute").GetBoolean());
+            Assert.Equal(draft, got.RootElement.GetProperty("isDraftRoute").GetBoolean());
+        }
+        using (var list = await ReadJsonAsync(await SendAsync(HttpMethod.Get, "/admin/routes", "")))
+        {
+            var item = Assert.Single(list.RootElement.GetProperty("items").EnumerateArray());
+            Assert.Equal(published, item.GetProperty("isSiteRoute").GetBoolean());
+            Assert.Equal(draft, item.GetProperty("isDraftRoute").GetBoolean());
+        }
+
         var preview = await SendAsync(HttpMethod.Get, $"/admin/routes/{routeId}/impact", "");
         preview.EnsureSuccessStatusCode();
-        var previewBody = await ReadJsonAsync(preview);
-        var unlinks = previewBody.RootElement.GetProperty("unlinks");
-        Assert.Equal(1, unlinks.GetArrayLength());
-        Assert.Equal("event", unlinks[0].GetProperty("entity").GetString());
-        Assert.Equal(1, unlinks[0].GetProperty("count").GetInt32());
+        using (var impact = await ReadJsonAsync(preview))
+        {
+            Assert.Equal("This is the site route. Choose another route or None in Site settings first.",
+                impact.RootElement.GetProperty("blocked").GetString());
+            Assert.Empty(impact.RootElement.GetProperty("unlinks").EnumerateArray());
+        }
 
         var response = await SendAsync(HttpMethod.Delete, $"/admin/routes/{routeId}", "");
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using (var error = await ReadJsonAsync(response))
+        {
+            Assert.Equal("route_in_use", error.RootElement.GetProperty("code").GetString());
+            Assert.Equal(where, error.RootElement.GetProperty("details").GetProperty("where")
+                .EnumerateArray().Select(w => w.GetString()!).ToArray());
+        }
+        Assert.NotNull(await _host!.Store.HeadObjectAsync(s3Key));
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var check = new NpgsqlCommand("select count(*) from route where id = $1;", conn);
+            check.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = routeId });
+            Assert.Equal(1L, (long)(await check.ExecuteScalarAsync())!);
+        }
 
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var check = new NpgsqlCommand(
-            "select route_id from event where id = $1;", conn);
-        check.Parameters.Add(new NpgsqlParameter { Value = evt });
-        var r = await check.ExecuteScalarAsync();
-        Assert.True(r is DBNull || r is null);
+        // Once neither names it (the draft names another route, a newer
+        // version names none), the delete goes through.
+        await SiteRouteSeed.SetDraftAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId + 1000));
+        await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(null));
+        using (var impact = await ReadJsonAsync(await SendAsync(HttpMethod.Get, $"/admin/routes/{routeId}/impact", "")))
+            Assert.Equal(JsonValueKind.Null, impact.RootElement.GetProperty("blocked").ValueKind);
+        var deleted = await SendAsync(HttpMethod.Delete, $"/admin/routes/{routeId}", "");
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        Assert.Null(await _host.Store.HeadObjectAsync(s3Key));
     }
 
     [Fact]
@@ -214,6 +250,11 @@ public sealed class A9AdminRouteEndpointsTests : IClassFixture<PostgresFixture>,
         var doc = await ReadJsonAsync(upload);
         var routeId = doc.RootElement.GetProperty("id").GetInt64();
         var s3Key = doc.RootElement.GetProperty("s3Key").GetString()!;
+
+        // An older published version naming the route does not block: only
+        // the newest one is what the site shows.
+        await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId));
+        await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, null);
 
         var response = await SendAsync(HttpMethod.Delete, $"/admin/routes/{routeId}", "");
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
@@ -285,16 +326,6 @@ values ($1, $2, $3, now(), now(), $4, -114, $5);", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = nextSeq });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = lat });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private async Task LinkRouteAsync(long eventId, long routeId)
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand("update event set route_id = $1 where id = $2;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = routeId });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         await cmd.ExecuteNonQueryAsync();
     }
 

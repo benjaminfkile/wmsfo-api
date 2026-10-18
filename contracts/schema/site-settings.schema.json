@@ -106,6 +106,20 @@
       },
       "required": ["defaultBbox"],
       "additionalProperties": false
+    },
+    "route": {
+      "type": "object",
+      "properties": {
+        "routeId": { "type": ["integer", "null"], "minimum": 1 },
+        "mapConfig": {
+          "oneOf": [
+            { "$ref": "https://wmsfo.dev/schema/primitives.schema.json#/$defs/RouteMapConfig" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["routeId"],
+      "additionalProperties": false
     }
   },
   "required": [

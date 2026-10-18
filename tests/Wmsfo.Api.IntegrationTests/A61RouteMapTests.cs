@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using NpgsqlTypes;
@@ -12,11 +13,11 @@ using Wmsfo.Api.Objects;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// Route map acceptance (contracts 1.3 event.routeMap, 4.5 Events, 6):
-//   - the snapshot of a current event with a linked recording carries routeMap
-//     in the documented shape; without a recording it is null.
-//   - GET /admin/events/{id}/route-map answers for a non-current event with the
-//     same object the builder makes, for admin and editor, and 404s an unknown id.
+// Route map acceptance (contracts 1.3 routeMap, 4.5 Routes, 6):
+//   - the snapshot carries the site route (the published settings.route) as
+//     the top-level routeMap in the documented shape; without one it is null.
+//   - GET /admin/route answers the published route with the same object the
+//     builder makes and the draft route without a map, for admin and editor.
 //   - the three route_map_* settings list with their defaults, round-trip, and
 //     reject out-of-range writes.
 public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -59,6 +60,7 @@ public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLif
             await using var cmd = new NpgsqlCommand(sql, conn);
             await cmd.ExecuteNonQueryAsync();
         }
+        await SiteRouteSeed.ClearAsync(conn);
         await SnapshotSeed.EnsureAsync(conn);
         _host = await A25Host.StartAsync(_fixture.ConnectionString);
     }
@@ -73,24 +75,24 @@ public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLif
     }
 
     [Fact]
-    public async Task Snapshot_carries_routeMap_for_a_linked_recording_and_null_without_one()
+    public async Task Snapshot_carries_routeMap_for_the_site_route_and_null_without_one()
     {
-        var eventId = await CreateEventAsync(2031, current: true);
+        await CreateEventAsync(2031, current: true);
 
         var before = await ReadSnapshotAsync();
-        var ev = before.RootElement.GetProperty("event");
-        Assert.Equal(JsonValueKind.Null, ev.GetProperty("routeMap").ValueKind);
+        Assert.Equal(JsonValueKind.Null, before.RootElement.GetProperty("routeMap").ValueKind);
+        Assert.Equal(JsonValueKind.Null, before.RootElement.GetProperty("routeMapConfig").ValueKind);
         Assert.Equal(
             new[] { "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt", "fundsPercent",
-                    "flightHistory", "routeMap", "routeMapConfig", "latestMessage", "trackerBbox", "trackerMap" },
-            ev.EnumerateObject().Select(p => p.Name).ToArray());
+                    "flightHistory", "latestMessage", "trackerBbox", "trackerMap" },
+            before.RootElement.GetProperty("event").EnumerateObject().Select(p => p.Name).ToArray());
 
         var points = Recording(241); // 60 minutes, one point every 15 seconds
         var routeId = await UploadRouteAsync("Map flight", points);
-        await PatchEventAsync(eventId, $"{{\"routeId\":{routeId}}}");
+        await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId));
 
         var after = await ReadSnapshotAsync();
-        var map = after.RootElement.GetProperty("event").GetProperty("routeMap");
+        var map = after.RootElement.GetProperty("routeMap");
         Assert.Equal(new[] { "path", "timeline", "durationMinutes", "timed" }, map.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.True(map.GetProperty("timed").GetBoolean());
         Assert.Equal(60, map.GetProperty("durationMinutes").GetInt32());
@@ -101,53 +103,80 @@ public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLif
         Assert.Equal(Enumerable.Range(0, 13).Select(i => i * 5).ToArray(), timeline.Select(t => t.GetProperty("minutes").GetInt32()).ToArray());
         Assert.Equal(new[] { "minutes", "lat", "lng" }, timeline[0].EnumerateObject().Select(p => p.Name).ToArray());
 
-        // The embed is exactly what the builder makes from the linked recording.
+        // The embed is exactly what the builder makes from the site route.
         var expected = RouteMapBuilder.Build(points, RouteMapSettings.Defaults)!;
         Assert.Equal(Encoding.UTF8.GetString(CanonicalJson.SerializeToUtf8Bytes(expected)), map.GetRawText());
 
-        // The flight history is unchanged beside it.
+        // The flight history comes from the same route.
         Assert.Equal(routeId, after.RootElement.GetProperty("event").GetProperty("flightHistory").GetProperty("routeId").GetInt64());
 
         // A route_map_* setting write is snapshot-affecting.
         await PutSettingAsync(RouteMapSettings.MaxPointsKey, 100);
         var capped = await ReadSnapshotAsync();
-        Assert.Equal(100, capped.RootElement.GetProperty("event").GetProperty("routeMap").GetProperty("path").GetArrayLength());
+        Assert.Equal(100, capped.RootElement.GetProperty("routeMap").GetProperty("path").GetArrayLength());
     }
 
     [Fact]
-    public async Task Route_map_endpoint_answers_for_any_event_and_404s_an_unknown_id()
+    public async Task Site_route_endpoint_answers_the_published_and_the_draft_route()
     {
         await CreateEventAsync(2032, current: true);
-        var other = await CreateEventAsync(2033, current: false);
 
-        var none = await SendAsync(HttpMethod.Get, $"/admin/events/{other}/route-map", null, DevStaticTokens.AdminToken);
-        Assert.Equal(HttpStatusCode.OK, none.StatusCode);
-        using (var doc = JsonDocument.Parse(await none.Content.ReadAsStringAsync()))
-            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("routeMap").ValueKind);
+        foreach (var token in new[] { DevStaticTokens.AdminToken, DevStaticTokens.EditorToken })
+        {
+            var none = await SendAsync(HttpMethod.Get, "/admin/route", null, token);
+            Assert.Equal(HttpStatusCode.OK, none.StatusCode);
+            using var doc = JsonDocument.Parse(await none.Content.ReadAsStringAsync());
+            Assert.Equal(new[] { "published", "draft" }, doc.RootElement.EnumerateObject().Select(p => p.Name).ToArray());
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("published").ValueKind);
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("draft").ValueKind);
+        }
 
         var points = Recording(100);
         foreach (var p in points) p.RecordedAt = null; // untimed
-        var routeId = await UploadRouteAsync("Other flight", points);
-        await PatchEventAsync(other, $"{{\"routeId\":{routeId}}}");
+        var published = await UploadRouteAsync("Published flight", points);
+        var drafted = await UploadRouteAsync("Draft flight", Recording(50));
+        await SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(published,
+            JsonNode.Parse("{\"display\":{\"arrows\":false},\"controls\":{\"terrain\":true}}")));
+        await SiteRouteSeed.SetDraftAsync(_fixture.ConnectionString, SiteRouteSeed.Route(drafted,
+            JsonNode.Parse("{\"display\":{\"labelSize\":\"large\"}}")));
 
         var expected = Encoding.UTF8.GetString(CanonicalJson.SerializeToUtf8Bytes(
             RouteMapBuilder.Build(points, RouteMapSettings.Defaults)!));
         foreach (var token in new[] { DevStaticTokens.AdminToken, DevStaticTokens.EditorToken })
         {
-            var response = await SendAsync(HttpMethod.Get, $"/admin/events/{other}/route-map", null, token);
+            var response = await SendAsync(HttpMethod.Get, "/admin/route", null, token);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            var map = doc.RootElement.GetProperty("routeMap");
+            var pub = doc.RootElement.GetProperty("published");
+            Assert.Equal(new[] { "routeId", "name", "routeMap", "mapConfig" }, pub.EnumerateObject().Select(p => p.Name).ToArray());
+            Assert.Equal(published, pub.GetProperty("routeId").GetInt64());
+            Assert.Equal("Published flight", pub.GetProperty("name").GetString());
+            var map = pub.GetProperty("routeMap");
             Assert.False(map.GetProperty("timed").GetBoolean());
             Assert.Equal(RouteMapSettings.DefaultDefaultDurationMinutes, map.GetProperty("durationMinutes").GetInt32());
             Assert.Equal(expected, JsonSerializer.Serialize(map));
+            Assert.False(pub.GetProperty("mapConfig").GetProperty("display").GetProperty("arrows").GetBoolean());
+            Assert.True(pub.GetProperty("mapConfig").GetProperty("controls").GetProperty("terrain").GetBoolean());
+
+            var draft = doc.RootElement.GetProperty("draft");
+            Assert.Equal(new[] { "routeId", "name", "mapConfig" }, draft.EnumerateObject().Select(p => p.Name).ToArray());
+            Assert.Equal(drafted, draft.GetProperty("routeId").GetInt64());
+            Assert.Equal("Draft flight", draft.GetProperty("name").GetString());
+            Assert.Equal("large", draft.GetProperty("mapConfig").GetProperty("display").GetProperty("labelSize").GetString());
         }
 
-        var person = await SendAsync(HttpMethod.Get, $"/admin/events/{other}/route-map", null, DevStaticTokens.PersonToken);
-        Assert.Equal(HttpStatusCode.Forbidden, person.StatusCode);
+        // The snapshot reads the same published route and configuration.
+        var snapshot = await ReadSnapshotAsync();
+        Assert.Equal(expected, snapshot.RootElement.GetProperty("routeMap").GetRawText());
+        Assert.False(snapshot.RootElement.GetProperty("routeMapConfig").GetProperty("display").GetProperty("arrows").GetBoolean());
 
-        var missing = await SendAsync(HttpMethod.Get, "/admin/events/987654321/route-map", null, DevStaticTokens.AdminToken);
-        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        // A null routeId in the draft is no route.
+        await SiteRouteSeed.SetDraftAsync(_fixture.ConnectionString, SiteRouteSeed.Route(null));
+        using (var doc = JsonDocument.Parse(await (await SendAsync(HttpMethod.Get, "/admin/route", null, DevStaticTokens.EditorToken)).Content.ReadAsStringAsync()))
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("draft").ValueKind);
+
+        var person = await SendAsync(HttpMethod.Get, "/admin/route", null, DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.Forbidden, person.StatusCode);
     }
 
     [Fact]
@@ -222,12 +251,6 @@ public sealed class A61RouteMapTests : IClassFixture<PostgresFixture>, IAsyncLif
         return doc.RootElement.GetProperty("items").EnumerateArray()
             .Where(i => SettingKeys.Contains(i.GetProperty("key").GetString()))
             .ToDictionary(i => i.GetProperty("key").GetString()!, i => i.GetProperty("value").GetInt32());
-    }
-
-    private async Task PatchEventAsync(long eventId, string body)
-    {
-        var response = await SendAsync(HttpMethod.Patch, $"/admin/events/{eventId}", body, DevStaticTokens.AdminToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     private async Task<long> CreateEventAsync(int year, bool current)

@@ -27,7 +27,7 @@ public class KeyOrderTests
         var expected = new[]
         {
             "schemaVersion", "event", "qrCodes", "sponsors", "sponsorsYear", "cookieTypes", "content", "media", "icons",
-            "trackerThemes",
+            "routeMap", "routeMapConfig", "routeView", "trackerThemes",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json"));
         Assert.Equal(expected, actual);
@@ -39,7 +39,7 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "flightHistory", "routeMap", "routeMapConfig", "latestMessage",
+            "fundsPercent", "flightHistory", "latestMessage",
             "trackerBbox", "trackerMap",
         };
         var expectedBbox = new[] { "west", "south", "east", "north" };
@@ -77,11 +77,11 @@ public class KeyOrderTests
         Assert.Equal(expectedEvent, KeysOf(root.GetProperty("event")));
         Assert.Equal(expectedFlightHistory, KeysOf(root.GetProperty("event").GetProperty("flightHistory")));
         Assert.Equal(expectedFlightPoint, KeysOf(root.GetProperty("event").GetProperty("flightHistory").GetProperty("points")[0]));
-        var routeMap = root.GetProperty("event").GetProperty("routeMap");
+        var routeMap = root.GetProperty("routeMap");
         Assert.Equal(expectedRouteMap, KeysOf(routeMap));
         Assert.Equal(expectedRouteMapPoint, KeysOf(routeMap.GetProperty("path")[0]));
         Assert.Equal(expectedTimelineEntry, KeysOf(routeMap.GetProperty("timeline")[0]));
-        var routeMapConfig = root.GetProperty("event").GetProperty("routeMapConfig");
+        var routeMapConfig = root.GetProperty("routeMapConfig");
         Assert.Equal(expectedRouteMapConfig, KeysOf(routeMapConfig));
         Assert.Equal(expectedRouteMapDisplay, KeysOf(routeMapConfig.GetProperty("display")));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
@@ -91,6 +91,10 @@ public class KeyOrderTests
         var trackerMap = root.GetProperty("event").GetProperty("trackerMap");
         Assert.Equal(expectedTrackerMap, KeysOf(trackerMap));
         Assert.Equal(expectedBbox, KeysOf(trackerMap.GetProperty("bbox")));
+        var routeView = root.GetProperty("routeView");
+        Assert.Equal(new[] { "bbox", "map" }, KeysOf(routeView));
+        Assert.Equal(expectedBbox, KeysOf(routeView.GetProperty("bbox")));
+        Assert.Equal(expectedTrackerMap, KeysOf(routeView.GetProperty("map")));
         foreach (var theme in root.GetProperty("trackerThemes").EnumerateArray())
         {
             Assert.Equal(expectedTrackerTheme, KeysOf(theme));

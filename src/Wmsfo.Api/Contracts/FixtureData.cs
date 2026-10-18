@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Objects;
 
@@ -51,7 +52,19 @@ public static class FixtureData
 
     public static Snapshot BuildSnapshot()
     {
+        // The published settings name the example route (id 3) as the site
+        // route with the example map configuration; the starter content
+        // itself carries no route.
         var content = BuildContentDocument();
+        content.Settings.Route = new JsonObject
+        {
+            ["routeId"] = 3,
+            ["mapConfig"] = new JsonObject
+            {
+                ["display"] = new JsonObject { ["timeLabelIntervalMinutes"] = 10, ["routeWidth"] = "thick" },
+                ["controls"] = new JsonObject { ["terrain"] = false },
+            },
+        };
 
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal)
         {
@@ -121,30 +134,6 @@ public static class FixtureData
                         new() { Lat = 46.8730, Lng = -114.0030, RecordedAt = DateTimeOffset.Parse("2025-12-22T01:31:37.000Z") },
                     },
                 },
-                RouteMap = new RouteMap
-                {
-                    Path = new List<RouteMapPoint>
-                    {
-                        new() { Lat = 46.8721, Lng = -114.0012 },
-                        new() { Lat = 46.874032, Lng = -114.008311 },
-                        new() { Lat = 46.879514, Lng = -114.015027 },
-                        new() { Lat = 46.886203, Lng = -114.017446 },
-                    },
-                    Timeline = new List<RouteMapTimelineEntry>
-                    {
-                        new() { Minutes = 0,  Lat = 46.8721,   Lng = -114.0012 },
-                        new() { Minutes = 5,  Lat = 46.874818, Lng = -114.009274 },
-                        new() { Minutes = 10, Lat = 46.881297, Lng = -114.015672 },
-                        new() { Minutes = 12, Lat = 46.886203, Lng = -114.017446 },
-                    },
-                    DurationMinutes = 12,
-                    Timed = true,
-                },
-                RouteMapConfig = new RouteMapConfig
-                {
-                    Display = new RouteMapDisplay { TimeLabelIntervalMinutes = 10, RouteWidth = "thick" },
-                    Controls = new RouteMapControls { Terrain = false },
-                },
                 LatestMessage = new SnapshotLatestMessage
                 {
                     Id = 12,
@@ -188,6 +177,45 @@ public static class FixtureData
             Content = content,
             Media = media,
             Icons = icons,
+            RouteMap = new RouteMap
+            {
+                Path = new List<RouteMapPoint>
+                {
+                    new() { Lat = 46.8721, Lng = -114.0012 },
+                    new() { Lat = 46.874032, Lng = -114.008311 },
+                    new() { Lat = 46.879514, Lng = -114.015027 },
+                    new() { Lat = 46.886203, Lng = -114.017446 },
+                },
+                Timeline = new List<RouteMapTimelineEntry>
+                {
+                    new() { Minutes = 0,  Lat = 46.8721,   Lng = -114.0012 },
+                    new() { Minutes = 5,  Lat = 46.874818, Lng = -114.009274 },
+                    new() { Minutes = 10, Lat = 46.881297, Lng = -114.015672 },
+                    new() { Minutes = 12, Lat = 46.886203, Lng = -114.017446 },
+                },
+                DurationMinutes = 12,
+                Timed = true,
+            },
+            RouteMapConfig = new RouteMapConfig
+            {
+                Display = new RouteMapDisplay { TimeLabelIntervalMinutes = 10, RouteWidth = "thick" },
+                Controls = new RouteMapControls { Terrain = false },
+            },
+            RouteView = new SnapshotRouteView
+            {
+                Bbox = new Bbox { West = -114.30, South = 46.75, East = -113.80, North = 47.05 },
+                Map = new SnapshotTrackerMap
+                {
+                    Id = 3,
+                    Name = "Missoula valley",
+                    Bbox = new Bbox { West = -114.75, South = 46.35, East = -113.30, North = 47.25 },
+                    MinZoom = 0,
+                    MaxZoom = 15,
+                    TerrainMaxZoom = 15,
+                    TilesUrl = $"{CdnBase}/basemap/tiles.pmtiles",
+                    TerrainUrl = $"{CdnBase}/basemap/terrain.pmtiles",
+                },
+            },
             // The two example themes; neither has a thumbnail, so `media` holds
             // only the entries above.
             TrackerThemes = new List<SnapshotTrackerTheme>

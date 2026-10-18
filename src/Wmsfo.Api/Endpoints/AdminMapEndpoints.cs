@@ -23,8 +23,9 @@ namespace Wmsfo.Api.Endpoints;
 // multipart uploads this API starts and signs; the API reads nothing of an
 // archive but its 127 byte header. Upload ids are never stored: every call
 // resolves an archive's open upload by listing the uploads under its key.
-// Patch and delete run the [snapshot] frame when the current event uses the
-// map and a plain transaction otherwise; every write records an audit row on
+// Patch and delete run the [snapshot] frame when the routeView event (the
+// current event, else the newest) uses the map and a plain transaction
+// otherwise; every write records an audit row on
 // entity tracker_map.
 public static class AdminMapEndpoints
 {
@@ -405,7 +406,7 @@ where id = $4 and state = 'pending';", conn, tx))
                 {
                     await conn.OpenAsync(ct);
                     _ = await ReadByIdAsync(conn, null, id, options, ct) ?? throw NotFound();
-                    snapshot = await CurrentEventUsesAsync(conn, [id], ct);
+                    snapshot = await RouteViewEventUsesAsync(conn, [id], ct);
                 }
 
                 var dto = await RunFrameAsync<TrackerMapDto>(snap, snapshot, async (conn, tx, token) =>
@@ -454,7 +455,7 @@ where id = $4 and state = 'pending';", conn, tx))
                     _ = await ReadByIdAsync(conn, null, id, options, ct) ?? throw NotFound();
                     if (replacementId is long r)
                         await TrackerMapImpactQueries.RequireReplacementAsync(conn, null, id, r, ct);
-                    snapshot = await CurrentEventUsesAsync(conn, replacementId is long rr ? [id, rr] : [id], ct);
+                    snapshot = await RouteViewEventUsesAsync(conn, replacementId is long rr ? [id, rr] : [id], ct);
                 }
 
                 var prefix = await RunFrameAsync<string>(snap, snapshot, async (conn, tx, token) =>
@@ -736,12 +737,16 @@ where id = $4 and state = 'pending';", conn, tx))
         if (await cmd.ExecuteScalarAsync(ct) is null) throw NotFound();
     }
 
-    // The [snapshot] rule of a map write: the current event's map is one of
-    // the rows.
-    private static async Task<bool> CurrentEventUsesAsync(NpgsqlConnection conn, IReadOnlyList<long> ids, CancellationToken ct)
+    // The [snapshot] rule of a map write: the routeView event's map (the
+    // current event, else the event with the greatest year) is one of the
+    // rows.
+    private static async Task<bool> RouteViewEventUsesAsync(NpgsqlConnection conn, IReadOnlyList<long> ids, CancellationToken ct)
     {
-        await using var cmd = new NpgsqlCommand(
-            "select exists (select 1 from event where is_current and tracker_map_id = any($1));", conn);
+        await using var cmd = new NpgsqlCommand(@"
+select exists (
+  select 1 from (" + Node.SnapshotBuilder.RouteViewEventIdSql + @") v
+  join event e on e.id = v.id
+  where e.tracker_map_id = any($1));", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Bigint, Value = ids.ToArray() });
         return await cmd.ExecuteScalarAsync(ct) is true;
     }

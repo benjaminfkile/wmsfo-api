@@ -14,11 +14,12 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - Snapshot sponsors[] order: pinned first (position asc), then amount desc,
 //     name asc, id asc.
 //   - lingerMsOverride beats the formula (contracts 1.3).
-//   - flightHistory: null when the event has no route_id; present and thinned
-//     (7 points at max 3 -> points 1, 4, 7) when the event links a route.
+//   - flightHistory: null when the published settings name no site route;
+//     present and thinned (7 points at max 3 -> points 1, 4, 7) from the site
+//     route while an event is current.
 //   - The event carries no route image and the media map no poster entry.
-//   - PATCH /admin/events/{id} { routeId } rebuilds the snapshot with the new
-//     flightHistory on the next snapshot.
+//   - A newly published site route gives the next snapshot its
+//     flightHistory.
 public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -68,6 +69,7 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
             await using var cmd = new NpgsqlCommand(sql, conn);
             await cmd.ExecuteNonQueryAsync();
         }
+        await SiteRouteSeed.ClearAsync(conn);
         await SnapshotSeed.EnsureAsync(conn);
     }
 
@@ -121,7 +123,7 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
         Assert.Equal(4000, byName["Formula"]);
     }
 
-    // ---------- event.flightHistory: null when unlinked ----------
+    // ---------- event.flightHistory: null without a site route ----------
 
     [Fact]
     public async Task Snapshot_flightHistory_null_when_no_route_linked()
@@ -153,7 +155,7 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
             })
             .ToList();
         var routeId = await UploadRouteAsync("Test flight", routePoints);
-        await LinkRouteAsync(eventId, routeId);
+        await LinkRouteAsync(routeId);
 
         var snapshot = await ReadSnapshotAsync();
         var fh = snapshot.RootElement.GetProperty("event").GetProperty("flightHistory");
@@ -185,12 +187,12 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
         Assert.False(media.TryGetProperty(posterId.ToString(), out _));
     }
 
-    // ---------- PATCH { routeId } rebuilds flightHistory on next snapshot ----------
+    // ---------- a new site route gives the next snapshot its flightHistory ----------
 
     [Fact]
-    public async Task Patch_routeId_rebuilds_flightHistory_on_next_snapshot()
+    public async Task A_new_site_route_rebuilds_flightHistory_on_next_snapshot()
     {
-        var eventId = await CreateCurrentEventAsync(2027);
+        await CreateCurrentEventAsync(2027);
 
         // First route: 3 points, "Route A".
         var routeAPoints = new List<RoutePoint>
@@ -200,13 +202,13 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
             new() { Lat = 46.2, Lng = -114.2, RecordedAt = DateTimeOffset.Parse("2025-12-22T01:31:20.000Z") },
         };
         var routeA = await UploadRouteAsync("Route A", routeAPoints);
-        await LinkRouteAsync(eventId, routeA);
+        await LinkRouteAsync(routeA);
         var snapA = await ReadSnapshotAsync();
         var fhA = snapA.RootElement.GetProperty("event").GetProperty("flightHistory");
         Assert.Equal(routeA, fhA.GetProperty("routeId").GetInt64());
         Assert.Equal("Route A", fhA.GetProperty("name").GetString());
 
-        // Second route: 4 points, "Route B". PATCH { routeId } drives the rebuild.
+        // Second route: 4 points, "Route B", published as the site route.
         var routeBPoints = new List<RoutePoint>
         {
             new() { Lat = 47.0, Lng = -113.0, RecordedAt = DateTimeOffset.Parse("2025-12-23T01:31:00.000Z") },
@@ -215,7 +217,7 @@ public sealed class A25SnapshotDesignTests : IClassFixture<PostgresFixture>, IAs
             new() { Lat = 47.3, Lng = -113.3, RecordedAt = DateTimeOffset.Parse("2025-12-23T01:31:30.000Z") },
         };
         var routeB = await UploadRouteAsync("Route B", routeBPoints);
-        await PatchEventAsync(eventId, $"{{\"routeId\":{routeB}}}");
+        await LinkRouteAsync(routeB);
 
         var snapB = await ReadSnapshotAsync();
         var fhB = snapB.RootElement.GetProperty("event").GetProperty("flightHistory");
@@ -283,12 +285,6 @@ on conflict (key) do update set value = excluded.value, updated_by = excluded.up
         await cmd.ExecuteNonQueryAsync();
     }
 
-    private async Task PatchEventAsync(long eventId, string body)
-    {
-        var response = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{eventId}", body);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
     // Inserts a current event with is_current=true through SQL because
     // POST /admin/events does not set that flag; every subsequent [snapshot]
     // write picks the row up as the current event.
@@ -333,10 +329,9 @@ values ($1, $2, $3, $4, $5, 'test') returning id;", conn);
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 
-    private async Task LinkRouteAsync(long eventId, long routeId)
-    {
-        await PatchEventAsync(eventId, $"{{\"routeId\":{routeId}}}");
-    }
+    // Publishes the route as the site route; the next [snapshot] write reads it.
+    private Task LinkRouteAsync(long routeId) =>
+        SiteRouteSeed.PublishAsync(_fixture.ConnectionString, SiteRouteSeed.Route(routeId));
 
     private async Task<Guid> InsertReadyRasterMediaAsync(string filename)
     {

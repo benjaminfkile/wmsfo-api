@@ -268,7 +268,7 @@ public sealed class A24DesignEndpointsTests : IClassFixture<PostgresFixture>, IA
     private async Task<long> CreateEventAsync(int year)
     {
         var response = await SendEventsAdminAsync(HttpMethod.Post, "/admin/events",
-            $"{{\"year\":{year},\"name\":\"E{year}\",\"scheduledAt\":null,\"fundsPercent\":0,\"routeId\":null,\"inheritRoute\":true}}");
+            $"{{\"year\":{year},\"name\":\"E{year}\",\"scheduledAt\":null,\"fundsPercent\":0}}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
         return dto.RootElement.GetProperty("id").GetInt64();

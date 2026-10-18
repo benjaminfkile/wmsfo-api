@@ -84,123 +84,6 @@
           },
           "additionalProperties": false
         },
-        "routeMap": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "path": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "lat": {
-                    "type": "number"
-                  },
-                  "lng": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "timeline": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "minutes": {
-                    "type": "integer"
-                  },
-                  "lat": {
-                    "type": "number"
-                  },
-                  "lng": {
-                    "type": "number"
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            "durationMinutes": {
-              "type": "integer"
-            },
-            "timed": {
-              "type": "boolean"
-            }
-          },
-          "additionalProperties": false
-        },
-        "routeMapConfig": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "display": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "properties": {
-                "timeLabelIntervalMinutes": {
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                },
-                "arrows": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
-                },
-                "arrowSize": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "routeWidth": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "labelSize": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              },
-              "additionalProperties": false
-            },
-            "controls": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "properties": {
-                "fullscreen": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
-                },
-                "terrain": {
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
-                }
-              },
-              "additionalProperties": false
-            }
-          },
-          "additionalProperties": false
-        },
         "latestMessage": {
           "type": [
             "object",
@@ -526,6 +409,190 @@
         "type": "string"
       }
     },
+    "routeMap": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "minutes": {
+                "type": "integer"
+              },
+              "lat": {
+                "type": "number"
+              },
+              "lng": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "durationMinutes": {
+          "type": "integer"
+        },
+        "timed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "routeMapConfig": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "display": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "timeLabelIntervalMinutes": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "arrows": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "arrowSize": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "routeWidth": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "labelSize": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "controls": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "fullscreen": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "terrain": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "routeView": {
+      "type": "object",
+      "properties": {
+        "bbox": {
+          "type": "object",
+          "properties": {
+            "west": {
+              "type": "number"
+            },
+            "south": {
+              "type": "number"
+            },
+            "east": {
+              "type": "number"
+            },
+            "north": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        },
+        "map": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            },
+            "bbox": {
+              "$ref": "#/properties/event/properties/trackerMap/properties/bbox"
+            },
+            "minZoom": {
+              "type": "integer"
+            },
+            "maxZoom": {
+              "type": "integer"
+            },
+            "terrainMaxZoom": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tilesUrl": {
+              "type": "string"
+            },
+            "terrainUrl": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "bbox",
+        "map"
+      ],
+      "additionalProperties": false
+    },
     "trackerThemes": {
       "type": "array",
       "items": {
@@ -624,6 +691,9 @@
     }
   },
   "required": [
+    "routeMap",
+    "routeMapConfig",
+    "routeView",
     "trackerThemes"
   ],
   "additionalProperties": false

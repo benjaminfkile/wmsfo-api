@@ -37,12 +37,10 @@ public sealed class Event
     public DateTimeOffset? WentLiveAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public int FundsPercent { get; set; }
-    public long? RouteId { get; set; }
     public JsonDocument? FinalCookieTally { get; set; }
     public DateTimeOffset? StatusNotifiedAt { get; set; }
     public long NextSeq { get; set; }
     public JsonDocument? LatestFix { get; set; }
-    public JsonDocument? RouteMapConfig { get; set; }
     public JsonDocument TrackerBbox { get; set; } = JsonDocument.Parse(TrackerThemeSeed.ValleyBboxJson);
     public long? TrackerMapId { get; set; }   // null means Google Maps for every viewer
     public string CreatedBy { get; set; } = "";
@@ -453,7 +451,6 @@ public sealed class Poster
 {
     public long Id { get; set; }
     public string Name { get; set; } = "";
-    public long? RouteId { get; set; }   // null when unlinked or once the route is deleted
     public JsonDocument? Layout { get; set; }
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }

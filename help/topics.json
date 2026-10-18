@@ -16,9 +16,10 @@
     "page": "Dashboard",
     "label": "Current event card",
     "title": "The current event at a glance",
-    "body": "This card shows the event flagged as current: its name and year, a status chip, the scheduled, liftoff, and ended times in your own time zone, the funds percent, and the linked flight recording or no route.\n\nThe Change status menu lists every other status, Postponed included. Picking one opens the same status dialog the event page uses, so a status change from here behaves exactly as it does there. Open event jumps to the event page.\n\nWhen no event is flagged current the card says so and links to Events, where Set current picks one. The current event is what the public site shows and what the tracker follows, so this card is the one to check before a flight.",
+    "body": "This card shows the event flagged as current: its name and year, a status chip, the scheduled, liftoff, and ended times in your own time zone, and the funds percent.\n\nThe Change status menu lists every other status, Postponed included. Picking one opens the same status dialog the event page uses, so a status change from here behaves exactly as it does there. Open event jumps to the event page.\n\nWhen no event is flagged current the card says so and links to Events, where Set current picks one. The current event is what the public site shows and what the tracker follows, so this card is the one to check before a flight. The route the site draws is not an event setting; it is the site route under Site settings.",
     "links": [
-      { "label": "Events", "to": "/events" }
+      { "label": "Events", "to": "/events" },
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -91,9 +92,9 @@
     "page": "Events",
     "label": "New event dialog",
     "title": "Creating an event",
-    "body": "New event asks for the year, which defaults to this year, a name, an optional scheduled time, and the funds percent, which starts at zero.\n\nThen a route choice with three options. Inherit the most recent route links the recording of the latest earlier event that has one, and the dialog shows which recording and event that would be, or says no earlier event has a route. Choose a route lets you pick any recording from Flight recordings. No route leaves the event without one; you can link one later from its Flight history card.\n\nCreate saves the event as Planned and opens its page. The new event is not current until you set it, so the public site does not change.",
+    "body": "New event asks for the year, which defaults to this year, a name, an optional scheduled time, and the funds percent, which starts at zero.\n\nThere is no route choice. The site draws one route for every event, the site route chosen under Site settings, so a new event shows it as soon as it is current.\n\nCreate saves the event as Planned and opens its page. The new event is not current until you set it, so the public site does not change.",
     "links": [
-      { "label": "Flight recordings", "to": "/routes" }
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -101,9 +102,10 @@
     "page": "Events",
     "label": "Clone event",
     "title": "Copying last year's event",
-    "body": "Clone, in the row menu, makes a new event from an existing one. The year defaults to the source year plus one and the name to the source name with the year replaced; both can be edited.\n\nThree checkboxes, all on by default, choose what comes along. Sponsors for the year copies the source year's sponsor rows to the new year. Flight history links the same recording. Route map settings copies how the route map is drawn.\n\nClone creates the event as Planned and opens its page. If an event with that year already exists the year field shows the error and nothing is created. The new event is not current and nothing is published; messages, status history, and recorded locations are never copied.",
+    "body": "Clone, in the row menu, makes a new event from an existing one. The year defaults to the source year plus one and the name to the source name with the year replaced; both can be edited.\n\nTwo checkboxes choose what comes along. Sponsors for the year copies the source year's sponsor rows to the new year. Tracker map copies the source event's map and themes; it has its own topic. The route is not copied because it is not an event setting: every event shows the site route chosen under Site settings.\n\nClone creates the event as Planned and opens its page. If an event with that year already exists the year field shows the error and nothing is created. The new event is not current; messages, status history, and recorded locations are never copied.",
     "links": [
-      { "label": "Sponsors", "to": "/sponsors" }
+      { "label": "Sponsors", "to": "/sponsors" },
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -131,8 +133,10 @@
     "page": "Events",
     "label": "Event page",
     "title": "Everything about one event",
-    "body": "The event page is where a flight is run. The header shows the name, the status chip, and a Current event chip when the site follows this event.\n\nBelow it are cards. Details holds the editable fields and the Save, Set current, and Delete buttons. Status shows who has been told, offers the status buttons, and lists the status history. Messages holds the posts visitors see on the site. Seed cookies appears only while the event is live. Flight history links a recording. Route map sets how the site draws that recording. Locations shows the raw fixes beacons sent and lets you download or clear them.\n\nOn a phone the cards stack. Each card is explained in its own topic.",
-    "links": []
+    "body": "The event page is where a flight is run. The header shows the name, the status chip, and a Current event chip when the site follows this event.\n\nBelow it are cards. Details holds the editable fields and the Save, Set current, and Delete buttons. Status shows who has been told, offers the status buttons, and lists the status history. Messages holds the posts visitors see on the site. Seed cookies appears only while the event is live. Tracker map sets the area, map, and themes. Locations shows the raw fixes beacons sent and lets you download or clear them.\n\nThe route and the route map are not here: the site draws one route for every event, set under Site settings. On a phone the cards stack. Each card is explained in its own topic.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
   },
   {
     "key": "events.detail.details",
@@ -191,43 +195,14 @@
     ]
   },
   {
-    "key": "events.detail.flight-history",
-    "page": "Events",
-    "label": "Flight history card",
-    "title": "Linking a flight recording",
-    "body": "A flight recording is a saved list of positions from a past flight. When one is linked here, visitors can turn it on in the tracker menu to see the projected route, and the site draws the route map from it. Change it any time; the site picks the change up on the next snapshot.\n\nThe card shows the current recording with its point count, who uploaded it, and a CDN link, or No recording linked. Shared with lists other events using the same recording.\n\nUpload adds a new file and links it in one step. Record from this event builds a recording from the fixes beacons sent during this event. Unlink removes the link but keeps the file. Choose existing picks any recording already on the Flight recordings page.",
-    "links": [
-      { "label": "Flight recordings", "to": "/routes" }
-    ]
-  },
-  {
-    "key": "events.detail.route-map",
-    "page": "Events",
-    "label": "Route map card",
-    "title": "How the route map is drawn",
-    "body": "The route map is the site's drawing of this event's flight recording. This card summarises its settings: either Every setting is at its default, or a chip for each setting that differs, such as Time labels: Every 10 minutes or Route line: Thick.\n\nConfigure route map opens the dialog where the settings are changed with a live preview. When no recording is linked a caption says the preview stays empty until one is; the settings can still be saved.\n\nThe places and viewpoints the map labels are not set here. They are sitewide, under Site settings, and apply to every event's map. The settings here are stored on the event and are part of the snapshot, so the site shows a change on its next snapshot.",
-    "links": [
-      { "label": "Site settings", "to": "/site-settings" }
-    ]
-  },
-  {
-    "key": "events.detail.route-map-dialog",
-    "page": "Events",
-    "label": "Route map dialog",
-    "title": "Adjusting the route map",
-    "body": "The dialog shows a live preview of the route map on the left, with a Light and Dark toggle, and the controls on the right. Every change redraws the preview at once; nothing is stored until Save.\n\nCopy from another event loads that event's settings into the draft so you can reuse last year's look. Display holds Time labels, Arrows, Arrow size, Route line, and Label size; each shows its built-in default until picked, and a Default button beside a picked value puts it back. Arrow size is disabled while arrows are off. Controls has two switches for the fullscreen button and the terrain toggle visitors see on the map.\n\nSave stores the draft. Cancel drops it. Clear all, after a confirmation, removes every setting. The preview labels the places chosen under Site settings.",
-    "links": [
-      { "label": "Site settings", "to": "/site-settings" }
-    ]
-  },
-  {
     "key": "events.detail.locations",
     "page": "Events",
     "label": "Locations card",
     "title": "The raw fixes beacons sent",
-    "body": "Every position a beacon posts during this event is stored as a row. This card previews them in a table: sequence, beacon, whether it was published, the time it was recorded, and the latitude and longitude. It shows one page of 100 rows and keeps a table even on a phone, scrolling sideways when needed.\n\nTwo filters narrow it: a beacon select, Any beacon by default, and a Published only switch. Download CSV saves every row that matches the filters as a file named after the event year, for analysis elsewhere.\n\nClear recording, beside the download, deletes rows and has its own topic. Record from this event on the Flight history card builds a flight recording from these rows, so clear them only once you have what you need.",
+    "body": "Every position a beacon posts during this event is stored as a row. This card previews them in a table: sequence, beacon, whether it was published, the time it was recorded, and the latitude and longitude. It shows one page of 100 rows and keeps a table even on a phone, scrolling sideways when needed.\n\nTwo filters narrow it: a beacon select, Any beacon by default, and a Published only switch. Download CSV saves every row that matches the filters as a file named after the event year, for analysis elsewhere.\n\nClear recording, beside the download, deletes rows and has its own topic. Build from event on the Flight recordings page turns these rows into a flight recording, so clear them only once you have what you need.",
     "links": [
-      { "label": "Beacons", "to": "/beacons" }
+      { "label": "Beacons", "to": "/beacons" },
+      { "label": "Flight recordings", "to": "/routes" }
     ]
   },
   {
@@ -235,7 +210,7 @@
     "page": "Events",
     "label": "Clear recording",
     "title": "Deleting recorded fixes",
-    "body": "Clear recording removes the location rows stored for this event, for example after a test run on the day before the flight. The dialog first fetches what would go: one line per beacon with its name and row count.\n\nA Beacon select chooses All beacons or just one, so a simulator's test fixes can be cleared while the real phone's stay. Confirming deletes the rows and refreshes the Locations card. The toast reads Recording cleared.\n\nThe delete is blocked while the event is live; end it first. The flight recordings on the Flight recordings page are separate files and are not touched, so a recording already built from this event survives. Downloading the CSV first is the only way to keep the raw rows.",
+    "body": "Clear recording removes the location rows stored for this event, for example after a test run on the day before the flight. The dialog first fetches what would go: one line per beacon with its name and row count.\n\nA Beacon select chooses All beacons or just one, so a simulator's test fixes can be cleared while the real phone's stay. Confirming deletes the rows and refreshes the Locations card. The toast reads Recording cleared.\n\nThe delete is blocked while the event is live; end it first. The flight recordings on the Flight recordings page are separate files and are not touched, so a recording already built from this event, the site route included, survives. Downloading the CSV first is the only way to keep the raw rows.",
     "links": [
       { "label": "Flight recordings", "to": "/routes" }
     ]
@@ -245,7 +220,7 @@
     "page": "Events",
     "label": "Tracker map card",
     "title": "The area, map, and themes of this event",
-    "body": "This card sets how the live tracker and the route map look for this event. It has three parts: the area the maps are locked to, the map the tiles come from, and the themes viewers can choose between.\n\nWith a ready map picked, viewers whose browser can run it see the event on MapLibre, drawn from your own tiles. Without one, every viewer sees Google Maps. Either way the view stays inside the area.\n\nEvery change here is part of the snapshot, so the public site shows it on the next snapshot while this is the current event.",
+    "body": "This card sets how the live tracker and the route map look for this event. It has three parts: the area the maps are locked to, the map the tiles come from, and the themes viewers can choose between.\n\nWith a ready map picked, viewers whose browser can run it see the event on MapLibre, drawn from your own tiles. Without one, every viewer sees Google Maps. Either way the view stays inside the area.\n\nThe site uses this card's choices while this is the current event. With no current event, the route map on the site uses the newest event's area, map, and themes. Every change here is part of the snapshot, so the public site shows it on the next snapshot.",
     "links": [
       { "label": "Maps", "to": "/maps" },
       { "label": "Tracker themes", "to": "/themes" }
@@ -304,9 +279,9 @@
     "page": "Flight recordings",
     "label": "Flight recordings list",
     "title": "Saved recordings of past flights",
-    "body": "A flight recording is a named list of positions in flight order. The one linked to an event is its flight history on the tracker and the path the route map and posters draw. This page lists every recording, newest first, with the point count, when it was created, who uploaded it, a CDN link, and Used by, the events linked to it.\n\nTwo buttons add recordings: Upload recording takes a JSON file, and Build from event turns the fixes recorded during an ended event into a recording. Each has its own topic.\n\nThe row menu holds Delete, which previews what would be affected; events using the recording lose the link but are otherwise untouched. Linking a recording to an event happens on the event page's Flight history card.",
+    "body": "A flight recording is a named list of positions in flight order. One of them is the site route, chosen under Site settings: the path the site's route map, the tracker's flight history, and every poster draw. This page lists every recording, newest first, with the point count, when it was created, who uploaded it, a CDN link, and a Site route badge on the published site route, with Draft beside one the unpublished settings pick.\n\nTwo buttons add recordings: Upload recording takes a JSON file, and Build from event turns the fixes recorded during an ended event into a recording. Each has its own topic.\n\nThe row menu holds Delete, which previews what would be affected. The site route cannot be deleted while the published settings or the draft name it: choose another route or None in Site settings first.",
     "links": [
-      { "label": "Events", "to": "/events" },
+      { "label": "Site settings", "to": "/site-settings" },
       { "label": "Poster studio", "to": "/posters" }
     ]
   },
@@ -315,17 +290,20 @@
     "page": "Flight recordings",
     "label": "Upload recording",
     "title": "Uploading a recording file",
-    "body": "The upload dialog accepts one JSON file with exactly two keys: a name of 1 to 200 characters and a points list of 2 to 50,000 entries in flight order. Each point has lat, lng, and recordedAt, which is a full timestamp or null. No other keys are allowed and the file must be under 5 MB. The dialog shows this exact shape, with a Copy button and a Download example link.\n\nThe file is checked in the browser as soon as it is chosen. Problems are listed with their paths, up to twenty. A good file shows a summary with the point count, the bounding box, and the first and last times, and enables Upload. The Name field is prefilled from the file and can be edited.\n\nA route file downloaded from the CDN carries an extra schemaVersion key; remove it before uploading. From an event page the upload also links the recording to that event.",
-    "links": []
+    "body": "The upload dialog accepts one JSON file with exactly two keys: a name of 1 to 200 characters and a points list of 2 to 50,000 entries in flight order. Each point has lat, lng, and recordedAt, which is a full timestamp or null. No other keys are allowed and the file must be under 5 MB. The dialog shows this exact shape, with a Copy button and a Download example link.\n\nThe file is checked in the browser as soon as it is chosen. Problems are listed with their paths, up to twenty. A good file shows a summary with the point count, the bounding box, and the first and last times, and enables Upload. The Name field is prefilled from the file and can be edited.\n\nA route file downloaded from the CDN carries an extra schemaVersion key; remove it before uploading. To make the new recording the site route, pick it under Site settings and publish.",
+    "links": [
+      { "label": "Site settings", "to": "/site-settings" }
+    ]
   },
   {
     "key": "routes.build-from-event",
     "page": "Flight recordings",
     "label": "Build from event",
     "title": "Recording from an ended event",
-    "body": "Build from event makes a recording out of the positions beacons actually sent during a flight. The dialog lists the ended events; pick one and give the recording a name, which defaults to the event name followed by route.\n\nThe API reads that event's stored location rows and saves them as a new recording on this page. The event itself is not changed and not linked; link it from the event page's Flight history card if you want it as that event's flight history. The same action on the event page, Record from this event, builds and links in one go.\n\nBecause it reads the Locations rows, clear a test run before building, or the test fixes end up in the recording.",
+    "body": "Build from event makes a recording out of the positions beacons actually sent during a flight. The dialog lists the ended events; pick one and give the recording a name, which defaults to the event name followed by route.\n\nThe API reads that event's stored location rows and saves them as a new recording on this page. The event itself is not changed. To make the new recording the site route, pick it under Site settings and publish, then generate the posters again.\n\nBecause it reads the Locations rows, clear a test run before building, or the test fixes end up in the recording.",
     "links": [
-      { "label": "Events", "to": "/events" }
+      { "label": "Events", "to": "/events" },
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -690,9 +668,9 @@
     "page": "Poster studio",
     "label": "Poster list",
     "title": "Posters made from a route",
-    "body": "A poster is a printable image of a flight's route over a map, with your own overlays such as the logo and a QR code. Posters are documents of their own, never tied to an event, and are meant for distribution off the site: a flyer, a social post, a sign.\n\nThe list shows each poster's name, the flight recording its map is drawn from, and when it was last updated. Create poster asks for a name and opens the editor. The row menu holds Open, Duplicate, which copies the whole design under a new name, and Delete.\n\nThe studio is an admin entry only. Recordings come from the Flight recordings page, and a generated image lands in the media library.",
+    "body": "A poster is a printable image of the site route over a map, with your own overlays such as the logo and a QR code. Posters are documents of their own, never tied to an event, and are meant for distribution off the site: a flyer, a social post, a sign.\n\nEvery poster draws the published site route, chosen under Site settings. Change the route there, publish, and generate each poster again to bring it up to date. The list shows each poster's name and when it was last updated. Create poster asks for a name and opens the editor. The row menu holds Open, Duplicate, which copies the whole design under a new name, and Delete.\n\nThe studio is an admin entry only. A generated image lands in the media library.",
     "links": [
-      { "label": "Flight recordings", "to": "/routes" },
+      { "label": "Site settings", "to": "/site-settings" },
       { "label": "Media", "to": "/media" }
     ]
   },
@@ -701,9 +679,9 @@
     "page": "Poster studio",
     "label": "Poster editor",
     "title": "Designing a poster",
-    "body": "The editor has the Name field and a Flight recording select under the title. Until a recording is chosen the workspace shows a hint instead of a map. Back to posters returns to the list and Save stores the design.\n\nThe workspace is a large preview on the left and a rail of controls on the right, stacked on a phone. From top to bottom the rail holds Theme, Orientation, Size, Terrain, Map details, Route styling, Overlays, the output file name, and Generate. Each group has its own topic.\n\nThe preview is laid out at the real output size and scaled down, so line widths, arrows, and labels are exactly what the export will show. Save stores the whole design on the poster, and opening it later restores every choice.",
+    "body": "The editor has the Name field under the title and draws the published site route. When Site settings name no route, or the route is not published yet, the workspace shows a hint instead of a map. Back to posters returns to the list and Save stores the design.\n\nThe workspace is a large preview on the left and a rail of controls on the right, stacked on a phone. From top to bottom the rail holds Theme, Orientation, Size, Terrain, Map details, Route styling, Overlays, the output file name, and Generate. Each group has its own topic.\n\nThe preview is laid out at the real output size and scaled down, so line widths, arrows, and labels are exactly what the export will show. Save stores the whole design on the poster, and opening it later restores every choice.",
     "links": [
-      { "label": "Flight recordings", "to": "/routes" }
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -769,7 +747,7 @@
     "page": "Poster studio",
     "label": "Poster map",
     "title": "Where the poster's base map comes from",
-    "body": "The poster's base map tiles come from one of the maps on the Maps page. By default it is the map of the newest event that uses this poster's recording.\n\nPick another map when that one does not cover the whole route or you want a different area. Only ready maps are listed.",
+    "body": "The poster's base map tiles come from one of the maps on the Maps page. By default it is the map the site's route map uses: the current event's, else the newest event's.\n\nPick another map when that one does not cover the whole route or you want a different area. Only ready maps are listed.",
     "links": [
       { "label": "Maps", "to": "/maps" }
     ]
@@ -779,7 +757,7 @@
     "page": "Site settings",
     "label": "Site settings form",
     "title": "Sitewide words, looks, and links",
-    "body": "Site settings holds everything about the public site that does not belong to one page: the name and tagline, the logo and tab icon, the theme toggles, the menu, header, and footer links, the contact and donate details, the viewpoints, and the places the maps label.\n\nIt is one form. Save is enabled once something changed and sends the whole document. Settings are drafts until you publish, so nothing reaches visitors until Publish is pressed. Problems that would block publishing are listed above the form.\n\nPreview site opens the real site with every draft applied, starting at the home page. Each group of fields has its own topic. Every field shows a one-line help text under it.",
+    "body": "Site settings holds everything about the public site that does not belong to one page: the name and tagline, the logo and tab icon, the theme toggles, the menu, header, and footer links, the contact and donate details, the site route and how its map is drawn, the viewpoints, and the places the maps label.\n\nIt is one form. Save is enabled once something changed and sends the whole document. Settings are drafts until you publish, so nothing reaches visitors until Publish is pressed. Problems that would block publishing are listed above the form.\n\nPreview site opens the real site with every draft applied, starting at the home page. Each group of fields has its own topic. Every field shows a one-line help text under it.",
     "links": [
       { "label": "Publish", "to": "/publish" }
     ]
@@ -840,9 +818,9 @@
     "page": "Site settings",
     "label": "Places on the maps",
     "title": "Which places the maps label",
-    "body": "Places on the maps chooses the kinds of real-world places each map labels, such as parks, schools, or churches. There are two groups because the two maps draw places differently. Live tracker covers the tracker map; Default shows the places its map style draws, and Custom shows only the kinds you check. Route map covers the route drawing; Default shows no places, and Custom labels only the kinds you check.\n\nEach group is a Default or Custom choice with a checkbox per category. Custom with nothing checked means the map shows no places, and the group says so.\n\nThis is not the same as viewpoints, which are your own named spots. The event page's route map dialog previews the route map places chosen here. The choice is a draft until published.",
+    "body": "Places on the maps chooses the kinds of real-world places each map labels, such as parks, schools, or churches. There are two groups because the two maps draw places differently. Live tracker covers the tracker map; Default shows the places its map style draws, and Custom shows only the kinds you check. Route map covers the route drawing; Default shows no places, and Custom labels only the kinds you check.\n\nEach group is a Default or Custom choice with a checkbox per category. Custom with nothing checked means the map shows no places, and the group says so.\n\nThis is not the same as viewpoints, which are your own named spots. The Site route card's preview labels the route map places chosen here. The choice is a draft until published.",
     "links": [
-      { "label": "Events", "to": "/events" }
+      { "label": "Flight recordings", "to": "/routes" }
     ]
   },
   {
@@ -854,6 +832,18 @@
     "links": [
       { "label": "Events", "to": "/events" },
       { "label": "Maps", "to": "/maps" }
+    ]
+  },
+  {
+    "key": "site-settings.route",
+    "page": "Site settings",
+    "label": "Site route card",
+    "title": "The one route the whole site draws",
+    "body": "The Site route card picks the flight recording the whole site draws: the route map on the status pages, the flight history visitors can turn on in the tracker, and every poster. Choose a recording from Flight recordings, or None for no route; every event shows the same route, so there is nothing to set per event.\n\nConfigure route map opens the dialog with a live preview and the display settings: Time labels, Arrows, Arrow size, Route line, and Label size, plus the fullscreen and terrain switches visitors see. Each shows its built-in default until picked.\n\nLike every setting here the route is a draft until you publish. Publishing is refused when the chosen recording no longer exists. After a change, generate the posters again so they draw the new route. A recording cannot be deleted while it is the site route.",
+    "links": [
+      { "label": "Flight recordings", "to": "/routes" },
+      { "label": "Poster studio", "to": "/posters" },
+      { "label": "Publish", "to": "/publish" }
     ]
   },
   {
@@ -1093,9 +1083,9 @@
     "page": "Settings",
     "label": "Flight history points",
     "title": "Thinning the flight history",
-    "body": "flight_history_max_points is the most points of an event's flight recording carried in the snapshot for the tracker's flight history. The range is 100 to 50000 and the default is 2000. A longer recording is thinned evenly to fit: a 7,200 point flight at 2,000 keeps every fourth point.\n\nMore points draw a smoother history but make the snapshot every visitor downloads larger; the default is about 110 KB. Fewer points keep the site light.\n\nThis thinning is separate from the route map's own simplification, which the route_map keys control. It applies to the recording linked on the event page's Flight history card, and a change takes effect on the next snapshot.",
+    "body": "flight_history_max_points is the most points of the site route carried in the snapshot for the tracker's flight history. The range is 100 to 50000 and the default is 2000. A longer recording is thinned evenly to fit: a 7,200 point flight at 2,000 keeps every fourth point.\n\nMore points draw a smoother history but make the snapshot every visitor downloads larger; the default is about 110 KB. Fewer points keep the site light.\n\nThis thinning is separate from the route map's own simplification, which the route_map keys control. It applies to the site route chosen under Site settings while an event is current, and a change takes effect on the next snapshot.",
     "links": [
-      { "label": "Flight recordings", "to": "/routes" }
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {
@@ -1144,9 +1134,9 @@
     "page": "Settings",
     "label": "Route map max points",
     "title": "Capping the route map path",
-    "body": "route_map_max_points is the most vertices the route map path may have after simplification. The range is 100 to 10000 and the default is 1200. When the simplified path still has more, it is thinned evenly, always keeping the first and last vertex.\n\nThe cap bounds how much path data the snapshot carries and how much work each browser does to draw it. It applies to the snapshot's route map, the event page's route map preview, and posters alike.\n\nRaise it for a long flight whose line looks angular after simplification; lower it to keep the snapshot small. Tune route_map_simplify_tolerance_m first, since it decides how many points survive before this cap is applied. A change shows on the next snapshot.",
+    "body": "route_map_max_points is the most vertices the route map path may have after simplification. The range is 100 to 10000 and the default is 1200. When the simplified path still has more, it is thinned evenly, always keeping the first and last vertex.\n\nThe cap bounds how much path data the snapshot carries and how much work each browser does to draw it. It applies to the snapshot's route map, the Site route card's preview, and posters alike.\n\nRaise it for a long flight whose line looks angular after simplification; lower it to keep the snapshot small. Tune route_map_simplify_tolerance_m first, since it decides how many points survive before this cap is applied. A change shows on the next snapshot.",
     "links": [
-      { "label": "Events", "to": "/events" }
+      { "label": "Site settings", "to": "/site-settings" }
     ]
   },
   {

@@ -325,7 +325,7 @@ public sealed class A26ApiKeyEndpointsTests : IClassFixture<PostgresFixture>, IA
         // the audit actor.
         var req = _host!.KeyRequest(HttpMethod.Post, "/admin/events", key);
         req.Content = new StringContent(
-            "{\"year\":2027,\"name\":\"tester\",\"statusId\":1,\"fundsPercent\":0}",
+            "{\"year\":2027,\"name\":\"tester\",\"fundsPercent\":0}",
             Encoding.UTF8, "application/json");
         var resp = await _host.Client.SendAsync(req);
         Assert.Equal(HttpStatusCode.Created, resp.StatusCode);

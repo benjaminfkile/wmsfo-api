@@ -795,7 +795,7 @@ The steps of sql.md 15 in order, each its own transaction on the new database, e
 | `select count(*) from sponsor`, `sponsor_year` | 7, 25 |
 | `select count(*) from event_message` | 31 minus skipped rows, listed |
 | `select count(*) from contact_message` | 45 |
-| `select route_id from event where year = 2025` | non-null; `GET <cdn>/routes/<sha256>.json` returns 200 with 1,065 points |
+| `select data->'route'->>'routeId' from site_setting_draft where id = 1` | non-null, the 2025 route's id (the site route after the first publish); `GET <cdn>/routes/<sha256>.json` returns 200 with 1,065 points |
 | `select key, value from app_setting` | `sponsor_linger_ms_per_dollar` = 30 |
 | `select count(*) from media_asset where uploaded_by = 'migration' and state = 'ready'` | the number of legacy sponsors with a logo, minus any logged as failed validation; each has its object and variants under `media/{id}/` in the new bucket |
 | `select count(*) from sponsor where logo_media_id is not null` | the same number |

@@ -245,18 +245,23 @@ order by id desc limit 1;", conn);
         Assert.False(dto.RootElement.GetProperty("isCurrent").GetBoolean());
     }
 
+    // The event carries no route (the site route is a site setting): copy.route
+    // is an unknown key and the clone carries no route fields.
     [Fact]
-    public async Task Clone_with_route_copies_the_route_link()
+    public async Task Clone_refuses_copy_route_and_carries_no_route()
     {
         var srcId = await CreateEventAsync(year: 2052);
-        var routeId = await CreateRouteAsync();
-        await LinkEventAsync(srcId, routeId: routeId);
+
+        var refused = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2053,\"name\":\"n\",\"copy\":{\"route\":true}}");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
 
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
-            $"{{\"year\":2053,\"name\":\"n\",\"copy\":{{\"route\":true}}}}");
+            "{\"year\":2053,\"name\":\"n\"}");
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await ReadJsonAsync(response);
-        Assert.Equal(routeId, dto.RootElement.GetProperty("routeId").GetInt64());
+        Assert.False(dto.RootElement.TryGetProperty("routeId", out _));
+        Assert.False(dto.RootElement.TryGetProperty("routeMapConfig", out _));
         Assert.False(dto.RootElement.TryGetProperty("routeImageMediaId", out _));
     }
 
@@ -426,30 +431,6 @@ values ($1, $2, 1, true, 'seed', now()) returning id;", conn);
         await using var cmd = new NpgsqlCommand(
             "update event set scheduled_at = $1 where id = $2;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.TimestampTz, Value = scheduled });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private async Task<long> CreateRouteAsync()
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(@"
-insert into route (name, s3_key, url, sha256, point_count, uploaded_by)
-values ('r', 'routes/x-' || floor(random() * 1000000)::text || '.json',
-        'https://cdn.example/routes/x.json',
-        repeat('0', 64), 2, 'seed')
-returning id;", conn);
-        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
-    }
-
-    private async Task LinkEventAsync(long id, long? routeId)
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(
-            "update event set route_id = $1 where id = $2;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)routeId ?? DBNull.Value });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
         await cmd.ExecuteNonQueryAsync();
     }

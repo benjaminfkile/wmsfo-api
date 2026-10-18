@@ -95,11 +95,11 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
     public async Task Create_with_a_25_degree_box_is_400_at_trackerBbox()
     {
         var response = await SendAsync(HttpMethod.Post, "/admin/events",
-            """{"year":2026,"name":"Wide","inheritRoute":true,"trackerBbox":{"west":-130,"south":30,"east":-105,"north":45}}""");
+            """{"year":2026,"name":"Wide","trackerBbox":{"west":-130,"south":30,"east":-105,"north":45}}""");
         await AssertValidationAsync(response, "trackerBbox");
 
         var extraKey = await SendAsync(HttpMethod.Post, "/admin/events",
-            """{"year":2026,"name":"Extra","inheritRoute":true,"trackerBbox":{"west":-114,"south":46,"east":-113,"north":47,"zoom":3}}""");
+            """{"year":2026,"name":"Extra","trackerBbox":{"west":-114,"south":46,"east":-113,"north":47,"zoom":3}}""");
         await AssertValidationAsync(extraKey, "trackerBbox");
     }
 
@@ -309,7 +309,7 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
 
     private async Task<JsonDocument> CreateAsync(int year, string? extra = null)
     {
-        var body = $"{{\"year\":{year},\"name\":\"Event {year}\",\"inheritRoute\":true{(extra is null ? "" : "," + extra)}}}";
+        var body = $"{{\"year\":{year},\"name\":\"Event {year}\"{(extra is null ? "" : "," + extra)}}}";
         var response = await SendAsync(HttpMethod.Post, "/admin/events", body);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return await ReadJsonAsync(response);

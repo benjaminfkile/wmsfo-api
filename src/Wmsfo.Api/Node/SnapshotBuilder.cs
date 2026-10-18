@@ -11,6 +11,7 @@ using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
+using Wmsfo.Api.Themes;
 
 namespace Wmsfo.Api.Node;
 
@@ -126,7 +127,6 @@ returning version;", connection, transaction);
     {
         var snap = new Snapshot { SchemaVersion = 1 };
         SnapshotEvent? currentEvent = null;
-        long? currentRouteId = null;
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
         int flightHistoryMaxPoints = 2000;
@@ -159,7 +159,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
         // 2. current event (nullable).
         await using (var cmd = new NpgsqlCommand(@"
 select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.route_id, e.route_map_config, e.tracker_bbox
+       e.funds_percent, e.tracker_bbox
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -177,13 +177,10 @@ where e.is_current;", conn, tx))
                     EndedAt = reader.IsDBNull(6) ? null : reader.GetFieldValue<DateTimeOffset>(6),
                     FundsPercent = reader.GetInt32(7),
                     FlightHistory = null,
-                    RouteMap = null,
-                    RouteMapConfig = reader.IsDBNull(9) ? null : RouteMapConfigRules.FromStored(reader.GetString(9)),
                     LatestMessage = null,
-                    TrackerBbox = ReadJson<Bbox>(reader.GetString(10)),
+                    TrackerBbox = ReadJson<Bbox>(reader.GetString(8)),
                     TrackerMap = null,
                 };
-                currentRouteId = reader.IsDBNull(8) ? null : reader.GetInt64(8);
             }
         }
 
@@ -209,24 +206,68 @@ limit 1;", conn, tx);
             }
         }
 
-        // 3a. the current event's ready map and its enabled themes (sql.md 7).
-        var trackerThemes = new List<SnapshotTrackerTheme>();
-        if (currentEvent is not null)
+        // 3a. the published content document (newest content_version row)
+        // verbatim; its settings carry the site route and the default box.
+        Guid[] contentMediaIds = Array.Empty<Guid>();
+        ContentDocument content = new ContentDocument
         {
-            var cdn = _options.CdnBaseUrl.TrimEnd('/');
+            SchemaVersion = 1,
+            Settings = new SiteSettings { SiteName = "", HomeNavLabel = "" },
+            Pages = new List<ContentPage>(),
+        };
+        await using (var cmd = new NpgsqlCommand(@"
+select id, document, media_ids from content_version order by id desc limit 1;", conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                var docJson = reader.GetString(1);
+                var deserialized = JsonSerializer.Deserialize<ContentDocument>(docJson, ContentReadOptions);
+                if (deserialized is not null) content = deserialized;
+                if (!reader.IsDBNull(2))
+                {
+                    var arr = (Guid[])reader.GetValue(2);
+                    contentMediaIds = arr;
+                }
+            }
+        }
+        snap.Content = content;
+
+        // 3b. routeView and the themes (sql.md 7): the routeView event is the
+        // current event, else the event with the greatest year. Its box and
+        // ready map are routeView; the current event's map is the same row
+        // read once. With no event at all, the box is the published
+        // settings.tracker.defaultBbox (else the valley constant) and the map
+        // is null.
+        var trackerThemes = new List<SnapshotTrackerTheme>();
+        var cdn = _options.CdnBaseUrl.TrimEnd('/');
+        long? viewEventId = null;
+        Bbox? viewBbox = null;
+        await using (var cmd = new NpgsqlCommand(RouteViewEventSql, conn, tx))
+        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
+        {
+            if (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                viewEventId = reader.GetInt64(0);
+                viewBbox = ReadJson<Bbox>(reader.GetString(1));
+            }
+        }
+        SnapshotTrackerMap? viewMap = null;
+        if (viewEventId is long viewId)
+        {
             await using (var cmd = new NpgsqlCommand(@"
 select m.id, m.name, m.prefix, m.bbox, m.min_zoom, m.max_zoom, m.terrain_max_zoom
 from event e
 join tracker_map m on m.id = e.tracker_map_id and m.state = 'ready'
 where e.id = $1;", conn, tx))
             {
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = currentEvent.Id });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = viewId });
                 await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 if (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
                     var prefix = reader.GetString(2);
                     int? terrainMaxZoom = reader.IsDBNull(6) ? null : reader.GetInt16(6);
-                    currentEvent.TrackerMap = new SnapshotTrackerMap
+                    viewMap = new SnapshotTrackerMap
                     {
                         Id = reader.GetInt64(0),
                         Name = reader.GetString(1),
@@ -248,7 +289,7 @@ join tracker_theme t on t.id = et.theme_id
 where et.event_id = $1
 order by t.sort_order, t.id;", conn, tx))
             {
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = currentEvent.Id });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = viewId });
                 await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
@@ -272,23 +313,30 @@ order by t.sort_order, t.id;", conn, tx))
                 }
             }
         }
+        if (currentEvent is not null) currentEvent.TrackerMap = viewMap;
+        snap.RouteView = new SnapshotRouteView
+        {
+            Bbox = viewBbox ?? DefaultBbox(content.Settings.Tracker),
+            Map = viewMap,
+        };
         snap.TrackerThemes = trackerThemes;
 
-        // 4. flight history and route map: when the current event links a
-        // route (route_id), read the route row's `name` and `s3_key`, then read
-        // the route object from the object store, thin its points, and build
-        // the route map from them. The linked route is small
-        // (at most 50,000 points, cap of 5 MB - contracts 1.4), so the read
-        // stays cheap enough to run inside the admin transaction; api.md 10.2
-        // documents this choice as the default.
-        if (currentEvent is not null && currentRouteId is long linkedRouteId)
+        // 4. the site route: the published settings.route.routeId. Read the
+        // route row's `name` and `s3_key`, then the route object from the
+        // object store, and build the route map from its points; with a
+        // current event, also thin the points into event.flightHistory. The
+        // route is small (at most 50,000 points, cap of 5 MB - contracts 1.4),
+        // so the read stays cheap enough to run inside the admin transaction;
+        // api.md 10.2 documents this choice as the default.
+        snap.RouteMapConfig = SiteRoute.MapConfig(content.Settings.Route);
+        if (SiteRoute.RouteId(content.Settings.Route) is long siteRouteId)
         {
             string? routeName = null;
             string? routeS3Key = null;
             await using (var cmd = new NpgsqlCommand(
                 "select name, s3_key from route where id = $1;", conn, tx))
             {
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = linkedRouteId });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = siteRouteId });
                 await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 if (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
@@ -298,14 +346,17 @@ order by t.sort_order, t.id;", conn, tx))
             }
             if (routeS3Key is not null)
             {
-                var route = await LoadRouteObjectAsync(linkedRouteId, routeS3Key, ct).ConfigureAwait(false);
+                var route = await LoadRouteObjectAsync(siteRouteId, routeS3Key, ct).ConfigureAwait(false);
                 if (route is not null)
                 {
-                    currentEvent.FlightHistory = BuildFlightHistory(
-                        linkedRouteId, routeName ?? "", route, flightHistoryMaxPoints);
+                    if (currentEvent is not null)
+                    {
+                        currentEvent.FlightHistory = BuildFlightHistory(
+                            siteRouteId, routeName ?? "", route, flightHistoryMaxPoints);
+                    }
                     // The route map (contracts 1.3) is built from the same points.
                     var mapSettings = await RouteMapSettings.ReadAsync(conn, tx, ct).ConfigureAwait(false);
-                    currentEvent.RouteMap = BuildRouteMap(linkedRouteId, route, mapSettings);
+                    snap.RouteMap = BuildRouteMap(siteRouteId, route, mapSettings);
                 }
             }
         }
@@ -461,32 +512,6 @@ where c.active;", conn, tx))
         }
         snap.QrCodes = qrCodes;
 
-        // 7. the published content document (newest content_version row) verbatim.
-        Guid[] contentMediaIds = Array.Empty<Guid>();
-        ContentDocument content = new ContentDocument
-        {
-            SchemaVersion = 1,
-            Settings = new SiteSettings { SiteName = "", HomeNavLabel = "" },
-            Pages = new List<ContentPage>(),
-        };
-        await using (var cmd = new NpgsqlCommand(@"
-select id, document, media_ids from content_version order by id desc limit 1;", conn, tx))
-        await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
-        {
-            if (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                var docJson = reader.GetString(1);
-                var deserialized = JsonSerializer.Deserialize<ContentDocument>(docJson, ContentReadOptions);
-                if (deserialized is not null) content = deserialized;
-                if (!reader.IsDBNull(2))
-                {
-                    var arr = (Guid[])reader.GetValue(2);
-                    contentMediaIds = arr;
-                }
-            }
-        }
-        snap.Content = content;
-
         // 8. media map: content media ids + sponsor logos + cookie type media
         // icons + the enabled themes' thumbnails (contracts 1.3).
         var mediaIds = new HashSet<Guid>();
@@ -507,7 +532,6 @@ order by m.id;", conn, tx);
                 Value = idsArray,
             });
             await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            var cdn = _options.CdnBaseUrl.TrimEnd('/');
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
                 var (id, entry) = MediaMapRows.Read(reader, cdn);
@@ -543,7 +567,8 @@ select coalesce(
     // The media ids the snapshot carries beyond the content document: logos of
     // the sponsors the snapshot lists (the sponsor year of SponsorsYearAsync,
     // active, not anonymous, can advertise), media icons of active cookie types, and the
-    // thumbnails of the current event's enabled tracker themes. The
+    // thumbnails of the routeView event's enabled tracker themes (the current
+    // event, else the event with the greatest year). The
     // snapshot media map, the preview document, and the draft response all add
     // this set to the document's referenced media.
     public static async Task<Guid[]> CollectSnapshotLevelMediaIdsAsync(
@@ -576,14 +601,45 @@ where y.active and not y.anonymous and y.can_advertise and s.logo_media_id is no
         await using (var cmd = new NpgsqlCommand(@"
 select t.thumbnail_media_id
 from event_tracker_theme et
-join event e on e.id = et.event_id and e.is_current
 join tracker_theme t on t.id = et.theme_id
-where t.thumbnail_media_id is not null;", conn, tx))
+where et.event_id = (" + RouteViewEventIdSql + @")
+  and t.thumbnail_media_id is not null;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(ct).ConfigureAwait(false)) ids.Add(reader.GetGuid(0));
         }
         return ids.ToArray();
+    }
+
+    // The routeView event (contracts 1.3): the current event, else the event
+    // with the greatest year; no row when there is no event. Its id and box.
+    public const string RouteViewEventSql = @"
+select id, tracker_bbox::text
+from event
+order by is_current desc, year desc, id desc
+limit 1;";
+
+    // The routeView event's id alone, as a subquery.
+    public const string RouteViewEventIdSql =
+        "select id from event order by is_current desc, year desc, id desc limit 1";
+
+    // routeView.bbox with no event: the published settings.tracker.defaultBbox,
+    // else the Missoula valley box.
+    private static Bbox DefaultBbox(JsonNode? tracker)
+    {
+        if (tracker is JsonObject obj && obj["defaultBbox"] is JsonObject box)
+        {
+            try
+            {
+                var parsed = box.Deserialize<Bbox>(ContentReadOptions);
+                if (parsed is not null) return parsed;
+            }
+            catch (JsonException)
+            {
+                // A box the published schema refused cannot be here; fall back.
+            }
+        }
+        return ReadJson<Bbox>(TrackerThemeSeed.ValleyBboxJson);
     }
 
     // A jsonb column of a fixed contract shape (a box, a theme's chrome or overlay).
@@ -627,7 +683,7 @@ limit 1;", conn, tx);
         return Math.Max(minMs, computed);
     }
 
-    // Fetches the linked route's stored object from the object store and
+    // Fetches the site route's stored object from the object store and
     // decodes it as a RouteObject. A missing or unreadable object logs at
     // Warning and returns null, which leaves flightHistory and routeMap null so
     // the snapshot still commits.
