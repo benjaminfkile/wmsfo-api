@@ -16,13 +16,15 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Endpoints;
 
 // api.md 11.2 / 11.3 / 11.5, contracts 4.5 Media. Presigned PUT, confirm with
-// sniff + SVG validation + ImageSharp decode + variants, list with filters and
-// search, PATCH (alt/title) as a [snapshot] frame, DELETE with the usage guard.
+// sniff + SVG validation + ImageSharp decode + variants (an MP4 video is read
+// by ranges and its moov box only), list with filters and search, PATCH as a
+// [snapshot] frame, DELETE with the usage guard.
 public static class AdminMediaEndpoints
 {
-    // Type limits per api.md 11.2. Raster and gif 20 MB, svg 1 MB.
+    // Type limits per api.md 11.2. Raster and gif 20 MB, svg 1 MB, video 500 MB.
     public const long RasterOrGifLimit = 20L * 1024 * 1024;
     public const long SvgLimit = 1L * 1024 * 1024;
+    public const long VideoLimit = 500L * 1024 * 1024;
     public const string ImmutableCacheControl = "public, max-age=31536000, immutable";
     public const string WebpContentType = "image/webp";
     public static readonly TimeSpan PutTimeout = TimeSpan.FromSeconds(3);
@@ -30,6 +32,7 @@ public static class AdminMediaEndpoints
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.Ordinal)
     {
         ImageSniffer.Png, ImageSniffer.Jpeg, ImageSniffer.Webp, ImageSniffer.Gif, ImageSniffer.Svg,
+        Mp4Inspector.ContentType,
     };
 
     public static void MapAll(IEndpointRouteBuilder app)
@@ -57,8 +60,8 @@ public static class AdminMediaEndpoints
                 var q = ctx.Request.Query["q"].ToString();
 
                 var v = new RequestValidation();
-                if (!string.IsNullOrEmpty(kindFilter) && kindFilter is not ("raster" or "svg" or "gif"))
-                    v.Field("kind", "must be raster, svg, or gif");
+                if (!string.IsNullOrEmpty(kindFilter) && kindFilter is not ("raster" or "svg" or "gif" or "video"))
+                    v.Field("kind", "must be raster, svg, gif, or video");
                 if (!string.IsNullOrEmpty(stateFilter) && stateFilter is not ("pending" or "ready" or "orphaned"))
                     v.Field("state", "must be pending, ready, or orphaned");
                 v.ThrowIfInvalid();
@@ -79,7 +82,7 @@ public static class AdminMediaEndpoints
                 var sql = new System.Text.StringBuilder(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit, m.duration_ms, m.poster_media_id,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -153,7 +156,7 @@ where 1 = 1");
             {
                 var v = new RequestValidation();
                 if (string.IsNullOrWhiteSpace(body.ContentType) || !AllowedContentTypes.Contains(body.ContentType))
-                    v.Field("contentType", "must be image/png, image/jpeg, image/webp, image/gif, or image/svg+xml");
+                    v.Field("contentType", "must be image/png, image/jpeg, image/webp, image/gif, image/svg+xml, or video/mp4");
                 if (string.IsNullOrWhiteSpace(body.Filename))
                     v.Field("filename", "must be 1 to 100 characters");
                 if (body.Alt is null || body.Alt.Length > 500)
@@ -274,6 +277,15 @@ values ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9);", conn, tx))
                     await DeletePendingRowAsync(conn, mediaId, ct);
                     throw new ApiException(StatusCodes.Status413PayloadTooLarge, ApiErrorCodes.PayloadTooLarge,
                         $"upload {head.ContentLength} bytes exceeds {limit}-byte limit for {contentType}");
+                }
+
+                // 2a. A video is never read into memory (api.md 11.3): ranged
+                //     reads for the box headers and moov, a streamed hash.
+                if (string.Equals(contentType, Mp4Inspector.ContentType, StringComparison.Ordinal))
+                {
+                    var confirmed = await ConfirmVideoAsync(
+                        conn, store, audit, options, logger, mediaId, s3Key!, head.ContentLength, ct);
+                    return Results.Ok(confirmed);
                 }
 
                 // 3. GET the object, sniff, validate, decode/variants.
@@ -523,8 +535,8 @@ where id = $7 and state = 'pending';", conn, tx))
     }
 
     // PATCH /admin/media/{id} - [snapshot] frame because alt, the dark version,
-    // invertInDark, the small version, and the credit ride in the snapshot's
-    // media map (contracts 1.3b).
+    // invertInDark, the small version, the credit, and a video's poster ride in
+    // the snapshot's media map (contracts 1.3b).
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/media/{id}",
@@ -564,10 +576,15 @@ where id = $7 and state = 'pending';", conn, tx))
                         sets.Add($"title = ${next++}");
                         parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Title });
                     }
+                    var isVideo = string.Equals(before.Kind, "video", StringComparison.Ordinal);
                     if (body.HasDarkMediaId)
                     {
                         if (body.DarkMediaId is Guid darkId)
-                            await RequireOtherReadyAssetAsync(conn, tx, mediaId, darkId, "darkMediaId", "dark", token);
+                        {
+                            if (isVideo) RequestValidation.Throw("darkMediaId", "a video takes no dark version");
+                            var darkKind = await RequireOtherReadyAssetAsync(conn, tx, mediaId, darkId, "darkMediaId", "dark", token);
+                            if (darkKind == "video") RequestValidation.Throw("darkMediaId", "a video cannot be a dark version");
+                        }
                         sets.Add($"dark_media_id = ${next++}");
                         parameters.Add(new NpgsqlParameter
                         {
@@ -578,12 +595,32 @@ where id = $7 and state = 'pending';", conn, tx))
                     if (body.HasSmallMediaId)
                     {
                         if (body.SmallMediaId is Guid smallId)
-                            await RequireOtherReadyAssetAsync(conn, tx, mediaId, smallId, "smallMediaId", "small", token);
+                        {
+                            if (isVideo) RequestValidation.Throw("smallMediaId", "a video takes no small version");
+                            var smallKind = await RequireOtherReadyAssetAsync(conn, tx, mediaId, smallId, "smallMediaId", "small", token);
+                            if (smallKind == "video") RequestValidation.Throw("smallMediaId", "a video cannot be a small version");
+                        }
                         sets.Add($"small_media_id = ${next++}");
                         parameters.Add(new NpgsqlParameter
                         {
                             NpgsqlDbType = NpgsqlDbType.Uuid,
                             Value = body.SmallMediaId is Guid sg ? sg : DBNull.Value,
+                        });
+                    }
+                    if (body.HasPosterMediaId)
+                    {
+                        if (body.PosterMediaId is Guid posterId)
+                        {
+                            var posterKind = await RequireOtherReadyAssetAsync(conn, tx, mediaId, posterId, "posterMediaId", "poster", token);
+                            if (!isVideo) RequestValidation.Throw("posterMediaId", "only a video takes a poster");
+                            if (posterKind is not ("raster" or "gif"))
+                                RequestValidation.Throw("posterMediaId", "must be a raster or gif media asset");
+                        }
+                        sets.Add($"poster_media_id = ${next++}");
+                        parameters.Add(new NpgsqlParameter
+                        {
+                            NpgsqlDbType = NpgsqlDbType.Uuid,
+                            Value = body.PosterMediaId is Guid pg ? pg : DBNull.Value,
                         });
                     }
                     if (body.HasCredit)
@@ -696,6 +733,7 @@ where id = $7 and state = 'pending';", conn, tx))
     public static long LimitForContentType(string contentType) => contentType switch
     {
         ImageSniffer.Svg => SvgLimit,
+        Mp4Inspector.ContentType => VideoLimit,
         _ => RasterOrGifLimit,
     };
 
@@ -703,6 +741,7 @@ where id = $7 and state = 'pending';", conn, tx))
     {
         ImageSniffer.Gif => "gif",
         ImageSniffer.Svg => "svg",
+        Mp4Inspector.ContentType => "video",
         _ => "raster",
     };
 
@@ -711,7 +750,7 @@ where id = $7 and state = 'pending';", conn, tx))
         await using var cmd = new NpgsqlCommand(@"
 select m.id, m.filename, m.content_type, m.kind, m.state, m.s3_key, m.size_bytes, m.width, m.height, m.sha256,
        m.variants, m.alt, m.title, m.uploaded_by, m.created_at, m.confirmed_at, m.unreferenced_since, m.orphaned_at, m.dzi_key,
-       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit,
+       m.dark_media_id, m.invert_in_dark, m.small_media_id, m.credit, m.duration_ms, m.poster_media_id,
        a.action, a.actor, a.at
 from media_asset m
 left join lateral (
@@ -766,34 +805,134 @@ where m.id = $1;", conn, tx);
             InvertInDark = reader.GetBoolean(20),
             SmallMediaId = reader.IsDBNull(21) ? null : reader.GetGuid(21).ToString(),
             Credit = reader.IsDBNull(22) ? null : reader.GetString(22),
+            DurationMs = reader.IsDBNull(23) ? null : reader.GetInt32(23),
+            PosterMediaId = reader.IsDBNull(24) ? null : reader.GetGuid(24).ToString(),
         };
-        if (reader.FieldCount > 23 && !reader.IsDBNull(23))
+        if (reader.FieldCount > 25 && !reader.IsDBNull(25))
         {
             dto.Audit = new AuditStampDto
             {
-                Action = reader.GetString(23),
-                By = reader.GetString(24),
-                At = reader.GetFieldValue<DateTimeOffset>(25),
+                Action = reader.GetString(25),
+                By = reader.GetString(26),
+                At = reader.GetFieldValue<DateTimeOffset>(27),
             };
         }
         return dto;
     }
 
-    // darkMediaId and smallMediaId name another ready asset: 400 for the asset
-    // itself, 404 when missing, 409 media_not_ready when pending or orphaned.
-    private static async Task RequireOtherReadyAssetAsync(
+    // darkMediaId, smallMediaId, and posterMediaId name another ready asset:
+    // 400 for the asset itself, 404 when missing, 409 media_not_ready when
+    // pending or orphaned. Answers the named asset's kind.
+    private static async Task<string> RequireOtherReadyAssetAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, Guid mediaId, Guid otherId,
         string field, string version, CancellationToken ct)
     {
         if (otherId == mediaId)
             RequestValidation.Throw(field, "must name another media asset");
-        await using var cmd = new NpgsqlCommand("select state from media_asset where id = $1;", conn, tx);
+        await using var cmd = new NpgsqlCommand("select state, kind from media_asset where id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = otherId });
-        var state = await cmd.ExecuteScalarAsync(ct) as string;
-        if (state is null)
-            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, $"{version} version media not found");
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
+            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound,
+                version == "poster" ? "poster media not found" : $"{version} version media not found");
+        var state = reader.GetString(0);
+        var kind = reader.GetString(1);
         if (state != "ready")
-            throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", $"{version} version media is not ready");
+            throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready",
+                version == "poster" ? "poster media is not ready" : $"{version} version media is not ready");
+        return kind;
+    }
+
+    // The video confirm (api.md 11.3): the first 16 bytes must carry `ftyp`;
+    // Mp4Inspector walks the top-level boxes by ranged reads and reads `moov`
+    // whole for the frame size and duration; sha256 streams the object through
+    // the hash. A refused file deletes the object and the row and answers 400
+    // validation_failed on `file`, with `details.reason` for a missing moov,
+    // video track, or duration. No variants and no pyramid.
+    private static async Task<MediaAssetDto> ConfirmVideoAsync(
+        NpgsqlConnection conn, IObjectStore store, AuditRecorder audit, WmsfoOptions options, ILogger logger,
+        Guid mediaId, string s3Key, long length, CancellationToken ct)
+    {
+        async Task<byte[]> ReadRange(long from, long to, CancellationToken token) =>
+            await store.GetObjectRangeAsync(s3Key, from, to, token)
+            ?? throw new ApiException(StatusCodes.Status404NotFound, "upload_not_found", "upload not found");
+
+        async Task RefuseAsync(string message, string? reason)
+        {
+            await SafeDeleteAsync(store, s3Key, ct);
+            await DeletePendingRowAsync(conn, mediaId, ct);
+            var fields = new Dictionary<string, string>(StringComparer.Ordinal) { ["file"] = message };
+            throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed,
+                $"file {message}",
+                reason is null ? new ValidationDetails(fields) : new MediaFileDetails(fields, reason));
+        }
+
+        var head = length > 0 ? await ReadRange(0, Math.Min(15, length - 1), ct) : Array.Empty<byte>();
+        if (!Mp4Inspector.HasFtyp(head))
+            await RefuseAsync("is not an MP4 file (no ftyp box)", null);
+
+        Mp4Inspector.Mp4Info info = null!;
+        try
+        {
+            info = await Mp4Inspector.InspectAsync(head, length, ReadRange, ct);
+        }
+        catch (Mp4Exception ex)
+        {
+            await RefuseAsync($"video rejected: {ex.Message}", ex.Reason);
+        }
+
+        string sha;
+        await using (var body = await store.OpenReadAsync(s3Key, ct)
+            ?? throw new ApiException(StatusCodes.Status404NotFound, "upload_not_found", "upload not found"))
+        {
+            var hash = await System.Security.Cryptography.SHA256.HashDataAsync(body, ct);
+            sha = Convert.ToHexStringLower(hash);
+        }
+
+        try
+        {
+            await store.DeleteObjectTaggingAsync(s3Key, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "media tag removal failed id={MediaId}; marker={Marker}",
+                mediaId, LogMarkers.MediaWriteFailed);
+            throw new ApiException(StatusCodes.Status502BadGateway, "media_write_failed",
+                "tag removal failed");
+        }
+
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var before = await ReadByIdAsync(conn, tx, mediaId, options, ct);
+        await using (var upd = new NpgsqlCommand(@"
+update media_asset
+set state = 'ready',
+    kind = 'video',
+    size_bytes = $1,
+    width = $2,
+    height = $3,
+    duration_ms = $4,
+    sha256 = $5,
+    variants = '{}'::jsonb,
+    dzi_key = null,
+    confirmed_at = now()
+where id = $6 and state = 'pending';", conn, tx))
+        {
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = length });
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = info.Width });
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = info.Height });
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = info.DurationMs });
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Char, Value = sha });
+            upd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
+            var rows = await upd.ExecuteNonQueryAsync(ct);
+            if (rows == 0)
+                throw new ApiException(StatusCodes.Status409Conflict, "media_not_pending", "media asset is not pending");
+        }
+        var dto = await ReadByIdAsync(conn, tx, mediaId, options, ct)
+            ?? throw new InvalidOperationException("failed to reload media row after confirm");
+        dto.Audit = await audit.RecordAsync(conn, tx, "confirm", "media_asset", mediaId.ToString(), before, dto, ct);
+        await tx.CommitAsync(ct);
+        return dto;
     }
 
     private static async Task DeletePendingRowAsync(NpgsqlConnection conn, Guid id, CancellationToken ct)
@@ -859,6 +998,10 @@ where m.id = $1;", conn, tx);
         await Task.WhenAll(tasks);
     }
 }
+
+// details of a refused video confirm: the field messages and `reason`
+// (moov, track, or duration).
+public sealed record MediaFileDetails(IReadOnlyDictionary<string, string> Fields, string Reason);
 
 // details.usage: MediaUsage for the 409 media_in_use response.
 public sealed record MediaInUseDetails(MediaUsageDto Usage);

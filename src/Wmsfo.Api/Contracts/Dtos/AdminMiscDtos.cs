@@ -145,9 +145,17 @@ public sealed class MediaPatchRequest
         set { _credit = value; HasCredit = true; }
     }
     [JsonIgnore] public bool HasCredit { get; private set; }
+    // A uuid sets a video's poster, null clears it, absent leaves it as it is.
+    public Guid? PosterMediaId
+    {
+        get => _posterMediaId;
+        set { _posterMediaId = value; HasPosterMediaId = true; }
+    }
+    [JsonIgnore] public bool HasPosterMediaId { get; private set; }
 
     private Guid? _darkMediaId;
     private Guid? _smallMediaId;
+    private Guid? _posterMediaId;
     private string? _credit;
 }
 

@@ -74,10 +74,13 @@ public sealed class InMemoryObjectStore : IObjectStore
             ? new ObjectHead(o.Bytes.Length, o.ContentType, o.CacheControl)
             : null);
 
-    public Task<ObjectContent?> GetObjectAsync(string key, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Objects.TryGetValue(key, out var o)
+    public Task<ObjectContent?> GetObjectAsync(string key, CancellationToken cancellationToken = default)
+    {
+        lock (WholeReads) WholeReads.Add(key);
+        return Task.FromResult(Objects.TryGetValue(key, out var o)
             ? new ObjectContent(o.Bytes, o.ContentType)
             : null);
+    }
 
     // The URL names the key so a test can read which object a ticket signs.
     public string PresignPut(string key, string contentType, string tag) => "https://example/local-upload/" + key;
@@ -146,10 +149,25 @@ public sealed class InMemoryObjectStore : IObjectStore
 
     public Task<byte[]?> GetObjectRangeAsync(string key, long from, long to, CancellationToken cancellationToken = default)
     {
+        lock (RangeReads) RangeReads.Add((key, from, to));
         if (!Objects.TryGetValue(key, out var o)) return Task.FromResult<byte[]?>(null);
         var start = (int)Math.Min(from, o.Bytes.Length);
         var end = (int)Math.Min(to + 1, o.Bytes.Length);
         return Task.FromResult<byte[]?>(o.Bytes[start..end]);
+    }
+
+    // Every ranged read as (key, from, to), so a test can see what a
+    // confirm read.
+    public List<(string Key, long From, long To)> RangeReads { get; } = new();
+    // Every whole read through GetObjectAsync.
+    public List<string> WholeReads { get; } = new();
+    // Every streamed read through OpenReadAsync.
+    public List<string> StreamReads { get; } = new();
+
+    public Task<Stream?> OpenReadAsync(string key, CancellationToken cancellationToken = default)
+    {
+        StreamReads.Add(key);
+        return Task.FromResult<Stream?>(Objects.TryGetValue(key, out var o) ? new MemoryStream(o.Bytes, writable: false) : null);
     }
 
     private static string ETag(byte[] bytes) =>

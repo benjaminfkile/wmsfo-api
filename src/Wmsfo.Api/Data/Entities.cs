@@ -314,6 +314,8 @@ public sealed class MediaAsset
     public bool InvertInDark { get; set; }
     public Guid? SmallMediaId { get; set; }
     public string? Credit { get; set; }
+    public int? DurationMs { get; set; }
+    public Guid? PosterMediaId { get; set; }
     public string Alt { get; set; } = "";
     public string Title { get; set; } = "";
     public string UploadedBy { get; set; } = "";

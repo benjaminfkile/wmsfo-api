@@ -458,6 +458,10 @@ returning id;", conn, tx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
+                // A video may only be a media block's media (contracts 1.3a).
+                var videoProblems = await ReferenceChecker.VideoProblemsInSectionAsync(
+                    body.Kind, dataNode, presentationNode, conn, tx, ct);
+                if (videoProblems.Count > 0) throw ValidationDraftFailed(videoProblems);
                 string role;
                 await using (var pageCheck = new NpgsqlCommand(
                     "select role from page where id = $1 for update;", conn, tx))
@@ -561,6 +565,10 @@ values ($1, $2, $3, $4::jsonb, $5::jsonb, $6) returning id;", conn, tx))
                     var problems = validator.ValidatePresentation(presentationNode, ValidationLevel.Draft);
                     if (problems.Count > 0) throw ValidationDraftFailed(problems);
                 }
+                // A video may only be a media block's media (contracts 1.3a).
+                var videoProblems = await ReferenceChecker.VideoProblemsInSectionAsync(
+                    kind, dataNode, presentationNode, conn, tx, ct);
+                if (videoProblems.Count > 0) throw ValidationDraftFailed(videoProblems);
                 var sets = new List<string>();
                 var parameters = new List<NpgsqlParameter>();
                 var next = 1;
@@ -903,6 +911,9 @@ where id = $4;", conn, tx))
                     : kindInfo.ItemDefaults?.DeepClone();
                 var problems = validator.ValidateItemData(kind, dataNode, ValidationLevel.Draft);
                 if (problems.Count > 0) throw ValidationDraftFailed(problems);
+                // A video may only be a media item's media (contracts 1.3a).
+                var videoProblems = await ReferenceChecker.VideoProblemsInItemAsync(kind, dataNode, conn, tx, ct);
+                if (videoProblems.Count > 0) throw ValidationDraftFailed(videoProblems);
 
                 int position;
                 if (body.Position is int p1)
@@ -981,6 +992,9 @@ where i.id = $1 for update;", conn, tx))
                     dataNode = JsonNode.Parse(de.GetRawText());
                     var problems = validator.ValidateItemData(kind, dataNode, ValidationLevel.Draft);
                     if (problems.Count > 0) throw ValidationDraftFailed(problems);
+                    // A video may only be a media item's media (contracts 1.3a).
+                    var videoProblems = await ReferenceChecker.VideoProblemsInItemAsync(kind, dataNode, conn, tx, ct);
+                    if (videoProblems.Count > 0) throw ValidationDraftFailed(videoProblems);
                 }
                 var sets = new List<string>();
                 var parameters = new List<NpgsqlParameter>();
@@ -1172,6 +1186,9 @@ where i.id = $1 for update;", conn, tx))
                 if (problems.Count > 0) throw ValidationDraftFailed(problems);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
+                // A video is never a logo, favicon, or icon (contracts 1.3a).
+                var videoProblems = await ReferenceChecker.VideoProblemsInSettingsAsync(node, conn, null, ct);
+                if (videoProblems.Count > 0) throw ValidationDraftFailed(videoProblems);
                 SiteSettingsDraftDto dto;
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {
@@ -1653,17 +1670,22 @@ values ($1, $2, $3) returning id;", conn, tx))
         return (true, icon);
     }
 
-    // A media-sourced page icon must name a ready media asset (404, 409 media_not_ready).
+    // A media-sourced page icon must name a ready media asset (404, 409
+    // media_not_ready) that is not a video (400 validation_failed).
     private static async Task CheckPageIconMediaAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, IconValue? icon, CancellationToken ct)
     {
         if (icon is not { Source: "media" }) return;
-        await using var cmd = new NpgsqlCommand("select state from media_asset where id = $1;", conn, tx);
+        await using var cmd = new NpgsqlCommand("select state, kind from media_asset where id = $1;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(icon.Id) });
-        var state = await cmd.ExecuteScalarAsync(ct);
-        if (state is null || state is DBNull) throw NotFound("media not found");
-        if (!string.Equals((string)state, "ready", StringComparison.Ordinal))
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) throw NotFound("media not found");
+        var state = reader.GetString(0);
+        var kind = reader.GetString(1);
+        if (!string.Equals(state, "ready", StringComparison.Ordinal))
             throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "media asset is not ready");
+        if (kind == "video")
+            RequestValidation.Throw("icon.id", ReferenceChecker.VideoMessage(icon.Id));
     }
 
     private static string? PageIconToJson(IconValue? icon) =>
@@ -2075,8 +2097,8 @@ from section_item where id = $1;", conn, tx);
         var map = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (ids.Length == 0) return map;
         var cdn = options.CdnBaseUrl.TrimEnd('/');
-        await using var cmd = new NpgsqlCommand(MediaMapRows.Select + @"
-where m.id = any($1) order by m.id;", conn, tx);
+        await using var cmd = new NpgsqlCommand(MediaMapRows.Select + MediaMapRows.WhereIdsWithPosters + @"
+order by m.id;", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter
         {
             NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid,

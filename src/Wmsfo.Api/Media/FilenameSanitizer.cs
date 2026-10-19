@@ -4,7 +4,7 @@ namespace Wmsfo.Api.Media;
 
 // api.md 11.2: `[^A-Za-z0-9._-]` to `-`, collapse repeats, trim to 100, and
 // make sure the extension matches the declared type: `png`, `jpg` or `jpeg`,
-// `webp`, `gif`, `svg`. Returns null when the extension does not match; the
+// `webp`, `gif`, `svg`, `mp4`. Returns null when the extension does not match; the
 // caller returns 400 validation_failed then.
 public static class FilenameSanitizer
 {
@@ -77,6 +77,7 @@ public static class FilenameSanitizer
         ImageSniffer.Webp => ext == "webp",
         ImageSniffer.Gif => ext == "gif",
         ImageSniffer.Svg => ext == "svg",
+        Mp4Inspector.ContentType => ext == "mp4",
         _ => false,
     };
 }

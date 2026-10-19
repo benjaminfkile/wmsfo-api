@@ -513,7 +513,8 @@ where c.active;", conn, tx))
         snap.QrCodes = qrCodes;
 
         // 8. media map: content media ids + sponsor logos + cookie type media
-        // icons + the enabled themes' thumbnails (contracts 1.3).
+        // icons + the enabled themes' thumbnails (contracts 1.3), and the
+        // poster of every video among them (1.3b).
         var mediaIds = new HashSet<Guid>();
         foreach (var id in contentMediaIds) mediaIds.Add(id);
         foreach (var id in await CollectSnapshotLevelMediaIdsAsync(conn, tx, ct).ConfigureAwait(false))
@@ -522,8 +523,8 @@ where c.active;", conn, tx))
         var media = new SortedDictionary<string, MediaEntry>(StringComparer.Ordinal);
         if (mediaIds.Count > 0)
         {
-            await using var cmd = new NpgsqlCommand(MediaMapRows.Select + @"
-where m.id = any($1) and m.state = 'ready'
+            await using var cmd = new NpgsqlCommand(MediaMapRows.Select + MediaMapRows.WhereIdsWithPosters + @"
+  and m.state = 'ready'
 order by m.id;", conn, tx);
             var idsArray = mediaIds.ToArray();
             cmd.Parameters.Add(new NpgsqlParameter

@@ -142,9 +142,13 @@ public class KeyOrderTests
         var bytes = CanonicalJson.SerializeToUtf8Bytes(snap);
         using var doc = JsonDocument.Parse(bytes);
         var mediaKeys = KeysOf(doc.RootElement.GetProperty("media"));
-        // The two seeded UUIDs plus the three we added, in ordinal string order.
+        // The four seeded UUIDs plus the three we added, in ordinal string order.
         Assert.Equal(
-            new[] { "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33", "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc" },
+            new[]
+            {
+                "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33", "4e8c1a7d-5b2f-4d9e-8a3c-6f1b0d7e2a66",
+                "6a2d9f4b-1e7c-4b3a-9d5e-0c8f2a6b1d77", "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11", "aa", "bb", "cc",
+            },
             mediaKeys);
     }
 
