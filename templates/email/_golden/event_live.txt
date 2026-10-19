@@ -1,4 +1,4 @@
-Santa Tracker
+Western Montana Santa Flyover
 
 Santa just lifted off
 
@@ -8,6 +8,6 @@ Watch the tracker at:
 https://site.example.com
 
 --
-You are receiving this because you signed up for Santa Tracker alerts at this address.
+You are receiving this because you signed up for Western Montana Santa Flyover alerts at this address.
 To stop receiving these alerts, use the one-click link: https://site.example.com/alerts/unsubscribe?token=wsu_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
 https://site.example.com

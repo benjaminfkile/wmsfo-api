@@ -8,7 +8,8 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Tests;
 
 // contracts 7.8: EmailLogo.DeriveTile cuts the published logo into a
-// 192 px PNG on an opaque white rounded tile; EmailLogoResolver answers the
+// 256 by 128 px PNG on an opaque white rounded tile, the logo contain-fitted
+// inside 16 px padding; EmailLogoResolver answers the
 // bundled logo when the published settings name no logoMedia.
 public sealed class EmailLogoTileTests
 {
@@ -41,8 +42,8 @@ public sealed class EmailLogoTileTests
     {
         Assert.Equal(ImageSniffer.Png, ImageSniffer.Detect(tile));
         using var image = Image.Load<Rgba32>(tile);
-        Assert.Equal(EmailLogo.TileSize, image.Width);
-        Assert.Equal(EmailLogo.TileSize, image.Height);
+        Assert.Equal(256, image.Width);
+        Assert.Equal(128, image.Height);
 
         // Every pixel inside the rounded tile is opaque, the transparent part
         // of the source included; only the corners outside the arc are clear.
@@ -54,37 +55,58 @@ public sealed class EmailLogoTileTests
                 var row = rows.GetRowSpan(y);
                 for (var x = 0; x < row.Length; x++)
                 {
-                    var inCorner = (x < inset || x >= EmailLogo.TileSize - inset)
-                        && (y < inset || y >= EmailLogo.TileSize - inset);
+                    var inCorner = (x < inset || x >= EmailLogo.TileWidth - inset)
+                        && (y < inset || y >= EmailLogo.TileHeight - inset);
                     if (!inCorner) Assert.Equal(255, row[x].A);
                 }
             }
         });
         Assert.Equal(0, image[0, 0].A);
 
-        // The padding is white, the transparent half shows white, and the red
-        // half is drawn.
-        Assert.Equal(new Rgba32(255, 255, 255, 255), image[96, 8]);
-        Assert.Equal(new Rgba32(255, 255, 255, 255), image[40, 96]);
-        var red = image[150, 96];
+        // The 400 by 100 source fits the 224 by 96 box at 224 by 56, centred at
+        // (16, 36): the padding is white, the transparent half shows white,
+        // and the red half is drawn.
+        Assert.Equal(new Rgba32(255, 255, 255, 255), image[128, 8]);
+        Assert.Equal(new Rgba32(255, 255, 255, 255), image[128, 30]);
+        Assert.Equal(new Rgba32(255, 255, 255, 255), image[60, 64]);
+        var red = image[200, 64];
         Assert.True(red.R > 200 && red.G < 60 && red.B < 60, $"expected red, got {red}");
     }
 
     [Fact]
-    public void Derives_a_192_px_opaque_png_tile_from_a_png()
+    public void Derives_a_256_by_128_opaque_png_tile_from_a_png()
     {
         var png = Encode((img, s) => img.SaveAsPng(s));
         AssertOpaqueTile(EmailLogo.DeriveTile(png, ImageSniffer.Png));
     }
 
     [Fact]
-    public void Derives_a_192_px_opaque_png_tile_from_a_webp()
+    public void Derives_a_256_by_128_opaque_png_tile_from_a_webp()
     {
         var webp = Encode((img, s) => img.SaveAsWebp(s, new SixLabors.ImageSharp.Formats.Webp.WebpEncoder
         {
             FileFormat = SixLabors.ImageSharp.Formats.Webp.WebpFileFormatType.Lossless,
         }));
         AssertOpaqueTile(EmailLogo.DeriveTile(webp, ImageSniffer.Webp));
+    }
+
+    [Fact]
+    public void A_square_logo_is_contained_in_the_wide_tile()
+    {
+        using var square = new Image<Rgba32>(100, 100, new Rgba32(220, 20, 20, 255));
+        using var ms = new MemoryStream();
+        square.SaveAsPng(ms);
+
+        using var tile = Image.Load<Rgba32>(EmailLogo.DeriveTile(ms.ToArray(), ImageSniffer.Png));
+
+        // The square fits the 224 by 96 box at 96 by 96, centred at (80, 16).
+        Assert.Equal(256, tile.Width);
+        Assert.Equal(128, tile.Height);
+        var red = tile[128, 64];
+        Assert.True(red.R > 200 && red.G < 60 && red.B < 60, $"expected red, got {red}");
+        Assert.Equal(new Rgba32(255, 255, 255, 255), tile[60, 64]);
+        Assert.Equal(new Rgba32(255, 255, 255, 255), tile[196, 64]);
+        Assert.Equal(new Rgba32(255, 255, 255, 255), tile[128, 8]);
     }
 
     [Fact]

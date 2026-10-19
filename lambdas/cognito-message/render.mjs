@@ -17,7 +17,7 @@ const STATUS_PILL_STYLE =
   "display:inline-block;font-size:12px;font-weight:bold;letter-spacing:0.08em;" +
   "text-transform:uppercase;padding:3px 10px;border-radius:999px;";
 // The layout's {{siteName}} when neither `layout` nor `values` carries one.
-export const DEFAULT_SITE_NAME = "Santa Tracker";
+export const DEFAULT_SITE_NAME = "Western Montana Santa Flyover";
 const TOKEN_PATTERN = /\{\{([a-zA-Z]+)\}\}/g;
 
 // HTML-escapes the way .NET's WebUtility.HtmlEncode does: the five markup

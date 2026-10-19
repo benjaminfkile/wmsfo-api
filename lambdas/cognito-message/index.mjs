@@ -15,28 +15,28 @@ export const MAX_MESSAGE_LENGTH = 20000;
 export const COGNITO_CODE = "{####}";
 export const COGNITO_USERNAME = "{username}";
 
-const ACCOUNT_FOOTER = "You are receiving this because this address was used for a Santa Tracker account.";
+const ACCOUNT_FOOTER = "You are receiving this because this address was used for a Western Montana Santa Flyover account.";
 
 export const SPECS = {
   account_signup_code: {
-    subject: "Your Santa Tracker code",
-    preheader: "Your code to finish signing up for the Santa Tracker.",
+    subject: "Your Western Montana Santa Flyover code",
+    preheader: "Your code to finish signing up for Western Montana Santa Flyover.",
     footerReason: ACCOUNT_FOOTER,
   },
   account_reset_code: {
-    subject: "Reset your Santa Tracker password",
-    preheader: "Your code to reset your Santa Tracker password.",
+    subject: "Reset your Western Montana Santa Flyover password",
+    preheader: "Your code to reset your Western Montana Santa Flyover password.",
     footerReason: ACCOUNT_FOOTER,
   },
   account_email_code: {
     subject: "Confirm your email address",
-    preheader: "Your code to confirm this email address for your Santa Tracker account.",
+    preheader: "Your code to confirm this email address for your Western Montana Santa Flyover account.",
     footerReason: ACCOUNT_FOOTER,
   },
   account_admin_invite: {
-    subject: "Your Santa Tracker admin account",
-    preheader: "Your username and temporary password for the Santa Tracker admin panel.",
-    footerReason: "You are receiving this because an account was created for this address on the Santa Tracker admin panel.",
+    subject: "Your Western Montana Santa Flyover admin account",
+    preheader: "Your username and temporary password for the Western Montana Santa Flyover admin panel.",
+    footerReason: "You are receiving this because an account was created for this address on the Western Montana Santa Flyover admin panel.",
     needsUsername: true,
   },
 };

@@ -426,7 +426,7 @@ Dev value (contracts 8.1, with the platform's values filled in):
   "WMSFO_EDITOR_GROUP": "editor",
   "WMSFO_CANVASSER_GROUP": "canvasser",
   "WMSFO_SCAN_SALT": "<random string; salts the scan IP hash>",
-  "WMSFO_SES_FROM_ADDRESS": "Santa Tracker <alerts@<mail-domain>>",
+  "WMSFO_SES_FROM_ADDRESS": "Western Montana Santa Flyover <alerts@<mail-domain>>",
   "WMSFO_SES_CONFIGURATION_SET": "wmsfo-dev",
   "WMSFO_CONTACT_NOTIFY_EMAIL": "contact-us@<mail-domain>[,<other-inbox>...]",
   "WMSFO_ALERT_SEND_PER_SEC": "10",
@@ -551,21 +551,21 @@ Removing or changing a role: edit the groups; the API sees the change on the nex
 | Item | Value |
 |---|---|
 | Identity | Domain identity `<mail-domain>` with Easy DKIM (2048-bit), three CNAME records at the DNS host; a custom MAIL FROM subdomain `mail.<mail-domain>` with its MX and SPF TXT records |
-| Sender | `WMSFO_SES_FROM_ADDRESS` = `Santa Tracker <alerts@<mail-domain>>`; `contact_received` uses the same sender with `Reply-To` set to the contact's address |
+| Sender | `WMSFO_SES_FROM_ADDRESS` = `Western Montana Santa Flyover <alerts@<mail-domain>>`; `contact_received` uses the same sender with `Reply-To` set to the contact's address |
 | Configuration sets | `wmsfo-dev`, `wmsfo-prod`; event destination: SNS topic `<ses-events-topic>` for `BOUNCE`, `COMPLAINT`, `REJECT`, `RENDERING_FAILURE`, subscribed by `<inbox-address>` |
 | Suppression | Account-level suppression list on for bounces and complaints. The API does nothing further in v1 (contracts 7.8) |
 | Sandbox | The account has production access, so mail reaches any recipient in both environments |
 | Quota | The sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000 (one alert to about 20,000 recipients, three times per December). The account's rate is 14 per second and its daily quota 50,000, so a quota increase is an operator to-do (section 18); check both in the console the week before the event |
 | Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set; a notify on dev emails every verified dev subscriber |
 
-Cognito pool mail (section 4.1) sends through the same SES identity: both pools use `DEVELOPER` sending with the identity as `SourceArn`, `From` = `Santa Tracker <no-reply@<mail-domain>>`, and the environment's configuration set, and an identity policy on `<mail-domain>` lets `cognito-idp.amazonaws.com` send, conditioned on the account and the pool ARNs. The Custom Message Lambda supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
+Cognito pool mail (section 4.1) sends through the same SES identity: both pools use `DEVELOPER` sending with the identity as `SourceArn`, `From` = `Western Montana Santa Flyover <no-reply@<mail-domain>>`, and the environment's configuration set, and an identity policy on `<mail-domain>` lets `cognito-idp.amazonaws.com` send, conditioned on the account and the pool ARNs. The Custom Message Lambda supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
 
 | Trigger source | Template | Subject |
 |---|---|---|
-| `CustomMessage_SignUp`, `CustomMessage_ResendCode` | `account_signup_code` | Your Santa Tracker code |
-| `CustomMessage_ForgotPassword` | `account_reset_code` | Reset your Santa Tracker password |
+| `CustomMessage_SignUp`, `CustomMessage_ResendCode` | `account_signup_code` | Your Western Montana Santa Flyover code |
+| `CustomMessage_ForgotPassword` | `account_reset_code` | Reset your Western Montana Santa Flyover password |
 | `CustomMessage_UpdateUserAttribute`, `CustomMessage_VerifyUserAttribute` | `account_email_code` | Confirm your email address |
-| `CustomMessage_AdminCreateUser` | `account_admin_invite` | Your Santa Tracker admin account |
+| `CustomMessage_AdminCreateUser` | `account_admin_invite` | Your Western Montana Santa Flyover admin account |
 
 Any other trigger source is returned untouched.
 

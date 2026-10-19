@@ -25,11 +25,13 @@ public sealed class EmailLogo
     public const string PngContentType = "image/png";
     public const string ImmutableCacheControl = "public, max-age=31536000, immutable";
 
-    // The derived tile: TileSize square, the source fitted inside TilePadding
-    // on every side, on a white fill with TileCornerRadius rounded corners.
-    public const int TileSize = 192;
+    // The derived tile: TileWidth by TileHeight, the source fitted inside
+    // TilePadding on every side, on a white fill with TileCornerRadius rounded
+    // corners. The layout shows it at half size, 128 by 64 css px.
+    public const int TileWidth = 256;
+    public const int TileHeight = 128;
     public const int TilePadding = 16;
-    public const int TileCornerRadius = 24;
+    public const int TileCornerRadius = 16;
 
     private EmailLogo(byte[] bytes, string sha256, string key, string url)
     {
@@ -88,9 +90,10 @@ public sealed class EmailLogo
     public static string UrlFor(string cdnBaseUrl, string key) => cdnBaseUrl.TrimEnd('/') + "/" + key;
 
     // The email tile of a raster logo (png, jpeg, webp, or gif; the first
-    // frame of an animation): the image fitted inside a TileSize square less
-    // TilePadding on each side, centred over an opaque white tile with
-    // rounded corners, encoded as PNG. Transparent parts of the source show
+    // frame of an animation): the image fitted, keeping its aspect (contain),
+    // inside the TileWidth by TileHeight box less TilePadding on each side,
+    // centred over an opaque white tile with rounded corners, encoded as PNG.
+    // A wide logo and a square logo both come out TileWidth by TileHeight. Transparent parts of the source show
     // the white tile, so the logo reads the same on light and dark clients.
     // Throws MediaDecodeException for svg, any other content type, or bytes
     // that do not decode.
@@ -103,13 +106,14 @@ public sealed class EmailLogo
         using var image = VariantDeriver.LoadRaster(source);
         while (image.Frames.Count > 1) image.Frames.RemoveFrame(1);
 
-        var box = TileSize - 2 * TilePadding;
-        var scale = Math.Min((double)box / image.Width, (double)box / image.Height);
-        var width = Math.Clamp((int)Math.Round(image.Width * scale), 1, box);
-        var height = Math.Clamp((int)Math.Round(image.Height * scale), 1, box);
+        var boxWidth = TileWidth - 2 * TilePadding;
+        var boxHeight = TileHeight - 2 * TilePadding;
+        var scale = Math.Min((double)boxWidth / image.Width, (double)boxHeight / image.Height);
+        var width = Math.Clamp((int)Math.Round(image.Width * scale), 1, boxWidth);
+        var height = Math.Clamp((int)Math.Round(image.Height * scale), 1, boxHeight);
         image.Mutate(ctx => ctx.Resize(width, height));
 
-        using var tile = new Image<Rgba32>(TileSize, TileSize);
+        using var tile = new Image<Rgba32>(TileWidth, TileHeight);
         tile.ProcessPixelRows(rows =>
         {
             for (var y = 0; y < rows.Height; y++)
@@ -119,7 +123,7 @@ public sealed class EmailLogo
                     row[x] = new Rgba32(255, 255, 255, CornerAlpha(x, y));
             }
         });
-        var offset = new Point((TileSize - width) / 2, (TileSize - height) / 2);
+        var offset = new Point((TileWidth - width) / 2, (TileHeight - height) / 2);
         tile.Mutate(ctx => ctx.DrawImage(image, offset, 1f));
 
         using var ms = new MemoryStream();
@@ -134,8 +138,8 @@ public sealed class EmailLogo
         const double r = TileCornerRadius;
         var px = x + 0.5;
         var py = y + 0.5;
-        var cx = px < r ? r : px > TileSize - r ? TileSize - r : px;
-        var cy = py < r ? r : py > TileSize - r ? TileSize - r : py;
+        var cx = px < r ? r : px > TileWidth - r ? TileWidth - r : px;
+        var cy = py < r ? r : py > TileHeight - r ? TileHeight - r : py;
         var dx = px - cx;
         var dy = py - cy;
         if (dx == 0 || dy == 0) return 255;
