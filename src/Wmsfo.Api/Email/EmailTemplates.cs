@@ -76,10 +76,10 @@ public sealed class EmailTemplates
                 Preheader: "One click confirms this address and turns on your Santa Tracker alerts.",
                 FooterReason: "You are receiving this because someone asked for Santa Tracker alerts at this address.",
                 Pill: new("Confirm", "#e6f0fa", "#0b6bb5", "pillAccent")),
-            [EventPlanned] = new("Santa's flight is on the calendar",
+            [EventPlanned] = new("Santa's flight is in the works",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
-                Preheader: "Santa's next flight is on the calendar, and the time will follow.",
+                Preheader: "Santa's next flight is in the works. The date will follow.",
                 FooterReason: AlertFooterReason,
                 Pill: new("Planned", "#e6f0fa", "#0b6bb5", "pillAccent"),
                 Link: UnsubscribeFooterLink),
@@ -152,7 +152,7 @@ public sealed class EmailTemplates
     // visitor's own zone.
     public static string StockParagraph(int statusId, string eventName) => statusId switch
     {
-        1 => $"{eventName} is on the calendar. A specific time will be announced when it is known.",
+        1 => $"{eventName} is in the works. Santa is checking his list twice, and the date will be announced as soon as it is set.",
         2 => $"{eventName} is scheduled.",
         3 => $"{eventName} is live. Watch Santa's flight now.",
         4 => $"{eventName} has ended. Thanks for flying along.",

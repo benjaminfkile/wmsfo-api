@@ -2476,7 +2476,7 @@ Fragment substitutions are `{{eventName}}`, `{{messageBody}}`, `{{customMessage}
 | Template | Subject | Body must contain |
 |---|---|---|
 | `subscription_verify` | `Confirm your Santa tracker alerts` | `https://<site-domain>/alerts/verify?token=wsv_...` |
-| `event_planned` | `Santa's flight is on the calendar` | event name, the stock paragraph or `{{customMessage}}`, link to `https://<site-domain>/`, unsubscribe link |
+| `event_planned` | `Santa's flight is in the works` | event name, the stock paragraph or `{{customMessage}}`, link to `https://<site-domain>/`, unsubscribe link |
 | `event_scheduled` | `Santa's flight is scheduled` | event name, the stock paragraph or `{{customMessage}}` (stock: `<event name> is scheduled.`, with no time and no zone; the site shows the scheduled time in the visitor's own zone), unsubscribe link |
 | `event_live` | `Santa just lifted off` | link to `https://<site-domain>/`, the stock paragraph or `{{customMessage}}`, unsubscribe link |
 | `event_ended` | `Santa has landed` | event name, the stock paragraph or `{{customMessage}}`, unsubscribe link |

@@ -412,7 +412,7 @@ limit 100;", conn))
     // The template's subject line for a given status (contracts 7.8).
     private static string SubjectForStatus(int statusId) => statusId switch
     {
-        1 => "Santa's flight is on the calendar",
+        1 => "Santa's flight is in the works",
         2 => "Santa's flight is scheduled",
         3 => "Santa just lifted off",
         4 => "Santa has landed",
