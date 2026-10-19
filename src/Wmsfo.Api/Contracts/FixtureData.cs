@@ -18,6 +18,8 @@ public static class FixtureData
     public const string HangarMediaId      = "8c1d5e2a-7b3f-4c9e-9a1d-2f6e8b4c0a11";
     public const string GingerbreadMediaId = "3b7e9c10-2d4f-4a8b-b6c1-9e0f7d5a2c33";
     public const string HangarDarkMediaId  = "9d4b2e6f-3c8a-4f1d-8e7b-1a5c0f9d2b55";
+    public const string FlyoverVideoMediaId  = "4e8c1a7d-5b2f-4d9e-8a3c-6f1b0d7e2a66";
+    public const string FlyoverPosterMediaId = "6a2d9f4b-1e7c-4b3a-9d5e-0c8f2a6b1d77";
     public const string StandardStyleSha    = "7cf1ed24d4964827d29f251a64b726e2ce5f3b4ba6213d9f50eb668936576b98";
     public const string RouteLightStyleSha  = "587558ba6ff20a68d01cccca65d956b0260f74739cc534878c1fdd9230ca2999";
     public const string RouteLightSpriteSha = "ee5500000000000000000000000000000000000000000000000000000000ffff";
@@ -101,6 +103,35 @@ public static class FixtureData
                 Height = null,
                 Alt = "Gingerbread cookie",
                 Variants = new SortedDictionary<string, string>(StringComparer.Ordinal),
+                Dzi = null,
+            },
+            // A video (contracts 1.3b): no variants, no pyramid, no dark or
+            // small version; its poster rides in the map as its own entry.
+            [FlyoverVideoMediaId] = new MediaEntry
+            {
+                Url = $"{CdnBase}/media/{FlyoverVideoMediaId}/flyover.mp4",
+                Kind = "video",
+                Width = 1920,
+                Height = 1080,
+                Alt = "Santa's helicopter lifting off at dusk",
+                Variants = new SortedDictionary<string, string>(StringComparer.Ordinal),
+                Dzi = null,
+                Credit = "Flyover volunteers",
+                DurationMs = 42500,
+                PosterMediaId = FlyoverPosterMediaId,
+            },
+            [FlyoverPosterMediaId] = new MediaEntry
+            {
+                Url = $"{CdnBase}/media/{FlyoverPosterMediaId}/flyover-poster.jpg",
+                Kind = "raster",
+                Width = 1280,
+                Height = 720,
+                Alt = "The helicopter on the pad before liftoff",
+                Variants = new SortedDictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["480"] = $"{CdnBase}/media/{FlyoverPosterMediaId}/w480.webp",
+                    ["960"] = $"{CdnBase}/media/{FlyoverPosterMediaId}/w960.webp",
+                },
                 Dzi = null,
             },
         };

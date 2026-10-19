@@ -1341,6 +1341,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("dark_media_id")
                         .HasComment("The dark mode version of this asset (contracts 1.3b): another ready media_asset the site draws in its place in dark mode; null when none. A deleted dark version unlinks.");
 
+                    b.Property<int?>("DurationMs")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_ms")
+                        .HasComment("A video's length in milliseconds, read from its mvhd box at confirm (api.md 11.3); null for every other kind.");
+
                     b.Property<string>("DziKey")
                         .HasColumnType("text")
                         .HasColumnName("dzi_key")
@@ -1366,11 +1371,16 @@ namespace Wmsfo.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("kind")
-                        .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated.");
+                        .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated. video: mp4, read by ranges at confirm, no variants.");
 
                     b.Property<DateTimeOffset?>("OrphanedAt")
                         .HasColumnType("timestamptz")
                         .HasColumnName("orphaned_at");
+
+                    b.Property<Guid?>("PosterMediaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("poster_media_id")
+                        .HasComment("A video's poster (contracts 1.3b): another ready raster or gif media_asset the site draws before play; null when none. A deleted poster unlinks.");
 
                     b.Property<string>("S3Key")
                         .IsRequired()
@@ -1437,7 +1447,7 @@ namespace Wmsfo.Api.Data.Migrations
                         {
                             t.HasComment("The media library. pending: ticket issued, bytes may or may not be in the bucket. ready: confirmed. orphaned: unreferenced for 30 days, objects tagged for lifecycle expiry; the row is deleted 8 days later.");
 
-                            t.HasCheckConstraint("media_asset_kind_check", "kind in ('raster', 'svg', 'gif')");
+                            t.HasCheckConstraint("media_asset_kind_check", "kind in ('raster', 'svg', 'gif', 'video')");
 
                             t.HasCheckConstraint("media_asset_state_check", "state in ('pending', 'ready', 'orphaned')");
                         });
@@ -2934,6 +2944,12 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasForeignKey("DarkMediaId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("media_asset_dark_media_id_fkey");
+
+                    b.HasOne("Wmsfo.Api.Data.MediaAsset", null)
+                        .WithMany()
+                        .HasForeignKey("PosterMediaId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("media_asset_poster_media_id_fkey");
 
                     b.HasOne("Wmsfo.Api.Data.MediaAsset", null)
                         .WithMany()

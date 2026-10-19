@@ -147,6 +147,7 @@ public sealed class A14Host : IAsyncDisposable
         app.UseWmsfoPipeline();
         AdminContentEndpoints.MapAll(app);
         AdminMediaEndpoints.MapAll(app);
+        AdminImpactEndpoints.MapAll(app);
 
         // The /local-upload/{id} route - the local object store cannot presign,
         // so the ticket URL points at this route.

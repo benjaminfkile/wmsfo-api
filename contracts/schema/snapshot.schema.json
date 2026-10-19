@@ -398,6 +398,18 @@
               "string",
               "null"
             ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "posterMediaId": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false

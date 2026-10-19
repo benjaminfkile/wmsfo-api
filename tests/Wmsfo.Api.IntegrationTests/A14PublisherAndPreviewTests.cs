@@ -1386,9 +1386,11 @@ where id = $1 and s->>'kind' = 'map' and s->'data' ? 'themes';", conn);
         Assert.Equal(cdn + "/media/" + darkLogo + "/w480.webp", only.Value.GetString());
 
         // Keys follow the documented order: dark and invertInDark after dzi,
-        // then small, smallMediaId, and credit.
+        // then small, smallMediaId, credit, durationMs, and posterMediaId.
         var keys = entry.EnumerateObject().Select(p => p.Name).ToArray();
-        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark", "small", "smallMediaId", "credit" }, keys);
+        Assert.Equal(new[] { "url", "kind", "width", "height", "alt", "variants", "dzi", "dark", "invertInDark", "small", "smallMediaId", "credit", "durationMs", "posterMediaId" }, keys);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("durationMs").ValueKind);
+        Assert.Equal(JsonValueKind.Null, entry.GetProperty("posterMediaId").ValueKind);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("small").ValueKind);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("smallMediaId").ValueKind);
         Assert.Equal(JsonValueKind.Null, entry.GetProperty("credit").ValueKind);

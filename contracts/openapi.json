@@ -6889,6 +6889,21 @@
               "string"
             ]
           },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "posterMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "uploadedBy": {
             "type": "string"
           },
@@ -7019,6 +7034,21 @@
               "null",
               "string"
             ]
+          },
+          "durationMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "posterMediaId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7062,6 +7092,13 @@
               "null",
               "string"
             ]
+          },
+          "posterMediaId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -7172,6 +7209,12 @@
             "type": "boolean"
           },
           "darkVersionOf": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaUsageMediaRef"
+            }
+          },
+          "posterOf": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/MediaUsageMediaRef"

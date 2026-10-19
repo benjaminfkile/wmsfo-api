@@ -15,6 +15,9 @@ namespace Wmsfo.Api.Content;
 //
 //   - MediaRef mediaId names a media_asset row with state = 'ready'
 //   - media-sourced Icon names a ready media_asset
+//   - a video asset is named only by a rich_text `media` block's `media` or a
+//     `media` section item's `media` (contracts 1.3a); everywhere else it is
+//     "media asset `<id>` is a video and cannot be used here"
 //   - library-sourced Icon id exists in IconLibrary (a settings landmark's icon included)
 //   - Link.href and inline `[label](href)` matches the href rule
 //   - a `/<slug>` href names an existing, non-hidden `none` page (or role page's slug)
@@ -65,22 +68,7 @@ public sealed class ReferenceChecker
         visitor.WalkWorkingSet(workingSet);
 
         // Resolve every referenced media asset in one query.
-        var mediaRows = new Dictionary<Guid, string>();
-        if (visitor.MediaIds.Count > 0)
-        {
-            await using var cmd = new NpgsqlCommand(
-                "select id, state from media_asset where id = any($1);", connection, transaction);
-            cmd.Parameters.Add(new NpgsqlParameter
-            {
-                NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid,
-                Value = visitor.MediaIds.ToArray(),
-            });
-            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
-            while (await reader.ReadAsync(ct).ConfigureAwait(false))
-            {
-                mediaRows[reader.GetGuid(0)] = reader.GetString(1);
-            }
-        }
+        var mediaRows = await ReadMediaRowsAsync(visitor.MediaIds, connection, transaction, ct).ConfigureAwait(false);
 
         // Second pass: report media-ref problems now that we know each id's state.
         foreach (var ref_ in visitor.MediaRefs)
@@ -91,18 +79,23 @@ public sealed class ReferenceChecker
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
             }
-            if (!mediaRows.TryGetValue(g, out var state))
+            if (!mediaRows.TryGetValue(g, out var row))
             {
                 problems.Add(NewProblem(ref_.Path, $"media asset `{ref_.MediaId}` does not exist",
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
             }
-            if (!string.Equals(state, "ready", StringComparison.Ordinal))
+            if (!string.Equals(row.State, "ready", StringComparison.Ordinal))
             {
                 problems.Add(NewProblem(ref_.Path,
-                    $"media asset `{ref_.MediaId}` is not ready (state={state})",
+                    $"media asset `{ref_.MediaId}` is not ready (state={row.State})",
                     ref_.PageId, ref_.SectionId, ref_.ItemId));
                 continue;
+            }
+            if (row.Kind == "video" && !ref_.AllowsVideo)
+            {
+                problems.Add(NewProblem(ref_.Path, VideoMessage(ref_.MediaId),
+                    ref_.PageId, ref_.SectionId, ref_.ItemId));
             }
         }
 
@@ -128,6 +121,80 @@ public sealed class ReferenceChecker
 
     // Where a missing site route is reported.
     public const string SiteRouteIdPath = "/settings/route/routeId";
+
+    // The problem a video reports on a path that does not allow one.
+    public static string VideoMessage(string mediaId) =>
+        $"media asset `{mediaId}` is a video and cannot be used here";
+
+    // The video rule alone for a section write (contracts 1.3a): paths are
+    // `/data/...` and `/presentation/...`. Draft writes check nothing else
+    // about references, so a missing or pending asset is not reported here.
+    public static Task<IReadOnlyList<ProblemDto>> VideoProblemsInSectionAsync(
+        string kind, JsonNode? data, JsonNode? presentation,
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken ct)
+    {
+        var visitor = new Visitor(null, new HashSet<string>(StringComparer.Ordinal));
+        visitor.WalkWrite(kind, inItem: false, ("/data", data), ("/presentation", presentation));
+        return VideoProblemsAsync(visitor, connection, transaction, ct);
+    }
+
+    // The video rule alone for an item write; paths are `/data/...`.
+    public static Task<IReadOnlyList<ProblemDto>> VideoProblemsInItemAsync(
+        string kind, JsonNode? data,
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken ct)
+    {
+        var visitor = new Visitor(null, new HashSet<string>(StringComparer.Ordinal));
+        visitor.WalkWrite(kind, inItem: true, ("/data", data));
+        return VideoProblemsAsync(visitor, connection, transaction, ct);
+    }
+
+    // The video rule alone for a site settings write; paths are relative to
+    // the settings (`/logoMedia/mediaId`, `/landmarks/0/icon/id`).
+    public static Task<IReadOnlyList<ProblemDto>> VideoProblemsInSettingsAsync(
+        JsonNode? settings,
+        NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken ct)
+    {
+        var visitor = new Visitor(null, new HashSet<string>(StringComparer.Ordinal));
+        visitor.WalkSettingsWrite(settings);
+        return VideoProblemsAsync(visitor, connection, transaction, ct);
+    }
+
+    private static async Task<IReadOnlyList<ProblemDto>> VideoProblemsAsync(
+        Visitor visitor, NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken ct)
+    {
+        var problems = new List<ProblemDto>();
+        if (visitor.MediaRefs.All(r => r.AllowsVideo)) return problems;
+        var rows = await ReadMediaRowsAsync(visitor.MediaIds, connection, transaction, ct).ConfigureAwait(false);
+        foreach (var ref_ in visitor.MediaRefs)
+        {
+            if (ref_.AllowsVideo || !Guid.TryParse(ref_.MediaId, out var g)) continue;
+            if (rows.TryGetValue(g, out var row) && row.Kind == "video")
+                problems.Add(new ProblemDto { Path = ref_.Path, Message = VideoMessage(ref_.MediaId) });
+        }
+        return problems;
+    }
+
+    private sealed record MediaRow(string State, string Kind);
+
+    private static async Task<Dictionary<Guid, MediaRow>> ReadMediaRowsAsync(
+        HashSet<Guid> ids, NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken ct)
+    {
+        var rows = new Dictionary<Guid, MediaRow>();
+        if (ids.Count == 0) return rows;
+        await using var cmd = new NpgsqlCommand(
+            "select id, state, kind from media_asset where id = any($1);", connection, transaction);
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            NpgsqlDbType = NpgsqlDbType.Array | NpgsqlDbType.Uuid,
+            Value = ids.ToArray(),
+        });
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            rows[reader.GetGuid(0)] = new MediaRow(reader.GetString(1), reader.GetString(2));
+        }
+        return rows;
+    }
 
 
     private static ProblemRefDto NewProblem(string path, string message, long? pageId, long? sectionId, long? itemId) =>
@@ -157,10 +224,15 @@ public sealed class ReferenceChecker
         private long? _pageId;
         private long? _sectionId;
         private long? _itemId;
+        private string? _sectionKind;
+        private bool _inItem;
+        // The `kind` of the nearest enclosing object that has one (a block's kind).
+        private string? _blockKind;
         private string _basePath = "";
         private HashSet<string>? _pageAnchors;
 
-        public sealed record MediaAssetRef(string MediaId, string Path, long? PageId, long? SectionId, long? ItemId);
+        // AllowsVideo: the ref sits on one of the two paths a video may take.
+        public sealed record MediaAssetRef(string MediaId, string Path, long? PageId, long? SectionId, long? ItemId, bool AllowsVideo = false);
 
         public Visitor(IconLibrary? library, HashSet<string> visibleSlugs)
         {
@@ -193,7 +265,9 @@ public sealed class ReferenceChecker
                 foreach (var section in page.Sections)
                 {
                     _sectionId = section.Id;
+                    _sectionKind = section.Kind;
                     _itemId = null;
+                    _inItem = false;
 
                     // Map-on-live rule.
                     if (section.Kind == "map" && page.Role != "live")
@@ -224,6 +298,7 @@ public sealed class ReferenceChecker
                     foreach (var item in section.Items)
                     {
                         _itemId = item.Id;
+                        _inItem = true;
                         if (item.Data is not null)
                         {
                             _basePath = "/data";
@@ -231,10 +306,44 @@ public sealed class ReferenceChecker
                         }
                     }
                     _itemId = null;
+                    _inItem = false;
                 }
                 _sectionId = null;
+                _sectionKind = null;
             }
         }
+
+        // One section or item write: each node walked under its base path.
+        public void WalkWrite(string sectionKind, bool inItem, params (string BasePath, JsonNode? Node)[] nodes)
+        {
+            _sectionKind = sectionKind;
+            _inItem = inItem;
+            foreach (var (basePath, node) in nodes)
+            {
+                if (node is null) continue;
+                _basePath = basePath;
+                WalkNode(node);
+            }
+        }
+
+        // One site settings write, paths relative to the settings.
+        public void WalkSettingsWrite(JsonNode? settings)
+        {
+            if (settings is null) return;
+            _basePath = "";
+            WalkSettings(settings);
+        }
+
+        // The two paths a video may take: a rich_text `media` block's `media`
+        // (the block kind is the one WalkNode recorded on the way down) and a
+        // `media` section item's `media`.
+        private bool AllowsVideoAt(string path) =>
+            _inItem
+                ? _sectionKind == "media" && path == "/data/media"
+                : _sectionKind == "rich_text" && _blockKind == "media" && RichTextMediaBlockPath.IsMatch(path);
+
+        private static readonly System.Text.RegularExpressions.Regex RichTextMediaBlockPath =
+            new("^/data/blocks/[0-9]+/media$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
         private void CheckAnchor(JsonNode presentation)
         {
@@ -301,6 +410,8 @@ public sealed class ReferenceChecker
             switch (node)
             {
                 case JsonObject obj:
+                    var savedBlockKind = _blockKind;
+                    if (obj["kind"] is JsonValue kv0 && kv0.TryGetValue<string>(out var objKind)) _blockKind = objKind;
                     TryMediaRef(obj);
                     TryIcon(obj);
                     TryLink(obj);
@@ -312,6 +423,7 @@ public sealed class ReferenceChecker
                         WalkNode(kv.Value);
                         _basePath = saved;
                     }
+                    _blockKind = savedBlockKind;
                     break;
                 case JsonArray arr:
                     for (var i = 0; i < arr.Count; i++)
@@ -362,7 +474,8 @@ public sealed class ReferenceChecker
             if (!obj.TryGetPropertyValue("alt", out _)) return;
             if (mediaIdNode is not JsonValue mv || !mv.TryGetValue<string>(out var mediaId)) return;
             if (Guid.TryParse(mediaId, out var g)) MediaIds.Add(g);
-            MediaRefs.Add(new MediaAssetRef(mediaId, _basePath + "/mediaId", _pageId, _sectionId, _itemId));
+            MediaRefs.Add(new MediaAssetRef(mediaId, _basePath + "/mediaId", _pageId, _sectionId, _itemId,
+                AllowsVideoAt(_basePath)));
         }
 
         // Icon shape: `{ "source": "library"|"media", "id": <string>, "display"?: Display|null }`.

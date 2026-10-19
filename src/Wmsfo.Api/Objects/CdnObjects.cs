@@ -334,6 +334,11 @@ public sealed class MediaEntry
     [JsonPropertyOrder(10)] public string? SmallMediaId { get; set; }
     // The author or source the site names under the asset, or null when none.
     [JsonPropertyOrder(11)] public string? Credit { get; set; }
+    // A video's length in milliseconds; null for every other kind.
+    [JsonPropertyOrder(12)] public int? DurationMs { get; set; }
+    // A video's ready poster (the raster or gif drawn before play), which
+    // rides in the map as its own entry; null when none.
+    [JsonPropertyOrder(13)] public string? PosterMediaId { get; set; }
 }
 
 // MediaEntry.dark (contracts 1.3b): the dark version's own url and variants,

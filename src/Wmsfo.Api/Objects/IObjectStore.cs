@@ -77,6 +77,12 @@ public interface IObjectStore
         long to,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("this store has no ranged reads");
+
+    // The object's body as the store client's response stream, read as it
+    // arrives and never buffered whole (the video confirm hashes it through
+    // this), or null when the key is absent. The caller disposes it.
+    Task<Stream?> OpenReadAsync(string key, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("this store has no streamed reads");
 }
 
 // One uploaded part of a multipart upload as the uploader reports it.

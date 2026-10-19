@@ -6,18 +6,26 @@ namespace Wmsfo.Api.Objects;
 // The media map read shared by the snapshot builder and the preview (contracts
 // 1.3b, sql.md 7): one row per asset with its ready dark version and its ready
 // small version (with the small version's own ready dark version) joined in,
-// and its credit.
+// its credit, and a video's duration and ready poster.
 public static class MediaMapRows
 {
     public const string Select = @"
 select m.id, m.s3_key, m.kind, m.width, m.height, m.alt, m.variants, m.dzi_key,
        m.invert_in_dark, d.s3_key, d.variants,
        s.id, s.s3_key, s.variants, s.invert_in_dark, sd.s3_key, sd.variants,
-       m.credit
+       m.credit, m.duration_ms, p.id
 from media_asset m
 left join media_asset d on d.id = m.dark_media_id and d.state = 'ready'
 left join media_asset s on s.id = m.small_media_id and s.state = 'ready'
-left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'";
+left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'
+left join media_asset p on p.id = m.poster_media_id and m.kind = 'video' and p.state = 'ready'";
+
+    // The rows of the ids in $1 (a uuid array) plus the poster of every video
+    // among them: a poster rides in the map as its own entry (contracts 1.3b).
+    public const string WhereIdsWithPosters = @"
+where (m.id = any($1) or m.id in (
+  select v.poster_media_id from media_asset v
+  where v.id = any($1) and v.kind = 'video' and v.poster_media_id is not null))";
 
     public static (Guid Id, MediaEntry Entry) Read(NpgsqlDataReader reader, string cdn)
     {
@@ -34,6 +42,8 @@ left join media_asset sd on sd.id = s.dark_media_id and sd.state = 'ready'";
             Dzi = dziKey is null ? null : cdn + "/" + dziKey,
             InvertInDark = reader.GetBoolean(8),
             Credit = reader.IsDBNull(17) ? null : reader.GetString(17),
+            DurationMs = reader.IsDBNull(18) ? null : reader.GetInt32(18),
+            PosterMediaId = reader.IsDBNull(19) ? null : reader.GetGuid(19).ToString(),
         };
         if (!reader.IsDBNull(9))
         {

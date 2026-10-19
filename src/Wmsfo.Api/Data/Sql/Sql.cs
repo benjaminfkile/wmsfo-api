@@ -769,6 +769,8 @@ with refs as (
     where state = 'ready' and dark_media_id is not null
   union select small_media_id from media_asset
     where state = 'ready' and small_media_id is not null
+  union select poster_media_id from media_asset
+    where state = 'ready' and kind = 'video' and poster_media_id is not null
 )
 select id from refs;";
 

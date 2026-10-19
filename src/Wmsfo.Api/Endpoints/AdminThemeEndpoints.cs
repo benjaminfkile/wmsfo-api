@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Endpoints.Impact;
@@ -790,6 +791,8 @@ where renderer = $1 and id <> $2 and ((default_light_mode and $3) or (default_da
         var kind = reader.GetString(1);
         if (state != "ready")
             throw new ApiException(StatusCodes.Status409Conflict, "media_not_ready", "media asset is not ready");
+        if (kind == "video")
+            RequestValidation.Throw("thumbnailMediaId", ReferenceChecker.VideoMessage(mediaId.ToString()));
         if (kind != "raster")
             RequestValidation.Throw("thumbnailMediaId", "must be a raster media asset");
     }

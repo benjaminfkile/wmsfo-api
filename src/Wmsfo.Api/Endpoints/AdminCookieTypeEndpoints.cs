@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
@@ -257,7 +258,7 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
     }
 
     // Library id must exist in the compiled library; media id must be a ready
-    // media_asset of any kind.
+    // media_asset of any kind but video.
     private static async Task CheckIconAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, IconValue? icon, IconLibrary library, CancellationToken ct)
     {
@@ -275,18 +276,23 @@ values ($1, $2, $3, $4::jsonb, now()) returning id;", conn, tx))
                 throw new ApiException(StatusCodes.Status400BadRequest,
                     ApiErrorCodes.ValidationFailed, "icon.id must be a uuid for media source");
             string? state = null;
+            string? kind = null;
             await using (var cmd = new NpgsqlCommand(
-                "select state from media_asset where id = $1;", conn, tx))
+                "select state, kind from media_asset where id = $1;", conn, tx))
             {
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = mediaId });
                 await using var reader = await cmd.ExecuteReaderAsync(ct);
                 if (!await reader.ReadAsync(ct))
                     throw NotFound("media not found");
                 state = reader.GetString(0);
+                kind = reader.GetString(1);
             }
             if (!string.Equals(state, "ready", StringComparison.Ordinal))
                 throw new ApiException(StatusCodes.Status409Conflict,
                     "media_not_ready", "media asset is not ready");
+            // A cookie type icon is never a video (contracts 1.3b).
+            if (kind == "video")
+                RequestValidation.Throw("icon.id", ReferenceChecker.VideoMessage(icon.Id));
         }
     }
 

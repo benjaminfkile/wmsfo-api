@@ -361,7 +361,7 @@ public sealed class WmsfoDbContext : DbContext
             e.ToTable("media_asset", t =>
             {
                 t.HasComment("The media library. pending: ticket issued, bytes may or may not be in the bucket. ready: confirmed. orphaned: unreferenced for 30 days, objects tagged for lifecycle expiry; the row is deleted 8 days later.");
-                t.HasCheckConstraint("media_asset_kind_check", "kind in ('raster', 'svg', 'gif')");
+                t.HasCheckConstraint("media_asset_kind_check", "kind in ('raster', 'svg', 'gif', 'video')");
                 t.HasCheckConstraint("media_asset_state_check", "state in ('pending', 'ready', 'orphaned')");
             });
             e.HasKey(x => x.Id).HasName("media_asset_pkey");
@@ -370,7 +370,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Filename).HasColumnType("text").IsRequired();
             e.Property(x => x.ContentType).HasColumnType("text").IsRequired();
             e.Property(x => x.Kind).HasColumnType("text").IsRequired()
-                .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated.");
+                .HasComment("raster: png, jpeg, webp (variants derived). gif: stored as is. svg: validated. video: mp4, read by ranges at confirm, no variants.");
             e.Property(x => x.State).HasColumnType("text").IsRequired();
             e.Property(x => x.S3Key).HasColumnName("s3_key").HasColumnType("text").IsRequired()
                 .HasComment("media/{id}/{filename}; the original bytes.");
@@ -390,6 +390,10 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("The small screen version of this asset (contracts 1.3b): another ready media_asset the site draws in its place under its 760 px cut; null when none. A deleted small version unlinks.");
             e.Property(x => x.Credit).HasColumnName("credit").HasColumnType("text")
                 .HasComment("The author or source the site names under the asset (contracts 1.3b), 1 to 200 characters; null when none.");
+            e.Property(x => x.DurationMs).HasColumnName("duration_ms").HasColumnType("integer")
+                .HasComment("A video's length in milliseconds, read from its mvhd box at confirm (api.md 11.3); null for every other kind.");
+            e.Property(x => x.PosterMediaId).HasColumnName("poster_media_id").HasColumnType("uuid")
+                .HasComment("A video's poster (contracts 1.3b): another ready raster or gif media_asset the site draws before play; null when none. A deleted poster unlinks.");
             e.Property(x => x.Alt).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.Title).HasColumnType("text").IsRequired().HasDefaultValue("");
             e.Property(x => x.UploadedBy).HasColumnType("text").IsRequired();
@@ -403,6 +407,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasConstraintName("media_asset_dark_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
             e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.SmallMediaId)
                 .HasConstraintName("media_asset_small_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
+            e.HasOne<MediaAsset>().WithMany().HasForeignKey(x => x.PosterMediaId)
+                .HasConstraintName("media_asset_poster_media_id_fkey").OnDelete(DeleteBehavior.SetNull);
         });
 
         // 3.10 sponsor

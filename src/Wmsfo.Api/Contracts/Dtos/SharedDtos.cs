@@ -488,6 +488,10 @@ public sealed class MediaAssetDto
     public bool InvertInDark { get; set; }
     public string? SmallMediaId { get; set; }
     public string? Credit { get; set; }
+    // A video's length in milliseconds; null for every other kind.
+    public int? DurationMs { get; set; }
+    // A video's poster: the raster or gif asset drawn before play; null when none.
+    public string? PosterMediaId { get; set; }
     public string UploadedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? ConfirmedAt { get; set; }
@@ -516,6 +520,8 @@ public sealed class MediaUsageDto
     public bool SiteSettings { get; set; }
     // The assets this one is the dark version of ("dark version of <filename>").
     public IList<MediaUsageMediaRef> DarkVersionOf { get; set; } = new List<MediaUsageMediaRef>();
+    // The videos this one is the poster of ("poster of <filename>").
+    public IList<MediaUsageMediaRef> PosterOf { get; set; } = new List<MediaUsageMediaRef>();
 }
 
 public sealed class MediaUsagePageRef { public long Id { get; set; } public string Slug { get; set; } = ""; public string Title { get; set; } = ""; }

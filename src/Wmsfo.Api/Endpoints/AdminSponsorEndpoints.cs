@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Routing;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
+using Wmsfo.Api.Content;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
@@ -184,19 +185,24 @@ values ($1, $2, $3, $4, $5, $6, $7, $8, now()) returning id;", conn, tx))
                     if (setLogo && parsedLogo is not null)
                     {
                         string? state = null;
+                        string? kind = null;
                         await using (var read = new NpgsqlCommand(
-                            "select state from media_asset where id = $1;", conn, tx))
+                            "select state, kind from media_asset where id = $1;", conn, tx))
                         {
                             read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = parsedLogo.Value });
-                            var r = await read.ExecuteScalarAsync(token);
-                            if (r is null || r is DBNull) throw NotFound("media not found");
-                            state = (string)r;
+                            await using var r = await read.ExecuteReaderAsync(token);
+                            if (!await r.ReadAsync(token)) throw NotFound("media not found");
+                            state = r.GetString(0);
+                            kind = r.GetString(1);
                         }
                         if (!string.Equals(state, "ready", StringComparison.Ordinal))
                         {
                             throw new ApiException(StatusCodes.Status409Conflict,
                                 "media_not_ready", "media asset is not ready");
                         }
+                        // A sponsor logo is never a video (contracts 1.3b).
+                        if (kind == "video")
+                            RequestValidation.Throw("logoMediaId", ReferenceChecker.VideoMessage(parsedLogo.Value.ToString()));
                     }
 
                     var sets = new List<string>();

@@ -4,7 +4,7 @@ using Wmsfo.Api.Contracts.Dtos;
 
 namespace Wmsfo.Api.Media;
 
-// api.md 11.5 / sql.md 8.22: the seven usage statements run in order to build
+// api.md 11.5 / sql.md 8.22: the eight usage statements run in order to build
 // the MediaUsage DTO for GET /admin/media/{id}/usage and the DELETE pre-check.
 // The text-match usage queries are exact because the id is a UUID that cannot
 // occur by accident; the working set is small enough for a scan.
@@ -130,6 +130,22 @@ order by id;", conn))
             }
         }
 
+        // 7. Videos whose poster this is.
+        await using (var cmd = new NpgsqlCommand(
+            "select id, filename from media_asset where poster_media_id = $1 order by filename, id;", conn))
+        {
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = id });
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                usage.PosterOf.Add(new MediaUsageMediaRef
+                {
+                    Id = reader.GetGuid(0).ToString(),
+                    Filename = reader.GetString(1),
+                });
+            }
+        }
+
         return usage;
     }
 
@@ -140,5 +156,6 @@ order by id;", conn))
         || usage.CookieTypes.Count > 0
         || usage.Themes.Count > 0
         || usage.SiteSettings
-        || usage.DarkVersionOf.Count > 0;
+        || usage.DarkVersionOf.Count > 0
+        || usage.PosterOf.Count > 0;
 }

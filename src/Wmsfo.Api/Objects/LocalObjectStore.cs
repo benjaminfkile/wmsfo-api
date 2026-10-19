@@ -327,6 +327,15 @@ public sealed class LocalObjectStore : IObjectStore
         return buffer;
     }
 
+    public Task<Stream?> OpenReadAsync(string key, CancellationToken cancellationToken = default)
+    {
+        ValidateKey(key);
+        var absolute = ResolvePath(key);
+        if (!File.Exists(absolute)) return Task.FromResult<Stream?>(null);
+        return Task.FromResult<Stream?>(
+            new FileStream(absolute, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true));
+    }
+
     private string UploadDir(string uploadId) => Path.Combine(_rootDir, MultipartDir, uploadId);
 
     private static string PartPath(string uploadDir, int partNumber) =>
