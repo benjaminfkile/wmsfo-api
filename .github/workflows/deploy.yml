@@ -49,10 +49,9 @@ jobs:
 
   deploy:
     needs: test
-    # Runs for pushes to dev (environment dev, service wmsfo-api-dev). Widen to
-    # every push once the prod manifest entry and the prod environment secrets
-    # exist (docs/platform.md section 13).
-    if: github.event_name == 'push' && github.ref_name == 'dev'
+    # Pushes to dev deploy wmsfo-api-dev (environment dev); pushes to main
+    # deploy wmsfo-api (environment prod). docs/platform.md section 9.1.
+    if: github.event_name == 'push' && (github.ref_name == 'dev' || github.ref_name == 'main')
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     permissions:

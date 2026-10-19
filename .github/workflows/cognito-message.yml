@@ -22,10 +22,11 @@ jobs:
 
   deploy:
     needs: test
-    # Pushes to dev update the dev function; main does not deploy.
-    if: github.event_name == 'push' && github.ref_name == 'dev'
+    # Pushes to dev update the dev function (environment dev); pushes to main
+    # update the prod function (environment prod).
+    if: github.event_name == 'push' && (github.ref_name == 'dev' || github.ref_name == 'main')
     runs-on: ubuntu-latest
-    environment: dev
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     permissions:
       id-token: write
       contents: read
