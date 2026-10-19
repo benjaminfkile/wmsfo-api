@@ -215,7 +215,7 @@ public sealed class AlertSender
         using var cmd = new NpgsqlCommand("select name from event where id = $1", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         var r = cmd.ExecuteScalar();
-        return r is string s ? s : "Santa tracker";
+        return r is string s ? s : "Western Montana Santa Flyover";
     }
 
     private string? LookupMessageBody(long messageId)

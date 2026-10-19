@@ -93,8 +93,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
         Assert.Equal(EmailLogo.ImmutableCacheControl, head.CacheControl);
         var stored = await store.GetObjectAsync(key);
         using var tile = Image.Load<Rgba32>(stored!.Bytes);
-        Assert.Equal(192, tile.Width);
-        Assert.Equal(192, tile.Height);
+        Assert.Equal(256, tile.Width);
+        Assert.Equal(128, tile.Height);
     }
 
     [Fact]
@@ -118,8 +118,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
         Assert.Contains("<img src=\"" + templates.Logo.Url + "\"", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Ornaments.Url + "\"", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Lights.Url + "\"", rendered.Html);
-        Assert.Contains("alt=\"Santa Tracker\"", rendered.Html);
-        Assert.StartsWith("Santa Tracker\n", rendered.Text);
+        Assert.Contains("alt=\"Western Montana Santa Flyover\"", rendered.Html);
+        Assert.StartsWith("Western Montana Santa Flyover\n", rendered.Text);
     }
 
     [Fact]

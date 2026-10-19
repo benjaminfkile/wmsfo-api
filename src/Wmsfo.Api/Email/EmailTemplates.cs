@@ -31,11 +31,11 @@ public sealed class EmailTemplates
         new(@"^[ \t]*\{\{footerLink\}\}\n", RegexOptions.Compiled | RegexOptions.Multiline);
 
     // The layout's {{siteName}} when the values of a render do not carry one.
-    public const string DefaultSiteName = "Santa Tracker";
+    public const string DefaultSiteName = "Western Montana Santa Flyover";
 
     // Footer reasons: why the reader got the email.
     private const string AlertFooterReason =
-        "You are receiving this because you signed up for Santa Tracker alerts at this address.";
+        "You are receiving this because you signed up for Western Montana Santa Flyover alerts at this address.";
 
     // The footer line of every alert, after the reason: the one-click
     // unsubscribe link.
@@ -70,11 +70,11 @@ public sealed class EmailTemplates
     public static readonly IReadOnlyDictionary<string, TemplateSpec> Specs =
         new Dictionary<string, TemplateSpec>(StringComparer.Ordinal)
         {
-            [SubscriptionVerify] = new("Confirm your Santa tracker alerts",
+            [SubscriptionVerify] = new("Confirm your Western Montana Santa Flyover alerts",
                 RequiredTokens: ImmutableArray.Create("verifyUrl", "siteUrl"),
                 SubjectTokens: ImmutableArray<string>.Empty,
-                Preheader: "One click confirms this address and turns on your Santa Tracker alerts.",
-                FooterReason: "You are receiving this because someone asked for Santa Tracker alerts at this address.",
+                Preheader: "One click confirms this address and turns on your Western Montana Santa Flyover alerts.",
+                FooterReason: "You are receiving this because someone asked for Western Montana Santa Flyover alerts at this address.",
                 Pill: new("Confirm", "#e6f0fa", "#0b6bb5", "pillAccent")),
             [EventPlanned] = new("Santa's flight is in the works",
                 RequiredTokens: ImmutableArray.Create("customMessage", "siteUrl", "unsubscribeUrl"),

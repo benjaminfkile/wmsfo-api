@@ -1,6 +1,6 @@
 Confirm your alerts
 
-Thanks for signing up for Santa Tracker alerts. Confirm this address and we will let you know when Santa's flight is planned, scheduled, and in the air.
+Thanks for signing up for Western Montana Santa Flyover alerts. Confirm this address and we will let you know when Santa's flight is planned, scheduled, and in the air.
 
 Confirm this address by visiting:
 {{verifyUrl}}

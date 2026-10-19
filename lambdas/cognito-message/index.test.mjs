@@ -44,12 +44,12 @@ async function captureLog(fn) {
 }
 
 const CASES = [
-  ["CustomMessage_SignUp", "account_signup_code", "Your Santa Tracker code"],
-  ["CustomMessage_ResendCode", "account_signup_code", "Your Santa Tracker code"],
-  ["CustomMessage_ForgotPassword", "account_reset_code", "Reset your Santa Tracker password"],
+  ["CustomMessage_SignUp", "account_signup_code", "Your Western Montana Santa Flyover code"],
+  ["CustomMessage_ResendCode", "account_signup_code", "Your Western Montana Santa Flyover code"],
+  ["CustomMessage_ForgotPassword", "account_reset_code", "Reset your Western Montana Santa Flyover password"],
   ["CustomMessage_UpdateUserAttribute", "account_email_code", "Confirm your email address"],
   ["CustomMessage_VerifyUserAttribute", "account_email_code", "Confirm your email address"],
-  ["CustomMessage_AdminCreateUser", "account_admin_invite", "Your Santa Tracker admin account"],
+  ["CustomMessage_AdminCreateUser", "account_admin_invite", "Your Western Montana Santa Flyover admin account"],
 ];
 
 for (const [triggerSource, template, subject] of CASES) {
@@ -86,7 +86,7 @@ test("the fragment text of each template is in its body", async () => {
   const handler = createHandler(settings);
   const expected = {
     CustomMessage_SignUp: [
-      "Here is your code to finish signing up for the Santa Tracker.",
+      "Here is your code to finish signing up for Western Montana Santa Flyover.",
       "It expires in 24 hours. If you did not sign up, you can ignore this email.",
     ],
     CustomMessage_ForgotPassword: [
@@ -94,11 +94,11 @@ test("the fragment text of each template is in its body", async () => {
       "It expires in 1 hour. If you did not ask for this, you can ignore this email; your password has not changed.",
     ],
     CustomMessage_UpdateUserAttribute: [
-      "Use this code to confirm this email address for your Santa Tracker account.",
+      "Use this code to confirm this email address for your Western Montana Santa Flyover account.",
       "It expires in 24 hours.",
     ],
     CustomMessage_AdminCreateUser: [
-      "An account was created for you on the Santa Tracker admin panel.",
+      "An account was created for you on the Western Montana Santa Flyover admin panel.",
       "The temporary password expires in 7 days. You will choose your own password and set up an authenticator app when you first sign in.",
     ],
   };
@@ -141,7 +141,7 @@ test("a forced render error returns the event untouched without throwing", async
 
     // The other templates still render.
     const [other] = await captureLog(() => handler(event("CustomMessage_ForgotPassword")));
-    assert.equal(other.response.emailSubject, "Reset your Santa Tracker password");
+    assert.equal(other.response.emailSubject, "Reset your Western Montana Santa Flyover password");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
