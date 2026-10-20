@@ -15,6 +15,7 @@ public sealed class ChoreHost : BackgroundService
     public static readonly TimeSpan AlertCadence = TimeSpan.FromSeconds(5);
     public static readonly TimeSpan StaleCadence = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan OrphanCadence = TimeSpan.FromHours(1);
+    public static readonly TimeSpan ContactInboxCadence = TimeSpan.FromSeconds(60);
     public static readonly TimeSpan NightlyPollCadence = TimeSpan.FromMinutes(1);
 
     // Nightly cleanup fires at 09:00 UTC exactly once per day, the pending
@@ -31,6 +32,7 @@ public sealed class ChoreHost : BackgroundService
     private readonly MediaOrphanCollector _orphan;
     private readonly NightlyCleanup _nightly;
     private readonly PendingMapSweeper _mapSweep;
+    private readonly ContactInboxImporter _contactInbox;
     private readonly IChoreClock _clock;
     private readonly ILogger<ChoreHost> _logger;
 
@@ -45,6 +47,7 @@ public sealed class ChoreHost : BackgroundService
         MediaOrphanCollector orphan,
         NightlyCleanup nightly,
         PendingMapSweeper mapSweep,
+        ContactInboxImporter contactInbox,
         IChoreClock clock,
         ILogger<ChoreHost> logger)
     {
@@ -56,6 +59,7 @@ public sealed class ChoreHost : BackgroundService
         _orphan = orphan;
         _nightly = nightly;
         _mapSweep = mapSweep;
+        _contactInbox = contactInbox;
         _clock = clock;
         _logger = logger;
     }
@@ -73,9 +77,10 @@ public sealed class ChoreHost : BackgroundService
         var alertTask = RunOnCadenceAsync("alert", AlertCadence, _alert.RunOnceAsync, stoppingToken);
         var staleTask = RunOnCadenceAsync("stale-beacon", StaleCadence, _stale.RunOnceAsync, stoppingToken);
         var orphanTask = RunOnCadenceAsync("media-orphan", OrphanCadence, _orphan.RunOnceAsync, stoppingToken);
+        var contactInboxTask = RunOnCadenceAsync("contact-inbox", ContactInboxCadence, _contactInbox.RunOnceAsync, stoppingToken);
         var nightlyTask = RunNightlyAsync(stoppingToken);
 
-        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, nightlyTask).ConfigureAwait(false);
+        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask).ConfigureAwait(false);
     }
 
     // Cadenced runner. Every chore starts only while IsLeader at the tick,

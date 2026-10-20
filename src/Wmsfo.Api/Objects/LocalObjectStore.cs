@@ -92,6 +92,8 @@ public sealed class LocalObjectStore : IObjectStore
             enumerateFrom = parent;
         }
 
+        // Ascending ordinal key order, as S3's ListObjectsV2 answers.
+        var matches = new List<(string Key, string Path)>();
         foreach (var path in Directory.EnumerateFiles(enumerateFrom, enumerationPattern, SearchOption.AllDirectories))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -99,8 +101,13 @@ public sealed class LocalObjectStore : IObjectStore
             var relative = KeyOf(path);
             if (relative.StartsWith(MultipartDir + "/", StringComparison.Ordinal)) continue;
             if (!relative.StartsWith(prefix, StringComparison.Ordinal)) continue;
-            var length = new FileInfo(path).Length;
-            yield return new ObjectListEntry(relative, length);
+            matches.Add((relative, path));
+        }
+        matches.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+        foreach (var (relative, path) in matches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            yield return new ObjectListEntry(relative, new FileInfo(path).Length);
         }
 
         await Task.CompletedTask;

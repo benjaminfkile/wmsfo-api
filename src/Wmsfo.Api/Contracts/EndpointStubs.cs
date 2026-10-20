@@ -255,7 +255,7 @@ public static class EndpointStubs
         app.MapPost("/contact", NotImplemented)
             .WithTags("Public")
             .Accepts<ContactRequest>("application/json")
-            .Produces<ContactResponse>(StatusCodes.Status201Created);
+            .Produces<ContactResponse>(StatusCodes.Status202Accepted);
 
         app.MapPost("/subscriptions/verify", NotImplemented)
             .WithTags("Public")

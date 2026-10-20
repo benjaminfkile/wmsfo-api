@@ -571,4 +571,17 @@ public static class FixtureData
             ExpectedVersion = 3,
         };
     }
+
+    public static ContactInboxObject BuildContactInbox()
+    {
+        // contracts 4.3: the object `POST /contact` writes under contact-inbox/.
+        return new ContactInboxObject
+        {
+            Name = "Jane Doe",
+            Email = "jane@example.com",
+            Message = "Hello",
+            ClientIp = "203.0.113.7",
+            ReceivedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.123Z"),
+        };
+    }
 }

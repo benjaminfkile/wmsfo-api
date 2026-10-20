@@ -20,6 +20,8 @@ public interface IObjectStore
 
     Task DeleteObjectAsync(string key, CancellationToken cancellationToken = default);
 
+    // Every key under the prefix in ascending ordinal key order (S3's
+    // ListObjectsV2 order), so a time-first key lists oldest first.
     IAsyncEnumerable<ObjectListEntry> ListPrefixAsync(
         string prefix,
         CancellationToken cancellationToken = default);

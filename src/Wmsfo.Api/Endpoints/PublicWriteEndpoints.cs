@@ -4,18 +4,22 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
+using Wmsfo.Api.Node;
+using Wmsfo.Api.Objects;
 using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.3 public writes.
-// POST /contact - sql.md 8.13: one transaction inserts contact_message and the
-// outbox row; the SES send is a leader chore, never awaited.
+// POST /contact - sql.md 8.13: one PUT of the inbox object under
+// contact-inbox/; no database statement. The leader's ContactInboxImporter
+// moves it into contact_message and the outbox.
 // POST /subscriptions/verify - sql.md 8.12 autocommit verify.
 // POST /subscriptions/unsubscribe - token from query or JSON, also
 // form-urlencoded per RFC 8058 (the form body is ignored).
@@ -28,63 +32,58 @@ public static class PublicWriteEndpoints
         MapUnsubscribe(app);
     }
 
-    // POST /contact: 201 { id, createdAt }. name 1..100, email 3..254, message 1..2000.
+    // POST /contact: 202 { receivedAt }. name 1..100, email 3..254, message
+    // 1..2000. One PUT of the inbox object, no database statement.
     private static void MapContact(IEndpointRouteBuilder app)
     {
         app.MapPost("/contact",
-            async (ContactRequest body, HttpContext ctx,
-                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (ContactRequest body, HttpContext ctx, IObjectStore store,
+                   ILoggerFactory loggers, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 var name = body.Name?.Trim() ?? "";
                 var email = (body.Email ?? "").Trim();
                 var message = body.Message ?? "";
-                if (name.Length < 1 || name.Length > 100)
+                if (!ContactInbox.ValidName(name))
                     v.Field("name", "must be 1 to 100 characters");
-                if (email.Length < 3 || email.Length > 254 || !LooksLikeEmail(email))
+                if (!ContactInbox.ValidEmail(email))
                     v.Field("email", "must be a valid email address");
-                if (message.Length < 1 || message.Length > 2000)
+                if (!ContactInbox.ValidMessage(message))
                     v.Field("message", "must be 1 to 2000 characters");
                 v.ThrowIfInvalid();
 
-                var clientIp = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-
-                long id;
-                DateTimeOffset createdAt;
-                await using (var tx = await conn.BeginTransactionAsync(ct))
+                var receivedAt = ContactInbox.Now(DateTimeOffset.UtcNow);
+                var inbox = new ContactInboxObject
                 {
-                    await using (var insert = new NpgsqlCommand(@"
-insert into contact_message (name, email, body, client_ip)
-values ($1, $2, $3, $4) returning id, created_at;", conn, tx))
-                    {
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = name });
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = message });
-                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = clientIp });
-                        await using var reader = await insert.ExecuteReaderAsync(ct);
-                        await reader.ReadAsync(ct);
-                        id = reader.GetInt64(0);
-                        createdAt = reader.GetFieldValue<DateTimeOffset>(1);
-                    }
-                    var payload = JsonSerializer.Serialize(new { contactMessageId = id });
-                    await using (var outbox = new NpgsqlCommand(@"
-insert into outbox (topic, payload) values ('contact.received', $1::jsonb);", conn, tx))
-                    {
-                        outbox.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
-                        await outbox.ExecuteNonQueryAsync(ct);
-                    }
-                    await tx.CommitAsync(ct);
+                    Name = name,
+                    Email = email,
+                    Message = message,
+                    ClientIp = ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    ReceivedAt = receivedAt,
+                };
+                var key = ContactInbox.KeyFor(receivedAt);
+                try
+                {
+                    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    cts.CancelAfter(SnapshotBuilder.PutTimeout);
+                    await store.PutObjectAsync(key, CanonicalJson.SerializeToUtf8Bytes(inbox),
+                        ContactInbox.ContentType, ContactInbox.CacheControl, tag: null, cts.Token);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    loggers.CreateLogger(typeof(PublicWriteEndpoints).FullName!)
+                        .LogWarning(ex, "contact PUT failed; key={Key}", key);
+                    throw new ApiException(StatusCodes.Status502BadGateway, ContactInbox.WriteFailedCode,
+                        "contact message upload failed");
                 }
 
-                return Results.Json(new ContactResponse { Id = id, CreatedAt = createdAt },
-                    statusCode: StatusCodes.Status201Created);
+                // Canonical options, so receivedAt reads as the object carries it.
+                return Results.Json(new ContactResponse { ReceivedAt = receivedAt }, CanonicalJson.Options,
+                    statusCode: StatusCodes.Status202Accepted);
             })
             .WithTags("Public")
             .Accepts<ContactRequest>("application/json")
-            .Produces<ContactResponse>(StatusCodes.Status201Created)
+            .Produces<ContactResponse>(StatusCodes.Status202Accepted)
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireRateLimiting(RateLimitPolicies.ContactPerNode);
     }
@@ -245,19 +244,6 @@ where unsubscribe_token = $1 returning id;", conn);
             var ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
                 || c == '-' || c == '_';
             if (!ok) return false;
-        }
-        return true;
-    }
-
-    private static bool LooksLikeEmail(string address)
-    {
-        var at = address.IndexOf('@');
-        if (at <= 0 || at != address.LastIndexOf('@') || at == address.Length - 1) return false;
-        var domain = address.AsSpan(at + 1);
-        if (domain.IsEmpty || domain.IndexOf('.') < 0) return false;
-        foreach (var c in address)
-        {
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ',' || c == ';') return false;
         }
         return true;
     }

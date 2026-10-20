@@ -221,8 +221,8 @@
           "required": true
         },
         "responses": {
-          "201": {
-            "description": "Created",
+          "202": {
+            "description": "Accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -4676,15 +4676,7 @@
       "ContactResponse": {
         "type": "object",
         "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "createdAt": {
+          "receivedAt": {
             "type": "string",
             "format": "date-time"
           }

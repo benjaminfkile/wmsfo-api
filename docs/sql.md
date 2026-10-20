@@ -50,7 +50,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `subscriber` | Alert subscriptions | Person and admin writes; nightly cleanup | about 20k |
 | `cookie_type` | Admin-managed cookie types with an icon value | Admin writes; migration seed | tens |
 | `cookie` | Cookies left during live events | `POST /cookies` | up to `cookie_limit_per_person` × people per event |
-| `contact_message` | Contact form submissions | `POST /contact`; migration tool | tens per year |
+| `contact_message` | Contact form submissions | the contact inbox import of `POST /contact` objects (9.8); migration tool | tens per year |
 | `app_setting` | The admin knobs of contracts 6, one row per key | `PUT /admin/settings/{key}`; seed; migration tool | 9 |
 | `media_asset` | The media library: one row per upload, state, dimensions, variants | Upload ticket, confirm, patch, delete; orphan chore; migration tool | hundreds |
 | `page` | Site pages: seven role pages plus ordinary pages | Editor writes; seed; restore | tens |
@@ -1726,9 +1726,13 @@ where unsubscribe_token = $token;                                             --
 
 ### 8.13 Contact (`POST /contact`)
 
+The request writes nothing to the database: it PUTs one object under `contact-inbox/` (contracts 4.3) and answers `202`. The leader's contact inbox import (9.8) runs these statements per object, `$created_at` being the object's `receivedAt`:
+
 ```sql
 begin;
-insert into contact_message (name, email, body, client_ip) values ($name, $email, $body, $client_ip) returning id, created_at;
+select 1 from contact_message where email = $email and created_at = $created_at;
+  -- a row: a previous run committed this object and its delete failed; insert nothing
+insert into contact_message (name, email, body, client_ip, created_at) values ($name, $email, $body, $client_ip, $created_at) returning id;
 insert into outbox (topic, payload) values ('contact.received', jsonb_build_object('contactMessageId', $id));
 commit;
 ```
@@ -2101,6 +2105,15 @@ select id, prefix from tracker_map where state = 'pending' and created_at < now(
 ```
 
 A map the CLI confirms within the day is `ready` and never selected; a failed S3 call leaves the row for the next run. The bucket's lifecycle rule aborts the same uploads on its own after a day (platform.md 1.1), so the abort here usually finds nothing.
+
+### 9.8 Contact inbox import (every 60 s)
+
+```sql
+-- ListObjectsV2 under contact-inbox/ (keys sort by arrival time); the first 100 keys. Per key: GetObject, parse, then
+-- the transaction of 8.13; on commit DeleteObject.
+```
+
+An object that fails to parse or to pass the rules of contracts 4.3 is deleted with a Warning naming its key and runs no statement. A database failure rolls the transaction back and leaves the object for the next run. A delete that fails after the commit is a Warning; the next run's `select` finds the row (same `email`, same `created_at` to the millisecond) and the object is deleted without an insert. `contact_message` has no index on `email`; the check reads a table of tens of rows a year. One log line per run carries the counts. The bucket's lifecycle rule expires the prefix after 7 days (platform.md 1.1), the backstop while the chore is down.
 
 ---
 

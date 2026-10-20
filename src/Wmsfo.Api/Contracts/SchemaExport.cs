@@ -38,6 +38,7 @@ public static class SchemaExport
         yield return ("place", Build(typeof(PlaceDto)));
         yield return ("place-pin", Build(typeof(PlacePinDto)));
         yield return ("delete-impact", Build(typeof(DeleteImpactDto)));
+        yield return ("contact-inbox", Build(typeof(ContactInboxObject)));
     }
 
     public static void WriteAll(string outputDir)

@@ -8,10 +8,10 @@ public sealed class ContactRequest
     public string Message { get; set; } = "";
 }
 
+// 202: the time the inbox object was written; the row does not exist yet.
 public sealed class ContactResponse
 {
-    public long Id { get; set; }
-    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset ReceivedAt { get; set; }
 }
 
 // POST /subscriptions/verify (contracts 4.3).

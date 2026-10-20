@@ -358,11 +358,17 @@ set unsubscribed_at = coalesce(unsubscribed_at, now()),
     updated_at = now()
 where id = @subscriber_id and person_id = @person_id;";
 
-    // 8.13 Contact.
+    // 8.13 Contact: the request writes nothing; the leader's
+    // ContactInboxImporter runs these per inbox object, the check first so a
+    // rerun over an object whose delete failed inserts nothing, then the two
+    // statements in one transaction.
+    public const string ContactMessageImported = @"
+select 1 from contact_message where email = @email and created_at = @created_at;";
+
     public const string ContactMessageInsert = @"
-insert into contact_message (name, email, body, client_ip)
-values (@name, @email, @body, @client_ip)
-returning id, created_at;";
+insert into contact_message (name, email, body, client_ip, created_at)
+values (@name, @email, @body, @client_ip, @created_at)
+returning id;";
 
     public const string OutboxInsertContactReceived = @"
 insert into outbox (topic, payload)
