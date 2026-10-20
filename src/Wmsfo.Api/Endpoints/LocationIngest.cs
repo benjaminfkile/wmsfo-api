@@ -16,7 +16,9 @@ namespace Wmsfo.Api.Endpoints;
 // per-beacon min interval rate limit (in-memory, per node), the optional min
 // distance carry (in the transaction against the beacon's last stored fix on
 // the event), and the unique (event_id, lat, lng) index (A38) that carries a
-// repeat of any position already stored anywhere in the event.
+// repeat of any position already stored anywhere in the event. Both doors and
+// the rate limiter's drop record open connections from the beacon pool
+// (sql.md 13).
 public sealed class LocationIngest
 {
     private readonly WmsfoConnectionStrings _connections;
@@ -70,7 +72,7 @@ public sealed class LocationIngest
             // A37 3(a): no transaction, no live object, no publish. Count the
             // drop and let the flusher push the number to the row within 5 s.
             _counters.IncrementLocationsRateLimited();
-            await _rateLimiter.RecordDropAsync(beaconId, _connections.App, ct).ConfigureAwait(false);
+            await _rateLimiter.RecordDropAsync(beaconId, _connections.Beacon, ct).ConfigureAwait(false);
             _logger.LogInformation(
                 "location accepted seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published} outcome=dropped",
                 lastSeq, beaconId, _state.Current.CurrentEvent?.Id, lastPublished);
@@ -84,7 +86,7 @@ public sealed class LocationIngest
             };
         }
 
-        await using var conn = new NpgsqlConnection(_connections.App);
+        await using var conn = new NpgsqlConnection(_connections.Beacon);
         await conn.OpenAsync(ct).ConfigureAwait(false);
 
         long seq;
@@ -558,7 +560,7 @@ public sealed class BeaconRateLimiter
     // Called by the drop branch. Increments the pending count and, when at
     // least 5 s have passed since the last flush, sends the accumulated count
     // to the row and resets. One update per beacon at most every 5 s.
-    public async Task RecordDropAsync(long beaconId, string appConnectionString, CancellationToken ct)
+    public async Task RecordDropAsync(long beaconId, string beaconConnectionString, CancellationToken ct)
     {
         var s = GetOrAdd(beaconId);
         Interlocked.Increment(ref s.PendingDrops);
@@ -575,7 +577,7 @@ public sealed class BeaconRateLimiter
             if (toFlush <= 0) return;
             try
             {
-                await using var conn = new NpgsqlConnection(appConnectionString);
+                await using var conn = new NpgsqlConnection(beaconConnectionString);
                 await conn.OpenAsync(ct).ConfigureAwait(false);
                 await using var cmd = new NpgsqlCommand(
                     "update beacon set fixes_rate_limited = fixes_rate_limited + $1, updated_at = now() where id = $2;", conn);

@@ -16,8 +16,12 @@ namespace Wmsfo.Api.IntegrationTests;
 // limited to select, insert, update, and delete on tables, unique per fixture
 // instance, and drops them on dispose. `ConnectionString` stays the superuser
 // connection to the same database so tests set up and assert freely; the
-// API and its migrator receive `AppConnectionString` and
-// `MigrateConnectionString` through `TestConnections.For`.
+// API and its migrator receive `AppConnectionString`,
+// `BeaconConnectionString`, and `MigrateConnectionString` through
+// `TestConnections.For`. The application and beacon strings use the
+// application role and carry the application names `AppApplicationName` and
+// `BeaconApplicationName` (sql.md 13), so a test can tell the two pools apart
+// in `pg_stat_activity`.
 public sealed class PostgresFixture : IAsyncLifetime
 {
     private PostgreSqlContainer? _container;
@@ -26,7 +30,11 @@ public sealed class PostgresFixture : IAsyncLifetime
     private string _migrateRole = "";
     private string _appRole = "";
     public string ConnectionString { get; private set; } = "";
+    public const string AppApplicationName = "wmsfo-it";
+    public const string BeaconApplicationName = AppApplicationName + "-beacon";
+
     public string AppConnectionString { get; private set; } = "";
+    public string BeaconConnectionString { get; private set; } = "";
     public string MigrateConnectionString { get; private set; } = "";
 
     public async Task InitializeAsync()
@@ -64,8 +72,9 @@ public sealed class PostgresFixture : IAsyncLifetime
         var appPassword = RandomPassword();
         await CreateFreshDatabaseAsync(migratePassword, appPassword);
 
-        AppConnectionString = BuildRoleConnectionString(_appRole, appPassword);
-        MigrateConnectionString = BuildRoleConnectionString(_migrateRole, migratePassword);
+        AppConnectionString = BuildRoleConnectionString(_appRole, appPassword, AppApplicationName, maxPoolSize: 8);
+        BeaconConnectionString = BuildRoleConnectionString(_appRole, appPassword, BeaconApplicationName, maxPoolSize: 3);
+        MigrateConnectionString = BuildRoleConnectionString(_migrateRole, migratePassword, null, maxPoolSize: 8);
 
         // sql.md 12: migrations run as the migrate role so every table is owned
         // by that role and the default privileges grant select, insert, update,
@@ -81,7 +90,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             await db.Database.MigrateAsync();
         }
 
-        TestConnections.Register(_databaseName, AppConnectionString, MigrateConnectionString);
+        TestConnections.Register(_databaseName, AppConnectionString, BeaconConnectionString, MigrateConnectionString);
     }
 
     public async Task DisposeAsync()
@@ -157,7 +166,7 @@ public sealed class PostgresFixture : IAsyncLifetime
             $"grant select, insert, update, delete on tables to \"{_appRole}\"");
     }
 
-    private string BuildRoleConnectionString(string role, string password)
+    private string BuildRoleConnectionString(string role, string password, string? applicationName, int maxPoolSize)
     {
         // Bounded pool sizes so a suite that spins up many fixtures at once
         // does not exhaust the cluster's non-superuser connection slots.
@@ -166,9 +175,13 @@ public sealed class PostgresFixture : IAsyncLifetime
             Database = _databaseName,
             Username = role,
             Password = password,
-            MaxPoolSize = 8,
+            MaxPoolSize = maxPoolSize,
             MinPoolSize = 0,
         };
+        if (applicationName is not null)
+        {
+            builder.ApplicationName = applicationName;
+        }
         return builder.ConnectionString;
     }
 

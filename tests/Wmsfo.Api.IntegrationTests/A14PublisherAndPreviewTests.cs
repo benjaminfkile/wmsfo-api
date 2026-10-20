@@ -2695,7 +2695,11 @@ internal sealed class FreshDatabase : IDisposable
             Username = _migrateRole,
             Password = migratePassword,
         }.ConnectionString;
-        TestConnections.Register(_databaseName, appConn, migrateConn);
+        var beaconConn = new NpgsqlConnectionStringBuilder(appConn)
+        {
+            ApplicationName = PostgresFixture.BeaconApplicationName,
+        }.ConnectionString;
+        TestConnections.Register(_databaseName, appConn, beaconConn, migrateConn);
         return _connString;
     }
 

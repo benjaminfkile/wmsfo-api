@@ -18,6 +18,8 @@ namespace Wmsfo.Api.Endpoints;
 //  * carry DisableRateLimiting
 // The forwarded-header guard runs before authentication: any X-Forwarded-For,
 // X-Forwarded-Host, or X-Forwarded-Proto means 404 empty (contracts 3.5).
+// The ingest branch of authorize and the message path open connections from
+// the beacon pool (sql.md 13); the public-topic branch does no I/O.
 public static class RealtimeEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -95,7 +97,7 @@ public static class RealtimeEndpoints
                         return Results.Ok(new RealtimeAuthorizeResponse { Allow = false });
                     }
                     var hash = Keys.Hash(credential);
-                    await using var conn = new NpgsqlConnection(connections.App);
+                    await using var conn = new NpgsqlConnection(connections.Beacon);
                     await conn.OpenAsync(ct);
                     long beaconId;
                     int keyVersion;
@@ -188,7 +190,7 @@ public static class RealtimeEndpoints
                 }
 
                 // sql.md 8.11: message-path identity check.
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 DateTimeOffset? revokedAt = null;
                 int rowKeyVersion = -1;
@@ -220,6 +222,9 @@ public static class RealtimeEndpoints
                     stamp.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                     await stamp.ExecuteNonQueryAsync(ct);
                 }
+                // Return the connection to the beacon pool before the ingest opens
+                // its own, so one message never holds two of the pool's three.
+                await conn.CloseAsync();
 
                 if (body.Event == "location")
                 {

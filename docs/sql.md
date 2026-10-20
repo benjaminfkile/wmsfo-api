@@ -2213,12 +2213,13 @@ Timeouts: `statement_timeout = 10s` bounds every API statement, including a loca
 
 ## 13. Connection settings
 
-Two connection strings in the container env. The secret carries the contract's connection string values; the API sets the pool parameters below in code with `NpgsqlConnectionStringBuilder` on top of them, so the secret stays minimal and the settings cannot be forgotten.
+Two connection strings in the container env. The secret carries the contract's connection string values; the API sets the pool parameters below in code with `NpgsqlConnectionStringBuilder` on top of them, so the secret stays minimal and the settings cannot be forgotten. The API builds three strings from the two values: `App` and `Beacon` both derive from `WMSFO_DB_CONNECTION` (same role, same credentials), `Migrate` from `WMSFO_DB_MIGRATION_CONNECTION`.
 
-| Env key | Role | Use |
-|---|---|---|
-| `WMSFO_DB_CONNECTION` | `wmsfo_app_<env>` | every request, tick, and chore |
-| `WMSFO_DB_MIGRATION_CONNECTION` | `wmsfo_migrate_<env>` | the boot migrator only (section 14); also the connection the tool in section 15 takes on its command line |
+| Env key | Role | String | Use |
+|---|---|---|---|
+| `WMSFO_DB_CONNECTION` | `wmsfo_app_<env>` | `App` | every visitor and admin request, tick, chore, and the health probe |
+| `WMSFO_DB_CONNECTION` | `wmsfo_app_<env>` | `Beacon` | the beacon paths only: every endpoint under `/beacons/*`, `POST /locations`, the `/realtime/message` ingest path, the location rate limiter's drop record, the beacon key lookup, and the `ingest` branch of `/realtime/authorize` (api.md 5 and 12.2) |
+| `WMSFO_DB_MIGRATION_CONNECTION` | `wmsfo_migrate_<env>` | `Migrate` | the boot migrator only (section 14); also the connection the tool in section 15 takes on its command line |
 
 ```
 Host=<db-host>;Port=5432;Database=wmsfo_dev;Username=wmsfo_app_dev;Password=<password>;SSL Mode=Require;Trust Server Certificate=false
@@ -2228,7 +2229,7 @@ Host=<db-host>;Port=5432;Database=wmsfo_dev;Username=wmsfo_app_dev;Password=<pas
 var app = new NpgsqlConnectionStringBuilder(config["WMSFO_DB_CONNECTION"])
 {
     ApplicationName = config["WMSFO_SERVICE_NAME"],
-    MaxPoolSize = 10,
+    MaxPoolSize = 4,
     MinPoolSize = 1,
     ConnectionIdleLifetime = 300,
     ConnectionPruningInterval = 10,
@@ -2236,6 +2237,19 @@ var app = new NpgsqlConnectionStringBuilder(config["WMSFO_DB_CONNECTION"])
     CommandTimeout = 10,     // client-side cancel; matches the role's statement_timeout
     KeepAlive = 30,
     MaxAutoPrepare = 0,      // <db-host> may be an RDS proxy; prepared statements pin sessions
+};
+// The same parameters as `app` except the name and the maximum.
+var beacon = new NpgsqlConnectionStringBuilder(config["WMSFO_DB_CONNECTION"])
+{
+    ApplicationName = config["WMSFO_SERVICE_NAME"] + "-beacon",
+    MaxPoolSize = 3,
+    MinPoolSize = 1,
+    ConnectionIdleLifetime = 300,
+    ConnectionPruningInterval = 10,
+    Timeout = 5,
+    CommandTimeout = 10,
+    KeepAlive = 30,
+    MaxAutoPrepare = 0,
 };
 var migrate = new NpgsqlConnectionStringBuilder(config["WMSFO_DB_MIGRATION_CONNECTION"])
 {
@@ -2247,7 +2261,9 @@ var migrate = new NpgsqlConnectionStringBuilder(config["WMSFO_DB_MIGRATION_CONNE
 };
 ```
 
-Pool sizing: one node's steady state during an event is one location transaction per second, one heartbeat per 15 s, one tick per second, one leader loop, a few cookie and person writes per second, and admin traffic; every statement completes in single-digit milliseconds, so 10 connections per node is headroom, not a limit. Fleet budget: `10 × nodes` app connections plus 2 per node for the seconds of a boot. At 12 nodes that is 120 connections on the shared instance; the RDS `max_connections` for the instance class must leave that much room after the other databases' users.
+Pool sizing: the two application pools are separate so visitor traffic never starves the helicopter's location writes. `Beacon` (3 per node) carries one location transaction per second, one heartbeat per 15 s, and the gateway's ingest callbacks; a `/realtime/message` call returns its identity check connection before the ingest opens its own, so no request holds two. `App` (4 per node) carries the visitor work, which is a few short writes per second now that the alerts ride in the snapshot, plus the tick, the leader loop, the chores, the health probe (at most one `select 1` per second, api.md 17), and admin traffic. Every statement completes in single-digit milliseconds. The pools are distinguishable in `pg_stat_activity` by `application_name`.
+
+Fleet budget: 7 connections per node (`App` 4 plus `Beacon` 3) plus 2 per node for the seconds of a boot (`Migrate`). That is 84 steady connections at 12 nodes, 210 at 30, and 700 at 100, against the instance's `max_connections` less what the other databases' users on the shared instance hold; the boot connections come on top for a node that is starting.
 
 TLS: `SSL Mode=Require` with `Trust Server Certificate=false` validates the server certificate against the container's trust store, so the image installs the RDS certificate bundle for `<region>` into the system CA directory. The connection string is not extended with a certificate path.
 

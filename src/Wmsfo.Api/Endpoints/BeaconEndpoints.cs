@@ -18,7 +18,8 @@ namespace Wmsfo.Api.Endpoints;
 // filter come from api.md 4.0 and 5. Enroll runs sql.md 8.11 enroll; me stamps
 // last_seen_at; locations goes through LocationIngest; heartbeat is sql.md 8.3;
 // logs stores the body; me/state reads and writes the beacon's state document
-// (sql.md 8.3a).
+// (sql.md 8.3a). Every handler opens its connection from the beacon pool
+// (sql.md 13).
 public static class BeaconEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -44,7 +45,7 @@ public static class BeaconEndpoints
 
                 var tokenHash = Keys.Hash(token);
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
 
                 long beaconId = 0;
@@ -126,7 +127,7 @@ for update of t;", conn, tx))
                 var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
                     ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 string name;
                 bool isActive;
@@ -219,7 +220,7 @@ returning name, is_active, state_version;", conn))
 
                 ValidateHeartbeat(parsed, bodyBytes);
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 bool isActive = false;
                 long stateVersion = 0;
@@ -296,7 +297,7 @@ returning is_active, state_version;", conn))
                 var bodyBytes = await ReadBodyWithCapAsync(request, BodyLimits.BeaconLog, ct);
                 var body = Encoding.UTF8.GetString(bodyBytes);
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 await using var cmd = new NpgsqlCommand(@"
 insert into beacon_log (beacon_id, app_version, size_bytes, body)
@@ -342,7 +343,7 @@ returning id, received_at;", conn);
                 var beaconId = BeaconAuthenticationHandler.TryGetBeaconId(ctx.User)
                     ?? throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "unauthenticated");
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 await using var cmd = new NpgsqlCommand(@"
 select state::text, state_version, state_updated_at
@@ -385,7 +386,7 @@ where id = $1 and revoked_at is null;", conn);
                 var bodyBytes = await ReadBodyWithCapAsync(request, BodyLimits.BeaconState, ct);
                 var parsed = BeaconStateRules.Parse(bodyBytes);
 
-                await using var conn = new NpgsqlConnection(connections.App);
+                await using var conn = new NpgsqlConnection(connections.Beacon);
                 await conn.OpenAsync(ct);
                 await using (var upd = new NpgsqlCommand(@"
 update beacon
