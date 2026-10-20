@@ -1584,7 +1584,7 @@ values ($1, $2, $3) returning id;", conn, tx))
             .WithTags("Public")
             .Produces<ContentBundleDto>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status304NotModified)
-            .RequireRateLimiting(RateLimitPolicies.PreviewPerIp);
+            .RequireRateLimiting(RateLimitPolicies.PreviewPerToken);
     }
 
     // --- helpers ------------------------------------------------------------------

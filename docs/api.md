@@ -204,7 +204,7 @@ Middleware order in `Program.cs`, outermost first:
 5. **Body size limits**: per route through `RequestSizeLimit` metadata: 64 KB JSON default, 256 KB section, item, and site settings bodies, 5 MB routes, 2 MB beacon logs, 32 KB heartbeats, 16 KB beacon state writes. Media bytes never arrive here.
 6. **CORS**: one policy with the exact origins from `WMSFO_CORS_ORIGINS`, methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version, If-None-Match`, exposed header `ETag`, `SetPreflightMaxAge(600)`, credentials off. Applied to every route except the two callbacks and `/api/health`.
 7. **Authentication**: two schemes registered; each endpoint names the one it requires through `RequireAuthorization(policy)`. A request carrying both `Authorization` and `X-Beacon-Key` is `400 validation_failed` before any scheme runs.
-8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0, partitioned by beacon id, person id, or client IP as the table says; over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
+8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0 (`Http/RateLimits.cs`), partitioned by beacon id, by person (the person id, else the token's `sub`, since the person upsert filter runs after the limiter) or API key id, by the sha256 of a token, or by one constant key, as the table says; nothing is keyed by client IP. The subscription verify and unsubscribe routes carry a token in the body or the query, so a step just before the limiter reads it (the body buffered and rewound for the handler) and stores its hash for the per-token policy. The per-node caps are `RateLimiterOptions.GlobalLimiter`, partitioned by route group (every `/me*` route and `/cookies`; the two subscription writes) under a constant key per group and `NoLimiter` for any other route, so they stack with the endpoint policies. A request that reaches an endpoint policy without the beacon id or person it keys on shares that policy's one constant partition. Over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
 9. **Endpoints**.
 
 Connection pools (sql.md 13): the beacon paths open connections from the `Beacon` pool and nothing else does. They are every endpoint under `/beacons/*` and `POST /locations` (the beacon key lookup of section 6.1 included), `LocationIngest` through both doors (the REST handler and the `/realtime/message` ingest path of section 12.3), the location rate limiter's drop record, and the `ingest` branch of `/realtime/authorize` (section 12.2). Every other request, the tick, the leader loop, the chores, the live object writer, and the health probe use `App`; the boot migrator uses `Migrate`.
@@ -307,7 +307,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `/admin/api-keys*` | Admin, Cognito only (`DenyApiKeys`) | list, mint, revoke | section 6.4 |
 | `/admin/audit*` | Admin (`audit`) | the log by entity and id, by action, by actor; the entity kinds | section 5a |
 | `/admin/qr-codes*`, `/admin/places*` | Canvasser (`qr`); the two deletes Admin | codes: list, mint a batch, detail with history and daily counts, patch, attach, detach, delete; places: tree, create, patch (with the cycle check), location put and delete, delete, the map | section 11b |
-| `/qr-codes/{tag}/scans` | none; rate limited like `/contact` | the scan beacon, always 204 | section 11b |
+| `/qr-codes/{tag}/scans` | none; one per-node bucket of 200/s burst 400 | the scan beacon, always 204 | section 11b |
 | `/admin/cookie-types*` | Admin | list (with `cookieCount`), create, patch, delete with an `icon` value (library id checked against the library, media icon must be a `ready` media asset of any kind); `409 event_live` guard on every write, the delete included; a delete takes the type's cookies with it (sql.md 8.10) | [snapshot] |
 | `/admin/pages*`, `/admin/sections*`, `/admin/items*` | Editor | working-set CRUD, order, move, duplicate; draft validation through `SchemaValidator`; `kind_not_allowed` from the registry's `allowedRoles` | sql.md 8.21 |
 | `/admin/site-settings` | Editor | read and replace the single row; draft validation | sql.md 8.21 |
@@ -316,7 +316,7 @@ Every endpoint from contracts section 4, with the handler responsibility and the
 | `POST /admin/content/publish` | Editor | section 11a.4 | sql.md 8.19; [snapshot] |
 | `GET /admin/content/versions*`, `POST .../restore` | Editor | list, get, restore (11a.5) | sql.md 8.20 |
 | `POST /admin/content/preview-token` | Editor | mint `wpv_`, insert the hash, answer the site URL | sql.md 8.23 |
-| `GET /preview/document` | none (240/min burst 60 per client IP) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
+| `GET /preview/document` | none (240/min burst 60 per preview token) | resolve the token, build the draft bundle (11a.6) | sql.md 8.23 |
 | `/admin/media*` | Editor | list, ticket, confirm, get, usage, patch (`alt`, `title`, `darkMediaId`, `invertInDark`, `smallMediaId`, `credit`, [snapshot]), delete with every reference cleared | section 11.2 to 11.5 |
 | `GET /admin/icons` | Editor | the library as `IconInfo[]` from `IconLibrary` | section 11a.7 |
 | `/admin/settings*` | Admin | list with defaults; `PUT` validates type and range per contracts 6 | [snapshot] |
@@ -515,7 +515,7 @@ Confirm is idempotent while the row is pending: a retry after a step 4 or 5 fail
 
 The snapshot builder (10.2) adds `qrCodes`: every active code with its resolved `pageSlug` or `forwardUrl`; codes and places are read in the builder's transaction like sponsors are.
 
-`POST /qr-codes/{tag}/scans` records the row with `ip_hash = sha256(WMSFO_SCAN_SALT || client IP)`, `is_bot` from a fixed marker list on the user agent (`bot`, `crawler`, `spider`, `preview`, `facebookexternalhit`, `Slackbot`, `WhatsApp`, `Twitterbot`, `LinkedInBot`, `HeadlessChrome`), `is_repeat` when a row with the same code, `ip_hash`, and user agent exists within ten seconds, and `event_id` from the current event; unknown or inactive tags are dropped silently. Always `204`; the rate limit is the contact form's.
+`POST /qr-codes/{tag}/scans` records the row with `ip_hash = sha256(WMSFO_SCAN_SALT || client IP)`, `is_bot` from a fixed marker list on the user agent (`bot`, `crawler`, `spider`, `preview`, `facebookexternalhit`, `Slackbot`, `WhatsApp`, `Twitterbot`, `LinkedInBot`, `HeadlessChrome`), `is_repeat` when a row with the same code, `ip_hash`, and user agent exists within ten seconds, and `event_id` from the current event; unknown or inactive tags are dropped silently. Always `204`; the rate limit is its own per-node bucket (contracts 4.0).
 
 ## 12. Gateway callbacks and internal client
 

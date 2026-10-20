@@ -64,6 +64,7 @@ order by id asc;", conn);
             .WithTags("Me")
             .Produces<ItemsResponse<SubscriptionDto>>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Person)
+            .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
@@ -260,6 +261,7 @@ where id = $1 and person_id = $2 returning id;", conn);
             .WithTags("Me")
             .Produces(StatusCodes.Status204NoContent)
             .RequireAuthorization(AuthPolicies.Person)
+            .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
@@ -334,6 +336,7 @@ order by id asc;", conn))
             .WithTags("Me")
             .Produces<MyCookiesResponse>(StatusCodes.Status200OK)
             .RequireAuthorization(AuthPolicies.Person)
+            .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 

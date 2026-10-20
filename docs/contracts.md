@@ -1076,26 +1076,30 @@ Capabilities, one per endpoint group of 4.5, each named after its heading (Poste
 | Auth headers | `X-Beacon-Key` (beacon), `Authorization: Bearer <id-token>` (person, admin), `Authorization: Bearer wak_…` (API key, 3.6). A request that carries `X-Beacon-Key` and `Authorization` is `400 validation_failed`. |
 | Common errors | `400 validation_failed`, `401 unauthenticated`, `403 forbidden`, `404 not_found`, `405` (no body), `413 payload_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500 internal_error`, `502 upstream_failed`. Listed per endpoint only when the endpoint adds a code. |
 | CORS | The API answers CORS for the exact origins in `WMSFO_CORS_ORIGINS`: methods `GET, POST, PUT, PATCH, DELETE`, headers `Authorization, Content-Type, X-Beacon-Key, X-App-Version, If-None-Match`, exposed response header `ETag`, `Access-Control-Max-Age: 600`, no credentials. Red-Nose is not a browser and needs none. |
-| Client IP | Taken from `X-Forwarded-For` counting `WMSFO_TRUSTED_PROXY_HOPS` (default 2: the load balancer and the gateway proxy) entries from the right. Used for rate limiting and contact-message records only. |
+| Client IP | Taken from `X-Forwarded-For` counting `WMSFO_TRUSTED_PROXY_HOPS` (default 2: the load balancer and the gateway proxy) entries from the right. Used for contact-message records and logs only; a QR scan row keeps only a salted hash of it. |
 | `serverTime` | Every `2xx` response to a beacon endpoint carries `serverTime` (rfc3339), stamped when the response body is serialized, after any transaction has committed. Red-Nose uses it for clock skew (section 9). |
-| Rate limits | Token buckets, per node (not fleet-wide), keyed as shown. Over budget: `429` with `Retry-After` and `details.retryAfterSeconds`. The callback paths and `/api/health` are exempt. |
+| Rate limits | Token buckets, per node (not fleet-wide), keyed as shown; no bucket is keyed by client IP, because a crowd on cellular data shares a few public addresses. A per-node cap is one bucket for its routes together and stacks with each route's own bucket: a request must pass both. A request that reaches a person or beacon bucket without a person or beacon (none does once authorization has passed) shares one constant bucket. Over budget: `429` with `Retry-After` and `details.retryAfterSeconds`. The callback paths and `/api/health` are exempt. |
 
 | Endpoint | Key | Rate | Burst |
 |---|---|---|---|
 | `POST /locations` | beacon id | 10/s | 20 |
 | `POST /beacons/heartbeat` | beacon id | 1/s | 5 |
 | `POST /beacons/logs` | beacon id | 1/min | 2 |
-| `POST /beacons/enroll` | client IP | 10/min | 10 |
 | `GET /beacons/me` | beacon id | 1/s | 5 |
 | `GET /beacons/me/state` | beacon id | 10/s | 20 |
 | `PUT /beacons/me/state` | beacon id | 10/s | 20 |
-| `POST /contact` | client IP | 5/hour | 5 |
-| `POST /subscriptions/verify`, `POST /subscriptions/unsubscribe` | client IP | 30/min | 30 |
+| `POST /beacons/enroll` | per node (one bucket) | 10/min | 10 |
+| `POST /contact` | per node (one bucket) | 20/s | 20 |
+| `POST /qr-codes/{tag}/scans` | per node (one bucket) | 200/s | 400 |
+| `POST /subscriptions/verify`, `POST /subscriptions/unsubscribe` | token: the sha256 of the token the request carries in the body or the query; a request with no token shares one bucket | 2/s | 5 |
+| `POST /subscriptions/verify` and `POST /subscriptions/unsubscribe` together | per node cap (one bucket) | 100/s | 200 |
+| `GET /preview/document` | preview token: the sha256 of the `token` query value | 240/min | 60 |
+| `GET /me/subscriptions`, `DELETE /me/subscriptions/{id}`, `GET /me/cookies` | person id | 2/s | 5 |
 | `POST /cookies` | person id | 1/s | 3 |
 | `POST /me/subscriptions`, `.../resend-verification` | person id | 5/hour | 5 |
-| `GET /preview/document` | client IP | 240/min | 60 |
-| `POST /admin/media/upload-url` | person id | 30/min | 30 |
-| `/admin/*` | person id, or API key id | 20/s | 40 |
+| every `/me*` route and `POST /cookies` together | per node cap (one bucket) | 200/s | 400 |
+| `POST /admin/media/upload-url` | person id, or API key id | 30/min | 30 |
+| every other `/admin/*` route, the diagnostics routes (`GET /admin/snapshot`, `POST /admin/snapshot/rebuild`, `GET /admin/live`, `POST /admin/live/republish`) included | person id, or API key id | 20/s | 40 |
 
 Shared resource shapes (all camelCase, all timestamps rfc3339). Column-to-wire mapping is mechanical snake_case to camelCase; the only non-mechanical names are `contact_message.body` (request field `message`), `beacon.key_prefix` (`keyPrefix`), and `media_asset.s3_key` and `variants` (exposed as absolute CDN URLs `url` and `variants`).
 
@@ -1344,7 +1348,7 @@ Rules: `name` 1 to 100, `email` a valid address 3 to 254, `message` 1 to 2000. S
 
 **`POST /subscriptions/unsubscribe`**. The token comes from either place: the query string `?token=wsu_...` or a JSON body `{ "token": "wsu_..." }`. The query form exists for RFC 8058: the `List-Unsubscribe` header names `https://<api-domain>/subscriptions/unsubscribe?token=wsu_...` and mail clients POST the form body `List-Unsubscribe=One-Click` to it; the API accepts `application/x-www-form-urlencoded` there and ignores the form body. The site page `/alerts/unsubscribe` reads `token` from its query string and sends the JSON form. Sets `unsubscribed_at`. `204`. Idempotent. Unknown token: `404 not_found`.
 
-**`GET /preview/document?token=wpv_...`**. The one public read, used only by the site's `/preview` route inside the admin panel's preview frame (4.5 Content). Answers `200 ContentBundle`: the working set as it would publish (hidden rows omitted), the media map for the media it references plus the media the snapshot's media map adds beyond the content (sponsor logos, cookie type media icons; 1.3b), and the icon map, with `Cache-Control: no-store` and a strong `ETag`: the quoted lowercase sha256 hex of the exact response body. A request whose `If-None-Match` carries that `ETag` answers `304 Not Modified` with the same `ETag` and no body, so a caller polling an unchanged draft downloads nothing; any draft change changes the body and so the `ETag`. Unknown or expired token: `404 preview_token_invalid`. Rate limited per client IP (4.0).
+**`GET /preview/document?token=wpv_...`**. The one public read, used only by the site's `/preview` route inside the admin panel's preview frame (4.5 Content). Answers `200 ContentBundle`: the working set as it would publish (hidden rows omitted), the media map for the media it references plus the media the snapshot's media map adds beyond the content (sponsor logos, cookie type media icons; 1.3b), and the icon map, with `Cache-Control: no-store` and a strong `ETag`: the quoted lowercase sha256 hex of the exact response body. A request whose `If-None-Match` carries that `ETag` answers `304 Not Modified` with the same `ETag` and no body, so a caller polling an unchanged draft downloads nothing; any draft change changes the body and so the `ETag`. Unknown or expired token: `404 preview_token_invalid`. Rate limited per preview token (4.0).
 
 **`POST /qr-codes/{tag}/scans`**. One printed-code visit (4.5a Public). Body `{ "referrer": "https://..." }`, optional. Always `204`. Sent by the site's `/q/:tag` route with `navigator.sendBeacon` before it navigates.
 
@@ -1693,7 +1697,7 @@ Printed stickers and the places they hang in (site.md 4 for the public route, ad
 
 Not snapshot-affecting: the location PUT and DELETE (pins never reach the site) and everything under `/qr-codes/{tag}/scans`.
 
-**Public.** `POST /qr-codes/{tag}/scans` (4.3): no auth, body `{ "referrer": "https://..." }` optional; the API records the scan against the code and its open attachment with the user agent, the referrer, a salted hash of the client IP, and the current event's id; flags `isBot` from the user agent (a fixed list of crawler markers) and `isRepeat` when the same IP hash and user agent scanned the same code within ten seconds; answers `204` whether or not the tag exists or is active, so the address reveals nothing. Rate limit as `POST /contact`. Counts everywhere are unflagged rows ("people").
+**Public.** `POST /qr-codes/{tag}/scans` (4.3): no auth, body `{ "referrer": "https://..." }` optional; the API records the scan against the code and its open attachment with the user agent, the referrer, a salted hash of the client IP, and the current event's id; flags `isBot` from the user agent (a fixed list of crawler markers) and `isRepeat` when the same IP hash and user agent scanned the same code within ten seconds; answers `204` whether or not the tag exists or is active, so the address reveals nothing. Rate limit: one per-node bucket of its own (4.0). Counts everywhere are unflagged rows ("people").
 
 **Resolution.** `opens` on a code or place is one of: a page (`opensPageId` naming a non-hidden `none` page or a role page's slug `/`), a forward (`forwardUrl`), or unset. A code resolves its own setting, else the nearest ancestor of its open attachment's place that sets one (the attached place first), else the home page. A place's pin resolves the same way: its own, else the nearest ancestor's, else none.
 

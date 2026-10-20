@@ -86,7 +86,7 @@ insert into outbox (topic, payload) values ('contact.received', $1::jsonb);", co
             .Accepts<ContactRequest>("application/json")
             .Produces<ContactResponse>(StatusCodes.Status201Created)
             .WithBodyLimit(BodyLimits.JsonDefault)
-            .RequireRateLimiting(RateLimitPolicies.ContactPerIp);
+            .RequireRateLimiting(RateLimitPolicies.ContactPerNode);
     }
 
     // POST /subscriptions/verify: 200 with verifiedAt (existing or new). The three
@@ -155,7 +155,7 @@ where id = $1 and verified_at is null returning verified_at;", conn))
             .Accepts<SubscriptionVerifyRequest>("application/json")
             .Produces<SubscriptionVerifyResponse>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
-            .RequireRateLimiting(RateLimitPolicies.SubscriptionsPerIp);
+            .RequireRateLimiting(RateLimitPolicies.SubscriptionsPerToken);
     }
 
     // POST /subscriptions/unsubscribe: token from query ?token=wsu_...
@@ -186,7 +186,7 @@ where unsubscribe_token = $1 returning id;", conn);
             .WithTags("Public")
             .Produces(StatusCodes.Status204NoContent)
             .WithBodyLimit(BodyLimits.JsonDefault)
-            .RequireRateLimiting(RateLimitPolicies.SubscriptionsPerIp);
+            .RequireRateLimiting(RateLimitPolicies.SubscriptionsPerToken);
     }
 
     private static async Task<string> ResolveUnsubscribeTokenAsync(HttpRequest request, CancellationToken ct)

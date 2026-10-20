@@ -127,7 +127,7 @@ public sealed class A37Host : IAsyncDisposable
         builder.Services.AddRateLimiter(o =>
         {
             o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            foreach (var policy in AllPolicies())
+            foreach (var policy in RateLimitPolicies.All)
             {
                 o.AddPolicy(policy, _ => RateLimitPartition.GetNoLimiter("no-limit"));
             }
@@ -149,24 +149,6 @@ public sealed class A37Host : IAsyncDisposable
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
         return new A37Host(app, client, options, store, gateway, time);
-    }
-
-    private static IEnumerable<string> AllPolicies()
-    {
-        yield return RateLimitPolicies.LocationsPerBeacon;
-        yield return RateLimitPolicies.HeartbeatPerBeacon;
-        yield return RateLimitPolicies.BeaconLogsPerBeacon;
-        yield return RateLimitPolicies.BeaconMePerBeacon;
-        yield return RateLimitPolicies.BeaconStateReadPerBeacon;
-        yield return RateLimitPolicies.BeaconStateWritePerBeacon;
-        yield return RateLimitPolicies.EnrollPerIp;
-        yield return RateLimitPolicies.ContactPerIp;
-        yield return RateLimitPolicies.SubscriptionsPerIp;
-        yield return RateLimitPolicies.PreviewPerIp;
-        yield return RateLimitPolicies.CookiesPerPerson;
-        yield return RateLimitPolicies.MeSubscribePerPerson;
-        yield return RateLimitPolicies.MediaUploadUrlPerPerson;
-        yield return RateLimitPolicies.AdminPerPerson;
     }
 
     public HttpRequestMessage AdminRequest(HttpMethod method, string path)
