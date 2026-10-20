@@ -46,6 +46,7 @@ public class LogMarkerEmissionTests
         [LogMarkers.MediaWriteFailed] = "Endpoints/AdminMediaEndpoints.cs",
         [LogMarkers.ContentPublished] = "Content/Publisher.cs",
         [LogMarkers.IconLibraryWritten] = "Node/FleetFirstBootHook.cs",
+        [LogMarkers.SignupsSwitchDrift] = "Auth/SignUpsSwitch.cs",
     };
 
     [Fact]

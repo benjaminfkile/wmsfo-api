@@ -517,6 +517,8 @@ on conflict (key) do nothing;
 
 The API validates type and range per key on write (section 6 of the contracts); the column carries no check so the ranges can change without a migration.
 
+`sign_ups_open` and `subscriptions_open` (bool, default true; contracts 6) have no seed row: a missing row means true, and the first `PUT /admin/settings/{key}` inserts it. `subscriptions_open` is read by the snapshot builder (section 7) and by `POST /me/subscriptions` and resend (8.12); `sign_ups_open` by the snapshot builder and the boot drift check (api.md 6.5). A `sign_ups_open` write changes the people pool in Cognito before this upsert runs, so a Cognito failure leaves the row as it was.
+
 ### 3.18 `snapshot` and `live_state` (single row each)
 
 ```sql
@@ -1271,7 +1273,7 @@ where (m.id = any($ids)       -- content_version.media_ids, plus sponsor.logo_me
 order by m.id;
 ```
 
-`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeMapConfig` is the document's `settings.route.mapConfig` as published. `media[].url`, `media[].variants`, `trackerMap.tilesUrl` and `terrainUrl` (`prefix + '/tiles.pmtiles'`, `prefix + '/terrain.pmtiles'`, the latter null when `terrain_max_zoom` is null), `trackerThemes[].styleUrl` (`themes/{style_sha256}.json`), and `spriteUrl` (`themes/{id}/sprites/{sprite_sha256}/sprite` while `sprite_sha256` is not null) are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Each alert's `subject` is the alert email's subject line, built in the API from the status (`toStatusId` or `statusId`) or the message body by the helpers the alert-send chore uses; `cookieLimitPerPerson` is the setting (10 when the row is missing), and `signUpsOpen` and `subscriptionsOpen` are written true. Every table here is tens of rows and the document is one row; plans are irrelevant. The alerts read walks `outbox_pkey` backwards and stops at 50 matches: the table holds the alert topics for 400 days and everything else for 30 (section 11), a few thousand rows at most, so no index of its own is needed.
+`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeMapConfig` is the document's `settings.route.mapConfig` as published. `media[].url`, `media[].variants`, `trackerMap.tilesUrl` and `terrainUrl` (`prefix + '/tiles.pmtiles'`, `prefix + '/terrain.pmtiles'`, the latter null when `terrain_max_zoom` is null), `trackerThemes[].styleUrl` (`themes/{style_sha256}.json`), and `spriteUrl` (`themes/{id}/sprites/{sprite_sha256}/sprite` while `sprite_sha256` is not null) are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Each alert's `subject` is the alert email's subject line, built in the API from the status (`toStatusId` or `statusId`) or the message body by the helpers the alert-send chore uses; `cookieLimitPerPerson` is the setting (10 when the row is missing), and `signUpsOpen` and `subscriptionsOpen` are the `sign_ups_open` and `subscriptions_open` settings (true when the row is missing), read in the same settings query. Every table here is tens of rows and the document is one row; plans are irrelevant. The alerts read walks `outbox_pkey` backwards and stops at 50 matches: the table holds the alert topics for 400 days and everything else for 30 (section 11), a few thousand rows at most, so no index of its own is needed.
 
 ---
 
@@ -1684,7 +1686,14 @@ Authorize callback, ingest branch (autocommit): `select id, key_version from bea
 
 ### 8.12 Subscriptions
 
-Create (`POST /me/subscriptions`):
+Create (`POST /me/subscriptions`) and resend run one read first, outside the transaction, before any write:
+
+```sql
+select value from app_setting where key = 'subscriptions_open';
+-- false                                                          -> 409 subscriptions_closed (no row means true)
+```
+
+Create:
 
 ```sql
 begin;

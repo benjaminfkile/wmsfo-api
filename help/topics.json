@@ -1151,6 +1151,24 @@
     ]
   },
   {
+    "key": "settings.sign-ups-open",
+    "page": "Settings",
+    "label": "Sign-ups open",
+    "title": "Whether visitors can create an account",
+    "body": "Whether visitors can create an account on the site; off closes the sign-up page and the pool at once, people already signed in keep working.\n\nsign_ups_open is a switch, on by default. Saving it first changes the account pool itself, so a bot that skips the site cannot sign up either, and only then saves the setting; if the pool cannot be changed the save fails and the switch keeps its old value.\n\nThe site reads the switch from its next snapshot and hides the sign-up page while it is off. Existing accounts sign in as before.",
+    "links": []
+  },
+  {
+    "key": "settings.subscriptions-open",
+    "page": "Settings",
+    "label": "Subscriptions open",
+    "title": "Whether visitors can add an alert address",
+    "body": "Whether visitors can add an alert email address; off refuses new sign-ups and resends, existing subscribers keep receiving alerts.\n\nsubscriptions_open is a switch, on by default. Off, adding an address and resending a verification email are refused, so no verification email goes out; removing a subscription, and the verify and unsubscribe links in emails already sent, still work.\n\nThe site reads the switch from its next snapshot and hides the alert sign-up form while it is off.",
+    "links": [
+      { "label": "Subscribers", "to": "/subscribers" }
+    ]
+  },
+  {
     "key": "api-keys",
     "page": "API keys",
     "label": "API keys list",

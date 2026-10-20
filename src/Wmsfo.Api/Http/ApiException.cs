@@ -59,4 +59,8 @@ public static class ApiErrorCodes
 
     // A111: PUT /beacons/me/state when expectedVersion is not the row's version (contracts 4.2).
     public const string StateVersionConflict = "state_version_conflict";
+
+    // A121: POST /me/subscriptions and resend-verification while the
+    // `subscriptions_open` setting is false (contracts 4.4).
+    public const string SubscriptionsClosed = "subscriptions_closed";
 }

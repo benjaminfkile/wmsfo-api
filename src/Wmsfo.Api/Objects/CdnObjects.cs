@@ -71,10 +71,9 @@ public sealed class Snapshot
     [JsonPropertyOrder(12), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
     // The `cookie_limit_per_person` setting (contracts 1.3, 6).
     [JsonPropertyOrder(13), JsonRequired] public int CookieLimitPerPerson { get; set; }
-    // Whether sign-ups are open (contracts 1.3); the builder writes true.
+    // The `sign_ups_open` setting (contracts 1.3, 6).
     [JsonPropertyOrder(14), JsonRequired] public bool SignUpsOpen { get; set; } = true;
-    // Whether subscriptions are open (contracts 1.3); the builder writes true.
-    // The last key.
+    // The `subscriptions_open` setting (contracts 1.3, 6). The last key.
     [JsonPropertyOrder(15), JsonRequired] public bool SubscriptionsOpen { get; set; } = true;
 }
 

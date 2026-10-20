@@ -105,6 +105,7 @@ public sealed class A25Host : IAsyncDisposable
         builder.Services.AddSingleton<BeaconRateLimiter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddSingleton<SignUpsSwitch>();
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<AuditRecorder>();
         builder.Services.AddSingleton<AuditEndpointFilter>();
