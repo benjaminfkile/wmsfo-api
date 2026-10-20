@@ -9,8 +9,8 @@ using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// Contracts 4.3 public writes. POST /contact stores the row and the outbox row
-// (sql.md 8.13). POST /subscriptions/verify follows sql.md 8.12 verify. POST
+// Contracts 4.3 public writes. POST /contact writes the inbox object and no row
+// (sql.md 8.13; A120ContactInboxTests covers the import). POST /subscriptions/verify follows sql.md 8.12 verify. POST
 // /subscriptions/unsubscribe accepts token from query, JSON, or the RFC 8058
 // form-urlencoded body.
 public sealed class A12PublicEndpointsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -34,18 +34,16 @@ public sealed class A12PublicEndpointsTests : IClassFixture<PostgresFixture>, IA
     // POST /contact
 
     [Fact]
-    public async Task Contact_valid_body_creates_row_and_outbox()
+    public async Task Contact_valid_body_writes_the_inbox_object_and_no_row()
     {
         var response = await PostJsonAsync("/contact",
             "{\"name\":\"Jane\",\"email\":\"jane@example.com\",\"message\":\"Hi there\"}");
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var body = await ReadJsonAsync(response);
-        Assert.True(body.RootElement.GetProperty("id").GetInt64() > 0);
+        Assert.Equal(JsonValueKind.String, body.RootElement.GetProperty("receivedAt").ValueKind);
 
-        var rows = await CountRowsAsync("contact_message");
-        Assert.Equal(1, rows);
-        var outbox = await CountOutboxAsync("contact.received");
-        Assert.Equal(1, outbox);
+        Assert.Equal(0, await CountRowsAsync("contact_message"));
+        Assert.Equal(0, await CountOutboxAsync("contact.received"));
     }
 
     [Fact]

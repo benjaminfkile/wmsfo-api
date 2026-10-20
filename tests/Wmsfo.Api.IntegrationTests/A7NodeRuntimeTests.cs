@@ -308,6 +308,12 @@ public sealed class RecordingObjectStore : IObjectStore
         lock (_lock) return _puts.TryGetValue(key, out var v) ? v : 0;
     }
 
+    // The tag the object was written with, null when none or absent.
+    public string? TagOf(string key)
+    {
+        lock (_lock) return _objects.TryGetValue(key, out var v) ? v.Tag : null;
+    }
+
     public Task PutObjectAsync(string key, ReadOnlyMemory<byte> bytes, string contentType, string cacheControl, string? tag = null, CancellationToken cancellationToken = default)
     {
         if (FailPut) throw new InvalidOperationException("simulated PUT failure");
@@ -332,6 +338,7 @@ public sealed class RecordingObjectStore : IObjectStore
         lock (_lock)
         {
             matches = _objects.Where(kv => kv.Key.StartsWith(prefix, StringComparison.Ordinal))
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
                 .Select(kv => new ObjectListEntry(kv.Key, kv.Value.Bytes.LongLength)).ToList();
         }
         foreach (var m in matches) yield return m;

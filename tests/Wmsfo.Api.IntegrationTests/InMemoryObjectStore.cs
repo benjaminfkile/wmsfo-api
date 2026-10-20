@@ -40,10 +40,10 @@ public sealed class InMemoryObjectStore : IObjectStore
     public async IAsyncEnumerable<ObjectListEntry> ListPrefixAsync(string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask;
-        foreach (var kv in _tags.Keys)
+        foreach (var kv in _tags.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                     .OrderBy(k => k, StringComparer.Ordinal))
         {
-            if (kv.StartsWith(prefix, StringComparison.Ordinal))
-                yield return new ObjectListEntry(kv, 0);
+            yield return new ObjectListEntry(kv, 0);
         }
     }
 

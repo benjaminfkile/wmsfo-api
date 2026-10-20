@@ -21,6 +21,7 @@ public static class FixtureExport
         yield return ("place",            CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlace()));
         yield return ("place-pin",        CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildPlacePin()));
         yield return ("delete-impact",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildDeleteImpact()));
+        yield return ("contact-inbox",    CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContactInbox()));
         // The eight seeded tracker theme style bodies in their canonical form.
         var themesRoot = ThemeStyles.ResolveRoot(AppContext.BaseDirectory, Directory.GetCurrentDirectory())
             ?? throw new FileNotFoundException("tracker theme styles not found: " + ThemeStyles.RelativePath);
