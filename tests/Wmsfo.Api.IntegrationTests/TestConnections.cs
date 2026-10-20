@@ -4,25 +4,25 @@ using Wmsfo.Api.Config;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// api.md 21: integration tests receive the fixture's application and migrate
-// connection strings through this map instead of reusing the superuser
+// api.md 21: integration tests receive the fixture's application, beacon, and
+// migrate connection strings through this map instead of reusing the superuser
 // connection. `PostgresFixture` registers a row when it initializes and
 // removes it when it disposes; `For` reads the database name from the
-// superuser connection string and answers the two role connection strings.
+// superuser connection string and answers the three role connection strings.
 public static class TestConnections
 {
     private static readonly ConcurrentDictionary<string, Entry> Entries = new();
 
-    private sealed record Entry(string App, string Migrate);
+    private sealed record Entry(string App, string Beacon, string Migrate);
 
     private sealed class RoleConnectionStrings : WmsfoConnectionStrings
     {
-        public RoleConnectionStrings(string app, string migrate) : base(app, migrate) { }
+        public RoleConnectionStrings(string app, string beacon, string migrate) : base(app, beacon, migrate) { }
     }
 
-    internal static void Register(string databaseName, string appConnectionString, string migrateConnectionString)
+    internal static void Register(string databaseName, string appConnectionString, string beaconConnectionString, string migrateConnectionString)
     {
-        Entries[databaseName] = new Entry(appConnectionString, migrateConnectionString);
+        Entries[databaseName] = new Entry(appConnectionString, beaconConnectionString, migrateConnectionString);
     }
 
     internal static void Unregister(string databaseName)
@@ -38,6 +38,6 @@ public static class TestConnections
             throw new InvalidOperationException(
                 $"No PostgresFixture is registered for database '{databaseName}'. Call `TestConnections.For(_fixture.ConnectionString)` after the fixture initializes.");
         }
-        return new RoleConnectionStrings(entry.App, entry.Migrate);
+        return new RoleConnectionStrings(entry.App, entry.Beacon, entry.Migrate);
     }
 }

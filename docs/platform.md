@@ -328,7 +328,7 @@ WMSFO_DB_MIGRATION_CONNECTION  Host=<db-host>;Port=5432;Database=wmsfo_prod;User
 ```
 
 - `Trust Server Certificate=false` means Npgsql validates the server certificate against the container's trust store. The API image installs the RDS certificate bundle into that store (section 9.1), so both the instance endpoint and the proxy endpoint validate.
-- Pool sizing per sql.md 13: 10 app connections per node plus 2 migrate connections during boot. At 12 nodes that is about 144 connections; the RDS `max_connections` must leave that room after the other databases' users.
+- Pool sizing per sql.md 13: the API builds two pools from `WMSFO_DB_CONNECTION`, `App` (4 per node, application name `<service-name>`) and `Beacon` (3 per node, `<service-name>-beacon`), plus 2 migrate connections per node during boot. That is 7 connections per node: 84 at 12 nodes, 210 at 30, 700 at 100. The instance's `max_connections`, less what the other databases' users hold, must leave that room, plus 2 for each node that is booting.
 - The API applies migrations on boot over the migrate connection under `pg_advisory_lock(hashtext('wmsfo_migrations'))` (sql.md 14.1); the first node to boot creates the schema.
 
 ### 2.4 Backups and snapshots

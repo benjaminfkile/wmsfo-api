@@ -72,7 +72,8 @@ builder.Logging.AddWmsfoJsonConsoleLogging(options);
 // service itself logs). Warnings and errors from the client still get through.
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 
-// api.md 3 step 2: build the two connection strings and register the contexts.
+// api.md 3 step 2: build the three connection strings (app, beacon, migrate)
+// and register the contexts on the app string.
 var connections = WmsfoConnectionStrings.Build(options);
 builder.Services.AddSingleton(connections);
 builder.Services.AddSingleton(options);
@@ -137,6 +138,7 @@ static string? ResolveIconRoot(string start)
 builder.Services.AddSingleton<NodeStateService>();
 builder.Services.AddSingleton<NodeCounters>();
 builder.Services.AddSingleton<HealthMarkerLogger>();
+builder.Services.AddSingleton<HealthProbe>();
 builder.Services.AddHttpClient<IGatewayInternalClient, GatewayInternalClient>();
 builder.Services.AddSingleton<SnapshotBuilder>();
 builder.Services.AddSingleton<LiveObjectWriter>();
@@ -274,33 +276,11 @@ app.Use(async (context, next) =>
 // body limits, routing, CORS, both-headers guard, auth, rate limiting.
 app.UseWmsfoPipeline();
 
-// api.md 17: /api/health answers 503 until ready, then `select 1` with a 2 s
-// timeout. On failure log `wmsfo_health_unavailable` at Warning at most once
-// per 30 s so CloudWatch's metric filter fires without flooding.
-app.MapGet("/api/health", async (WmsfoConnectionStrings cs, WmsfoReadinessGate gate, HealthMarkerLogger marker, CancellationToken ct) =>
-{
-    if (!gate.IsReady)
-    {
-        marker.LogUnavailable(null);
-        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-    }
-    try
-    {
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(2));
-        await using var conn = new Npgsql.NpgsqlConnection(cs.App);
-        await conn.OpenAsync(cts.Token);
-        await using var command = new Npgsql.NpgsqlCommand("select 1", conn) { CommandTimeout = 2 };
-        _ = await command.ExecuteScalarAsync(cts.Token);
-        return Results.Ok(new { status = "ok" });
-    }
-    catch (Exception ex)
-    {
-        marker.LogUnavailable(ex);
-        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-    }
-})
-.DisableRateLimiting();
+// api.md 17: /api/health answers 503 until ready, then the shared per-node
+// probe's result (at most 1 s old; one `select 1` on the `App` pool with a
+// 2 s timeout). A failed probe logs `wmsfo_health_unavailable` at Warning at
+// most once per 30 s so CloudWatch's metric filter fires without flooding.
+HealthEndpoint.Map(app);
 
 // A8: register the real beacon and realtime handlers before the remaining stubs.
 BeaconEndpoints.MapAll(app);

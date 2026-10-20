@@ -135,13 +135,13 @@ wmsfo-api/
 `Program.cs` runs these in order; the container answers `503` on `/api/health` until step 8 completes.
 
 1. Read configuration from environment variables into `WmsfoOptions`; fail fast on any missing or malformed value (section 4). Log one line with every non-secret value.
-2. Build the two connection strings (sql.md 13) and register `WmsfoDbContext` (app connection) and the migration factory (migrate connection).
+2. Build the three connection strings (sql.md 13: `App` and `Beacon` from `WMSFO_DB_CONNECTION`, `Migrate` from `WMSFO_DB_MIGRATION_CONNECTION`) and register `WmsfoDbContext` (app connection) and the migration factory (migrate connection).
 3. Register services: object store (S3 in the fleet, local directory when `WMSFO_OBJECT_STORE_DIR` is set), gateway internal client, SES sender, key service, rate limiter, node state, live object writer, snapshot builder.
 4. Build the HTTP pipeline (section 5) and start listening. Listening early lets the gateway's health prober see `503` instead of connection refused.
 5. `DatabaseMigrator.MigrateAsync`: advisory lock, `MigrateAsync`, then the first-boot steps of sql.md 8.16 in order: `StarterContent.EnsureSeededAsync`, `IconLibrary.EnsureWrittenAsync`, `ThemeStyles.EnsureWrittenAsync` (section 11a.10), `HelpTopics.EnsureWrittenAsync` (section 11a.9), `EmailLogo.EnsureWrittenAsync` (contracts 7.8), `Publisher.EnsureVersionOneAsync`, `SnapshotBootstrap.EnsureVersionOneAsync` (or a rebuild when the icon library changed). On failure retry with 5 s, 10 s, 30 s, then 60 s; health stays `503`.
 6. `NodeState.LoadAsync`: one reconcile round trip (contracts 7.4) to fill memory.
 7. Start hosted services: `ReconcileTick`, `LeaderMonitor`, `ChoreHost`.
-8. Mark ready. `GET /api/health` now answers `200` while `select 1` succeeds.
+8. Mark ready. `GET /api/health` now answers `200` while the shared probe's `select 1` succeeds (section 17).
 
 A first boot with an empty database seeds the starter content, writes the icon library, publishes content version 1, builds snapshot version 1 inside step 5, and writes the live object once (contracts 5). The kind registry, the schemas, and the help topic seed are loaded in step 3 and a malformed schema file or seed entry fails the boot. `SIGTERM`: stop accepting requests, wait up to 20 s for in-flight requests and any in-flight live-object write, exit. The gateway's blue-green keeps the old container serving until the new one is `200`, so shutdown never drops traffic.
 
@@ -155,7 +155,7 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 |---|---|---|
 | `ASPNETCORE_URLS` | url | Kestrel reads it directly; `http://0.0.0.0:5000` in the fleet |
 | `WMSFO_ENV` | `dev` or `prod` | log tag only |
-| `WMSFO_SERVICE_NAME` | string | `^[a-z0-9-]+$`; the hub channel prefix and `ApplicationName` on the connection |
+| `WMSFO_SERVICE_NAME` | string | `^[a-z0-9-]+$`; the hub channel prefix and `ApplicationName` on the connections (`<name>`, `<name>-beacon`, `<name>-migrate`) |
 | `WMSFO_DB_CONNECTION`, `WMSFO_DB_MIGRATION_CONNECTION` | Npgsql strings | parse with `NpgsqlConnectionStringBuilder`; `SSL Mode=Require` required |
 | `AWS_REGION` | region | non-empty |
 | `WMSFO_S3_BUCKET` | string | non-empty |
@@ -189,7 +189,7 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 
 `WMSFO_DB_MIGRATION_CONNECTION` follows `sql.md` 12 and 13 (two roles).
 
-Pool parameters are set in code (sql.md 13), never in the secret. The options object is immutable after boot; there is no hot reload.
+Pool parameters are set in code (sql.md 13), never in the secret. The configuration reads nothing new for the beacon pool: both application strings, `App` and `Beacon`, derive from `WMSFO_DB_CONNECTION`. The options object is immutable after boot; there is no hot reload.
 
 ---
 
@@ -206,6 +206,8 @@ Middleware order in `Program.cs`, outermost first:
 7. **Authentication**: two schemes registered; each endpoint names the one it requires through `RequireAuthorization(policy)`. A request carrying both `Authorization` and `X-Beacon-Key` is `400 validation_failed` before any scheme runs.
 8. **Rate limiting**: `Microsoft.AspNetCore.RateLimiting` token-bucket policies per contracts 4.0, partitioned by beacon id, person id, or client IP as the table says; over budget writes the error shape with `retryAfterSeconds` and the `Retry-After` header. The callbacks and `/api/health` carry `DisableRateLimiting`.
 9. **Endpoints**.
+
+Connection pools (sql.md 13): the beacon paths open connections from the `Beacon` pool and nothing else does. They are every endpoint under `/beacons/*` and `POST /locations` (the beacon key lookup of section 6.1 included), `LocationIngest` through both doors (the REST handler and the `/realtime/message` ingest path of section 12.3), the location rate limiter's drop record, and the `ingest` branch of `/realtime/authorize` (section 12.2). Every other request, the tick, the leader loop, the chores, the live object writer, and the health probe use `App`; the boot migrator uses `Migrate`.
 
 Response conventions: every JSON response uses the shared serializer options; `Cache-Control: no-store` on every API response; `serverTime` is added by a result filter on the beacon endpoints, stamped after the handler returned, which is after any transaction committed.
 
@@ -233,7 +235,7 @@ Every admin write records one `audit_log` row inside the write's own transaction
 
 1. Read `X-Beacon-Key`. Absent: no result (the endpoint's policy then answers `401`).
 2. Check the regex `^wbk_[A-Za-z0-9_-]{43}$`; on mismatch fail with `401 unauthenticated`.
-3. `select id, is_active, revoked_at, key_version from beacon where key_hash = sha256($key)`; missing or `revoked_at` set: `401 unauthenticated`. The lookup is one indexed read; no timing-sensitive comparison is needed because the index lookup is on the hash.
+3. `select id, is_active, revoked_at, key_version from beacon where key_hash = sha256($key)` on the `Beacon` pool (sql.md 13); missing or `revoked_at` set: `401 unauthenticated`. The lookup is one indexed read; no timing-sensitive comparison is needed because the index lookup is on the hash.
 4. Principal claims: `beacon_id`, `beacon_active`, `key_version`. One policy, `Beacon`; there are no beacon roles.
 
 `last_seen_at` is stamped by the handlers that the contracts say stamp it, not by the scheme.
@@ -523,11 +525,11 @@ The snapshot builder (10.2) adds `qrCodes`: every active code with its resolved 
 
 ### 12.2 `/realtime/authorize`
 
-Deserialize `{ channel, credential, connectionId }` with extension data allowed. Apply contracts 2.4 in order. The public-topic branch returns before touching the database and logs at Debug. The ingest branch: regex check, one indexed lookup by hash, `revoked_at` check, `update beacon set last_seen_at = now()`, respond `{ allow: true, identity: "<id>:<keyVersion>" }`. Every response is `200` with a JSON body; the handler's budget is 2 s and the only I/O is the lookup and the stamp.
+Deserialize `{ channel, credential, connectionId }` with extension data allowed. Apply contracts 2.4 in order. The public-topic branch returns before touching the database and logs at Debug. The ingest branch, on the `Beacon` pool (sql.md 13): regex check, one indexed lookup by hash, `revoked_at` check, `update beacon set last_seen_at = now()`, respond `{ allow: true, identity: "<id>:<keyVersion>" }`. Every response is `200` with a JSON body; the handler's budget is 2 s and the only I/O is the lookup and the stamp.
 
 ### 12.3 `/realtime/message`
 
-Deserialize `{ channel, event, data, connectionId, identity }`. Apply contracts 2.5 in order: channel check (`403 forbidden`, no I/O), identity parse and beacon check including `key_version` (`403`), then, for `event === "location"` only, dispatch `data` to the same validate-and-store code the REST handler uses (`LocationIngest.HandleAsync`), returning the same body and codes; any other event is `400 validation_failed`. Heartbeats never arrive here. The gateway reads only the status.
+Deserialize `{ channel, event, data, connectionId, identity }`. Apply contracts 2.5 in order: channel check (`403 forbidden`, no I/O), identity parse and beacon check including `key_version` (`403`), then, for `event === "location"` only, dispatch `data` to the same validate-and-store code the REST handler uses (`LocationIngest.HandleAsync`), all on the `Beacon` pool (the identity check returns its connection before the ingest opens one), returning the same body and codes; any other event is `400 validation_failed`. Heartbeats never arrive here. The gateway reads only the status.
 
 ### 12.4 `GatewayInternalClient`
 
@@ -613,7 +615,7 @@ Counters kept in memory and exposed on `GET /admin/live` under `node.counters`: 
 
 ## 17. Health
 
-`GET /api/health`: `503 unavailable` until the ready flag is set (migrations done, snapshot row present, state loaded); afterwards `select 1` with a 2 s timeout, `200 { "status": "ok" }` on success, `503` on failure with the `wmsfo_health_unavailable` marker logged at most once per 30 s. `Cache-Control: no-store`. The gateway's blue-green candidate check and its health prober both use it.
+`GET /api/health`: `503 unavailable` until the ready flag is set (migrations done, snapshot row present, state loaded); afterwards the result of a shared per-node probe that is at most 1 second old: `200 { "status": "ok" }` on success, `503` on failure. The probe (`Http/HealthProbe.cs`) is one `select 1` on the `App` pool with a 2 s timeout, run by the first caller after the previous result aged out (1 s from the previous probe's start); every concurrent caller awaits the same task, so a flood of health hits costs at most one statement per second per node. A failed probe is cached for the same second and logs the `wmsfo_health_unavailable` marker, at most once per 30 s. `Cache-Control: no-store`. The gateway's blue-green candidate check and its health prober both use it and see no change.
 
 ---
 

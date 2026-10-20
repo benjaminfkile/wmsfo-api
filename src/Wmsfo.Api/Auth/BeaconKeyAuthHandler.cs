@@ -4,10 +4,11 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Wmsfo.Api.Data;
+using Npgsql;
+using NpgsqlTypes;
+using Wmsfo.Api.Config;
 using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Auth;
@@ -111,22 +112,30 @@ public interface IBeaconKeyLookup
 
 public sealed record BeaconAuthRow(long Id, bool IsActive, DateTimeOffset? RevokedAt, int KeyVersion);
 
+// Runs on the beacon pool (sql.md 13) because it authenticates every
+// `/beacons/*` request and `POST /locations`.
 public sealed class DbBeaconKeyLookup : IBeaconKeyLookup
 {
-    private readonly IDbContextFactory<WmsfoDbContext> _factory;
+    private readonly WmsfoConnectionStrings _connections;
 
-    public DbBeaconKeyLookup(IDbContextFactory<WmsfoDbContext> factory)
+    public DbBeaconKeyLookup(WmsfoConnectionStrings connections)
     {
-        _factory = factory;
+        _connections = connections;
     }
 
     public async Task<BeaconAuthRow?> FindByHashAsync(byte[] hash, CancellationToken ct)
     {
-        await using var db = await _factory.CreateDbContextAsync(ct);
-        var row = await db.Beacon.AsNoTracking()
-            .Where(b => b.KeyHash == hash)
-            .Select(b => new BeaconAuthRow(b.Id, b.IsActive, b.RevokedAt, b.KeyVersion))
-            .SingleOrDefaultAsync(ct);
-        return row;
+        await using var conn = new NpgsqlConnection(_connections.Beacon);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            "select id, is_active, revoked_at, key_version from beacon where key_hash = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bytea, Value = hash });
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return new BeaconAuthRow(
+            reader.GetInt64(0),
+            reader.GetBoolean(1),
+            reader.IsDBNull(2) ? null : reader.GetFieldValue<DateTimeOffset>(2),
+            reader.GetInt32(3));
     }
 }
