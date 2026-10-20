@@ -20,7 +20,8 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - POST /admin/sponsors/{id}/years/{eventYear}/copy-from/{sourceYear}
 //     including 409 year_exists
 //   - POST /admin/sponsors/import with created/skipped counts
-//   - GET /me/alerts lists only sent rows for the caller's subscriptions
+//   - the snapshot's alerts list the notified status change once, whoever
+//     is subscribed
 public sealed class A30AlertsAndCloneTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private readonly PostgresFixture _fixture;
@@ -361,22 +362,21 @@ order by id desc limit 1;", conn);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    // ---------- GET /me/alerts ----------
+    // ---------- snapshot alerts ----------
 
     [Fact]
-    public async Task My_alerts_lists_only_sent_rows_for_callers_subscriptions()
+    public async Task Snapshot_alerts_list_a_notified_status_change_once_for_everyone()
     {
         var id = await CreateEventAsync(year: 2090);
         await SetScheduledAtAsync(id, DateTimeOffset.UtcNow.AddDays(1));
 
-        // Two people, each with a verified subscription. Only the caller's
-        // alert should appear in their /me/alerts response.
-        var callerPersonId = await UpsertDevPersonAsync();
-        var callerSubId = await CreateVerifiedSubscriberAsync(callerPersonId, "person@wmsfo.test");
+        // Two people, each with a verified subscription; the alert is the same
+        // for both, so the snapshot carries it once.
+        var callerPersonId = await CreatePersonAsync("caller@wmsfo.test");
+        _ = await CreateVerifiedSubscriberAsync(callerPersonId, "caller@wmsfo.test");
         var otherPersonId = await CreatePersonAsync("other@wmsfo.test");
         _ = await CreateVerifiedSubscriberAsync(otherPersonId, "other@wmsfo.test");
 
-        // Trigger a notified status change to fan out to both.
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
             "{\"statusId\":2,\"notify\":true}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -384,16 +384,7 @@ order by id desc limit 1;", conn);
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
         Assert.Equal(2, _host.Sender.Sent.Count);
 
-        // Person calls /me/alerts.
-        using var req = _host.PersonRequest(HttpMethod.Get, "/me/alerts");
-        var meResponse = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
-        var doc = await ReadJsonAsync(meResponse);
-        var items = doc.RootElement.GetProperty("items").EnumerateArray().ToList();
-        Assert.Single(items);
-        var item = items[0];
-        Assert.Equal(callerSubId, item.GetProperty("subscriptionId").GetInt64());
-        Assert.Equal("person@wmsfo.test", item.GetProperty("address").GetString());
+        var item = Assert.Single(await CurrentSnapshot.ReadAlertsAsync(_fixture.ConnectionString, _host.Store));
         Assert.Equal("event_status", item.GetProperty("kind").GetString());
         Assert.Equal(2, item.GetProperty("statusId").GetInt32());
         Assert.Equal("Santa's flight is scheduled", item.GetProperty("subject").GetString());
@@ -466,22 +457,6 @@ on conflict (sponsor_id, event_year) do update set pinned_position = excluded.pi
         await using var cmd = new NpgsqlCommand(
             "insert into person (cognito_sub, email) values (gen_random_uuid(), $1) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
-    }
-
-    // Ensures the DevStaticTokens person exists in the database with a matching
-    // cognito_sub so DbPersonUpsert re-uses it. Called before /me tests so the
-    // subscription foreign key resolves to a known id.
-    private async Task<long> UpsertDevPersonAsync()
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(@"
-insert into person (cognito_sub, email) values ($1::uuid, $2)
-on conflict (cognito_sub) do update set email = excluded.email
-returning id;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(DevStaticTokens.PersonSub) });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DevStaticTokens.PersonEmail });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 

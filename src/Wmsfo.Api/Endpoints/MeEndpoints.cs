@@ -22,35 +22,12 @@ public static class MeEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
     {
-        MapMe(app);
         MapListSubscriptions(app);
         MapCreateSubscription(app);
         MapResendVerification(app);
         MapDeleteSubscription(app);
-        MapMyAlerts(app);
         MapListMyCookies(app);
         MapCreateCookie(app);
-    }
-
-    // GET /me → 200 { person, isAdmin }.
-    private static void MapMe(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/me",
-            async (HttpContext ctx, WmsfoConnectionStrings connections, WmsfoOptions options, CancellationToken ct) =>
-            {
-                var personId = RequirePersonId(ctx);
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-                var person = await ReadPersonAsync(conn, personId, ct)
-                    ?? throw new ApiException(StatusCodes.Status401Unauthorized,
-                        ApiErrorCodes.Unauthenticated, "person not found");
-                var isAdmin = HasGroup(ctx, options.AdminGroup);
-                return Results.Ok(new MeResponse { Person = person, IsAdmin = isAdmin });
-            })
-            .WithTags("Me")
-            .Produces<MeResponse>(StatusCodes.Status200OK)
-            .RequireAuthorization(AuthPolicies.Person)
-            .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
     // GET /me/subscriptions → 200 { items: Subscription[] }.
@@ -285,141 +262,6 @@ where id = $1 and person_id = $2 returning id;", conn);
             .RequireAuthorization(AuthPolicies.Person)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
-
-    // GET /me/alerts (contracts 4.4). Lists alert_delivery rows with sent_at
-    // set for this person's subscriptions, joined to their outbox row and the
-    // linked event, newest first, at most 100. The subject is rebuilt from
-    // the template rules (contracts 7.8) because the mail body is not stored.
-    private static void MapMyAlerts(IEndpointRouteBuilder app)
-    {
-        app.MapGet("/me/alerts",
-            async (HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
-            {
-                var personId = RequirePersonId(ctx);
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-
-                var rows = new List<AlertRow>();
-                await using (var cmd = new NpgsqlCommand(@"
-select d.id, d.subscriber_id, s.address, o.topic, o.payload, d.sent_at
-from alert_delivery d
-join subscriber s on s.id = d.subscriber_id
-join outbox o on o.id = d.outbox_id
-where s.person_id = $1 and d.sent_at is not null
-order by d.sent_at desc, d.id desc
-limit 100;", conn))
-                {
-                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
-                    await using var reader = await cmd.ExecuteReaderAsync(ct);
-                    while (await reader.ReadAsync(ct))
-                    {
-                        rows.Add(new AlertRow(
-                            reader.GetInt64(0),
-                            reader.GetInt64(1),
-                            reader.GetString(2),
-                            reader.GetString(3),
-                            reader.GetString(4),
-                            reader.GetFieldValue<DateTimeOffset>(5)));
-                    }
-                }
-
-                var items = new List<AlertItemDto>();
-                foreach (var r in rows)
-                {
-                    using var payload = JsonDocument.Parse(r.Payload);
-                    var eventId = payload.RootElement.GetProperty("eventId").GetInt64();
-                    int? statusId = null;
-                    long? messageId = null;
-                    string kind;
-
-                    if (r.Topic == "event.status_changed")
-                    {
-                        kind = "event_status";
-                        statusId = payload.RootElement.TryGetProperty("toStatusId", out var t) ? t.GetInt32() : (int?)null;
-                        messageId = ReadMessageId(payload.RootElement);
-                    }
-                    else if (r.Topic == "event.status_notified")
-                    {
-                        kind = "event_status";
-                        statusId = payload.RootElement.TryGetProperty("statusId", out var s2) ? s2.GetInt32() : (int?)null;
-                        messageId = ReadMessageId(payload.RootElement);
-                    }
-                    else if (r.Topic == "event.message_posted")
-                    {
-                        kind = "event_message";
-                        messageId = ReadMessageId(payload.RootElement);
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    string eventName = await LookupEventNameAsync(conn, eventId, ct);
-                    // The body of the message the payload references; null when
-                    // there is none or the row was deleted.
-                    var message = messageId is not null
-                        ? await LookupMessageBodyAsync(conn, messageId.Value, ct)
-                        : null;
-                    var subject = kind == "event_status"
-                        ? SubjectForStatus(statusId ?? 0)
-                        : "Santa update: " + EmailTemplates.SubjectPreview(message ?? "");
-
-                    items.Add(new AlertItemDto
-                    {
-                        Id = r.Id,
-                        SubscriptionId = r.SubscriberId,
-                        Address = r.Address,
-                        Kind = kind,
-                        EventId = eventId,
-                        EventName = eventName,
-                        StatusId = statusId,
-                        MessageId = messageId,
-                        Subject = subject,
-                        Message = message,
-                        SentAt = r.SentAt,
-                    });
-                }
-                return Results.Ok(new ItemsResponse<AlertItemDto> { Items = items });
-            })
-            .WithTags("Me")
-            .Produces<ItemsResponse<AlertItemDto>>(StatusCodes.Status200OK)
-            .RequireAuthorization(AuthPolicies.Person)
-            .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
-    }
-
-    // The payload's `messageId`; null when absent or null.
-    private static long? ReadMessageId(JsonElement payload) =>
-        payload.TryGetProperty("messageId", out var m) && m.ValueKind == JsonValueKind.Number ? m.GetInt64() : null;
-
-    private sealed record AlertRow(long Id, long SubscriberId, string Address, string Topic, string Payload, DateTimeOffset SentAt);
-
-    private static async Task<string> LookupEventNameAsync(NpgsqlConnection conn, long eventId, CancellationToken ct)
-    {
-        await using var cmd = new NpgsqlCommand("select name from event where id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
-        var r = await cmd.ExecuteScalarAsync(ct);
-        return r is string s ? s : "";
-    }
-
-    private static async Task<string?> LookupMessageBodyAsync(NpgsqlConnection conn, long messageId, CancellationToken ct)
-    {
-        await using var cmd = new NpgsqlCommand("select body from event_message where id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = messageId });
-        var r = await cmd.ExecuteScalarAsync(ct);
-        return r as string;
-    }
-
-    // The template's subject line for a given status (contracts 7.8).
-    private static string SubjectForStatus(int statusId) => statusId switch
-    {
-        1 => "Santa's flight is in the works",
-        2 => "Santa's flight is scheduled",
-        3 => "Santa just lifted off",
-        4 => "Santa has landed",
-        5 => "Santa's flight has been cancelled",
-        6 => "Santa's flight is postponed",
-        _ => "Santa update",
-    };
 
     // GET /me/cookies. `limit` is the live setting.
     private static void MapListMyCookies(IEndpointRouteBuilder app)
@@ -662,33 +504,6 @@ returning id, cookie_type_id, left_at;", conn, tx))
                 ApiErrorCodes.Unauthenticated, "person id missing");
         }
         return id.Value;
-    }
-
-    private static bool HasGroup(HttpContext ctx, string group)
-    {
-        foreach (var claim in ctx.User.FindAll(PersonClaims.Groups))
-        {
-            if (string.Equals(claim.Value, group, StringComparison.Ordinal)) return true;
-            foreach (var part in claim.Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                if (string.Equals(part, group, StringComparison.Ordinal)) return true;
-        }
-        return false;
-    }
-
-    private static async Task<PersonDto?> ReadPersonAsync(NpgsqlConnection conn, long personId, CancellationToken ct)
-    {
-        await using var cmd = new NpgsqlCommand(@"
-select id, email, created_at, last_seen_at from person where id = $1;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
-        return new PersonDto
-        {
-            Id = reader.GetInt64(0),
-            Email = reader.GetString(1),
-            CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
-            LastSeenAt = reader.GetFieldValue<DateTimeOffset>(3),
-        };
     }
 
     private static async Task<SubscriptionDto> ReadSubscriptionAsync(

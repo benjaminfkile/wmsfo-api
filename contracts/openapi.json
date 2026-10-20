@@ -307,25 +307,6 @@
         }
       }
     },
-    "/me": {
-      "get": {
-        "tags": [
-          "Me"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/me/subscriptions": {
       "get": {
         "tags": [
@@ -399,25 +380,6 @@
         "responses": {
           "204": {
             "description": "No Content"
-          }
-        }
-      }
-    },
-    "/me/alerts": {
-      "get": {
-        "tags": [
-          "Me"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ItemsResponseOfAlertItemDto"
-                }
-              }
-            }
           }
         }
       }
@@ -3967,75 +3929,6 @@
           }
         }
       },
-      "AlertItemDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "subscriptionId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "address": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "eventId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "eventName": {
-            "type": "string"
-          },
-          "statusId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "messageId": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "subject": {
-            "type": "string"
-          },
-          "message": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "sentAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
       "ApiKeyDto": {
         "type": "object",
         "properties": {
@@ -6163,17 +6056,6 @@
           }
         }
       },
-      "ItemsResponseOfAlertItemDto": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AlertItemDto"
-            }
-          }
-        }
-      },
       "ItemsResponseOfApiKeyDto": {
         "type": "object",
         "properties": {
@@ -7284,17 +7166,6 @@
           }
         }
       },
-      "MeResponse": {
-        "type": "object",
-        "properties": {
-          "person": {
-            "$ref": "#/components/schemas/PersonDto"
-          },
-          "isAdmin": {
-            "type": "boolean"
-          }
-        }
-      },
       "MintQrCodesRequest": {
         "type": "object",
         "properties": {
@@ -8333,40 +8204,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "PersonDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int64"
-          },
-          "email": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "lastSeenAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "audit": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/AuditStampDto"
-              }
-            ]
-          }
-        }
       },
       "PersonWithCookieCountDto": {
         "type": "object",

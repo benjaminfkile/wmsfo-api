@@ -8,6 +8,7 @@ using NpgsqlTypes;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Content;
 using Wmsfo.Api.Contracts.Dtos;
+using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Icons;
 using Wmsfo.Api.Objects;
@@ -130,13 +131,15 @@ returning version;", connection, transaction);
         int lingerMsPerDollar = 40;
         int lingerMinMs = 2000;
         int flightHistoryMaxPoints = 2000;
+        int cookieLimitPerPerson = 10;
 
-        // 1. settings (linger constants + flight history cap). Read up-front so
-        // the sponsor and flight-history reads compose the final numbers in a
-        // single pass.
+        // 1. settings (linger constants, flight history cap, cookie limit).
+        // Read up-front so the sponsor and flight-history reads compose the
+        // final numbers in a single pass.
         await using (var cmd = new NpgsqlCommand(@"
 select key, value from app_setting
-where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_history_max_points');", conn, tx))
+where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_history_max_points',
+              'cookie_limit_per_person');", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -151,6 +154,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
                         case "sponsor_linger_ms_per_dollar": lingerMsPerDollar = parsed; break;
                         case "sponsor_linger_min_ms":        lingerMinMs = parsed; break;
                         case "flight_history_max_points":    flightHistoryMaxPoints = parsed; break;
+                        case "cookie_limit_per_person":      cookieLimitPerPerson = parsed; break;
                     }
                 }
             }
@@ -204,6 +208,12 @@ limit 1;", conn, tx);
                     CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
                 };
             }
+        }
+
+        // The current event's alerts (sql.md 7), newest first, at most 50.
+        if (currentEvent is not null)
+        {
+            currentEvent.Alerts = await ReadAlertsAsync(conn, tx, currentEvent.Id, ct).ConfigureAwait(false);
         }
 
         // 3a. the published content document (newest content_version row)
@@ -441,6 +451,10 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
         snap.Sponsors = sponsors;
         snap.SponsorsYear = sponsorsYear;
         snap.CookieTypes = cookieTypes;
+        snap.CookieLimitPerPerson = cookieLimitPerPerson;
+        // No setting stands behind the two switches yet; both are open.
+        snap.SignUpsOpen = true;
+        snap.SubscriptionsOpen = true;
 
         // 6a. qrCodes: every active printed code already resolved (contracts 4.5a).
         // A code resolves its own opens setting, else the nearest ancestor of its
@@ -547,6 +561,59 @@ order by m.id;", conn, tx);
         snap.Icons = icons;
 
         return snap;
+    }
+
+    // The alert rows of an event (sql.md 7): every outbox row of the alert
+    // topics whose payload names the event, except an event.status_changed
+    // without notify and an event.message_posted whose message is gone,
+    // newest first, at most 50. The message body is joined at build time and
+    // the subject is the alert email's subject line (contracts 7.8). The
+    // status is the payload's toStatusId (event.status_changed) or statusId
+    // (event.status_notified).
+    private const string AlertsSql = @"
+select o.id, o.topic, coalesce(o.payload->>'toStatusId', o.payload->>'statusId')::int,
+       (o.payload->>'messageId')::bigint, m.body, o.created_at
+from outbox o
+left join event_message m on m.id = (o.payload->>'messageId')::bigint
+where o.topic in ('event.status_changed', 'event.status_notified', 'event.message_posted')
+  and o.payload->>'eventId' = $1
+  and (o.topic <> 'event.status_changed' or o.payload->>'notify' = 'true')
+  and (o.topic <> 'event.message_posted' or m.id is not null)
+order by o.id desc
+limit 50;";
+
+    private static async Task<List<SnapshotAlert>> ReadAlertsAsync(
+        NpgsqlConnection conn, NpgsqlTransaction? tx, long eventId, CancellationToken ct)
+    {
+        var alerts = new List<SnapshotAlert>();
+        await using var cmd = new NpgsqlCommand(AlertsSql, conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter
+        {
+            NpgsqlDbType = NpgsqlDbType.Text,
+            Value = eventId.ToString(CultureInfo.InvariantCulture),
+        });
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var topic = reader.GetString(1);
+            long? messageId = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+            string? message = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var isMessage = topic == "event.message_posted";
+            int? statusId = isMessage ? null : reader.GetInt32(2);
+            alerts.Add(new SnapshotAlert
+            {
+                Id = reader.GetInt64(0),
+                Kind = isMessage ? "event_message" : "event_status",
+                StatusId = statusId,
+                MessageId = messageId,
+                Subject = isMessage
+                    ? EmailTemplates.MessageAlertSubject(message ?? "")
+                    : EmailTemplates.StatusAlertSubject(statusId!.Value),
+                Message = message,
+                CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+            });
+        }
+        return alerts;
     }
 
     // The year the snapshot's sponsors list (contracts 1.3): the current

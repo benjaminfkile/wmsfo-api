@@ -28,6 +28,7 @@ public class KeyOrderTests
         {
             "schemaVersion", "event", "qrCodes", "sponsors", "sponsorsYear", "cookieTypes", "content", "media", "icons",
             "routeMap", "routeMapConfig", "routeView", "trackerThemes",
+            "cookieLimitPerPerson", "signUpsOpen", "subscriptionsOpen",
         };
         var actual = ReadTopLevelKeys(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json"));
         Assert.Equal(expected, actual);
@@ -39,7 +40,7 @@ public class KeyOrderTests
         var expectedEvent = new[]
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
-            "fundsPercent", "flightHistory", "latestMessage",
+            "fundsPercent", "flightHistory", "latestMessage", "alerts",
             "trackerBbox", "trackerMap",
         };
         var expectedBbox = new[] { "west", "south", "east", "north" };
@@ -65,6 +66,7 @@ public class KeyOrderTests
         var expectedRouteMapConfig = new[] { "display", "controls" };
         var expectedRouteMapDisplay = new[] { "timeLabelIntervalMinutes", "routeWidth" };
         var expectedLatestMessage = new[] { "id", "body", "createdAt" };
+        var expectedAlert = new[] { "id", "kind", "statusId", "messageId", "subject", "message", "createdAt" };
         var expectedSponsor = new[]
         {
             "id", "name", "websiteUrl", "fbUrl", "igUrl", "logoMediaId",
@@ -85,6 +87,9 @@ public class KeyOrderTests
         Assert.Equal(expectedRouteMapConfig, KeysOf(routeMapConfig));
         Assert.Equal(expectedRouteMapDisplay, KeysOf(routeMapConfig.GetProperty("display")));
         Assert.Equal(expectedLatestMessage, KeysOf(root.GetProperty("event").GetProperty("latestMessage")));
+        var alerts = root.GetProperty("event").GetProperty("alerts");
+        Assert.Equal(2, alerts.GetArrayLength());
+        foreach (var alert in alerts.EnumerateArray()) Assert.Equal(expectedAlert, KeysOf(alert));
         Assert.Equal(expectedSponsor, KeysOf(root.GetProperty("sponsors")[0]));
         Assert.Equal(expectedCookieType, KeysOf(root.GetProperty("cookieTypes")[0]));
         Assert.Equal(expectedBbox, KeysOf(root.GetProperty("event").GetProperty("trackerBbox")));

@@ -571,8 +571,8 @@ values ($1, 'stale.png', 'image/png', 'raster', 'pending', 'media/x/stale.png', 
         Assert.Equal(0, second.StalePendingMedia);
     }
 
-    // A30 / contracts 7.6: alert topics stay 400 days so /me/alerts spans a
-    // full season. Non-alert topics remain the 30-day sweep tested above.
+    // A30 / contracts 7.6: alert topics stay 400 days so the snapshot's
+    // alerts span a full season. Non-alert topics remain the 30-day sweep tested above.
     [Theory]
     [InlineData("event.status_changed")]
     [InlineData("event.status_notified")]

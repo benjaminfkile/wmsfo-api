@@ -103,6 +103,55 @@
           },
           "additionalProperties": false
         },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "statusId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "messageId": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "subject": {
+                "type": "string"
+              },
+              "message": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "statusId",
+              "messageId",
+              "subject",
+              "message",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
         "trackerBbox": {
           "type": "object",
           "properties": {
@@ -177,6 +226,7 @@
         }
       },
       "required": [
+        "alerts",
         "trackerBbox",
         "trackerMap"
       ],
@@ -700,13 +750,25 @@
         },
         "additionalProperties": false
       }
+    },
+    "cookieLimitPerPerson": {
+      "type": "integer"
+    },
+    "signUpsOpen": {
+      "type": "boolean"
+    },
+    "subscriptionsOpen": {
+      "type": "boolean"
     }
   },
   "required": [
     "routeMap",
     "routeMapConfig",
     "routeView",
-    "trackerThemes"
+    "trackerThemes",
+    "cookieLimitPerPerson",
+    "signUpsOpen",
+    "subscriptionsOpen"
   ],
   "additionalProperties": false
 }

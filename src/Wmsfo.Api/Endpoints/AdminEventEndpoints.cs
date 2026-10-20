@@ -888,9 +888,10 @@ order by h.changed_at desc, h.id desc;", conn);
     // POST /admin/events/{id}/notify per contracts 4.5 and sql.md 8.4a.
     // Announces the event's current status to subscribers now (outbox
     // event.status_notified), sets status_notified_at, appends a
-    // StatusHistory row (from = to, notify = true). With a message it posts
-    // the event_message row and rebuilds the snapshot in the same
-    // transaction; without one it is not snapshot-affecting.
+    // StatusHistory row (from = to, notify = true), and with a message posts
+    // the event_message row. It runs inside the snapshot-affecting frame
+    // (sql.md 8.5) with or without a message, so the announcement is in the
+    // snapshot's alerts at once.
     private static void MapNotify(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/notify",
@@ -904,7 +905,7 @@ order by h.changed_at desc, h.id desc;", conn);
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
-                async Task<EventDto> Write(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken token)
+                var (result, _) = await snap.RunAsync<EventDto>(async (conn, tx, token) =>
                 {
                     short status;
                     await using (var read = new NpgsqlCommand(
@@ -964,11 +965,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         before, WithMessageId(dto, messageId), token);
                     dto.Audit = stamp;
                     return dto;
-                }
-
-                EventDto result = message is null
-                    ? await snap.RunWithoutSnapshotAsync<EventDto>(Write, ct)
-                    : (await snap.RunAsync<EventDto>(Write, ct)).Value;
+                }, ct);
                 return Results.Ok(result);
             })
             .WithTags("AdminEvents")

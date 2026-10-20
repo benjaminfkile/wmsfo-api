@@ -67,8 +67,15 @@ public sealed class Snapshot
     [JsonPropertyOrder(11), JsonRequired] public SnapshotRouteView RouteView { get; set; } = new();
     // The enabled themes of the routeView event (the current event, else the
     // newest), both renderers, in `sortOrder`, `id` order (contracts 1.3);
-    // empty when there is no event at all. The last key.
+    // empty when there is no event at all.
     [JsonPropertyOrder(12), JsonRequired] public IList<SnapshotTrackerTheme> TrackerThemes { get; set; } = new List<SnapshotTrackerTheme>();
+    // The `cookie_limit_per_person` setting (contracts 1.3, 6).
+    [JsonPropertyOrder(13), JsonRequired] public int CookieLimitPerPerson { get; set; }
+    // Whether sign-ups are open (contracts 1.3); the builder writes true.
+    [JsonPropertyOrder(14), JsonRequired] public bool SignUpsOpen { get; set; } = true;
+    // Whether subscriptions are open (contracts 1.3); the builder writes true.
+    // The last key.
+    [JsonPropertyOrder(15), JsonRequired] public bool SubscriptionsOpen { get; set; } = true;
 }
 
 // The snapshot's `routeView` (contracts 1.3): the box the route map locks to
@@ -100,11 +107,14 @@ public sealed class SnapshotEvent
     // when there is no site route or its object cannot be read.
     [JsonPropertyOrder(8)] public SnapshotFlightHistory? FlightHistory { get; set; }
     [JsonPropertyOrder(9)] public SnapshotLatestMessage? LatestMessage { get; set; }
+    // The event's alerts (contracts 1.3): one per outbox row of the alert
+    // topics naming the event, newest first, at most 50.
+    [JsonPropertyOrder(10), JsonRequired] public IList<SnapshotAlert> Alerts { get; set; } = new List<SnapshotAlert>();
     // The event's bounding box (contracts 1.3); both tracker renderers lock to it.
-    [JsonPropertyOrder(10), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
+    [JsonPropertyOrder(11), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
     // The event's ready tile package (contracts 1.3); null when the event has
     // no map. The last key of `event`.
-    [JsonPropertyOrder(11), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
+    [JsonPropertyOrder(12), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
 }
 
 // event.trackerMap (contracts 1.3): the tile package with its absolute CDN URLs.
@@ -202,6 +212,21 @@ public sealed class RouteMapControls
 {
     [JsonPropertyOrder(0), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Fullscreen { get; set; }
     [JsonPropertyOrder(1), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Terrain { get; set; }
+}
+
+// One item of event.alerts (contracts 1.3): an announced status change, an
+// announcement, or a posted message with notify. `id` is the outbox row's id,
+// stable across rebuilds; `subject` is the alert email's subject line and
+// `message` the body of the message `messageId` names, read at build time.
+public sealed class SnapshotAlert
+{
+    [JsonPropertyOrder(0), JsonRequired] public long Id { get; set; }
+    [JsonPropertyOrder(1), JsonRequired] public string Kind { get; set; } = "";
+    [JsonPropertyOrder(2), JsonRequired] public int? StatusId { get; set; }
+    [JsonPropertyOrder(3), JsonRequired] public long? MessageId { get; set; }
+    [JsonPropertyOrder(4), JsonRequired] public string Subject { get; set; } = "";
+    [JsonPropertyOrder(5), JsonRequired] public string? Message { get; set; }
+    [JsonPropertyOrder(6), JsonRequired] public DateTimeOffset CreatedAt { get; set; }
 }
 
 public sealed class SnapshotLatestMessage

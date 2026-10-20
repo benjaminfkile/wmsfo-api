@@ -46,7 +46,7 @@ public sealed class EndpointStubTests : IAsyncLifetime
     [Theory]
     [InlineData("GET",  "/api/health")]
     [InlineData("POST", "/contact")]
-    [InlineData("GET",  "/me")]
+    [InlineData("GET",  "/me/cookies")]
     [InlineData("POST", "/cookies")]
     [InlineData("GET",  "/admin/events")]
     [InlineData("POST", "/admin/events")]

@@ -64,21 +64,6 @@ public sealed class StatusHistoryDto
     public int SentCount { get; set; }
 }
 
-public sealed class AlertItemDto
-{
-    public long Id { get; set; }
-    public long SubscriptionId { get; set; }
-    public string Address { get; set; } = "";
-    public string Kind { get; set; } = "";
-    public long EventId { get; set; }
-    public string EventName { get; set; } = "";
-    public int? StatusId { get; set; }
-    public long? MessageId { get; set; }
-    public string Subject { get; set; } = "";
-    public string? Message { get; set; }
-    public DateTimeOffset SentAt { get; set; }
-}
-
 public sealed class RouteDto
 {
     public long Id { get; set; }

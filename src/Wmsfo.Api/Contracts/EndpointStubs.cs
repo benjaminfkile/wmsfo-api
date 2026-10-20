@@ -278,10 +278,6 @@ public static class EndpointStubs
 
     private static void MapMe(IEndpointRouteBuilder app)
     {
-        app.MapGet("/me", NotImplemented)
-            .WithTags("Me")
-            .Produces<MeResponse>(StatusCodes.Status200OK);
-
         app.MapGet("/me/subscriptions", NotImplemented)
             .WithTags("Me")
             .Produces<ItemsResponse<SubscriptionDto>>(StatusCodes.Status200OK);
@@ -298,10 +294,6 @@ public static class EndpointStubs
         app.MapDelete("/me/subscriptions/{id:long}", NotImplemented)
             .WithTags("Me")
             .Produces(StatusCodes.Status204NoContent);
-
-        app.MapGet("/me/alerts", NotImplemented)
-            .WithTags("Me")
-            .Produces<ItemsResponse<AlertItemDto>>(StatusCodes.Status200OK);
 
         app.MapGet("/me/cookies", NotImplemented)
             .WithTags("Me")

@@ -331,6 +331,18 @@ public sealed class EmailTemplates
         return trimmed[..60];
     }
 
+    // The subject line of the alert email for a status alert: the subject of
+    // the status's template (contracts 7.8). The snapshot's alerts carry it.
+    public static string StatusAlertSubject(int statusId) =>
+        Specs[TemplateForStatus(statusId)].Subject;
+
+    // The subject line of the event_message alert email for a message body:
+    // the template's subject with {{messagePreview}} substituted.
+    public static string MessageAlertSubject(string body) =>
+        Substitute(Specs[EventMessage].Subject,
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["messagePreview"] = SubjectPreview(body) },
+            htmlEscape: false);
+
     public sealed record TemplateSpec(
         string Subject,
         ImmutableArray<string> RequiredTokens,

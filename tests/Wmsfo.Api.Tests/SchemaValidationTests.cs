@@ -56,8 +56,12 @@ public class SchemaValidationTests
         using var doc = System.Text.Json.JsonDocument.Parse(snapshot.ToJsonString());
         Assert.True(schema.Evaluate(doc.RootElement).IsValid);
 
-        // Each tracker key is required.
-        foreach (var (parent, key) in new[] { ("event", "trackerBbox"), ("event", "trackerMap"), ("", "trackerThemes") })
+        // Each tracker key, the alerts, the cookie limit, and the two switches are required.
+        foreach (var (parent, key) in new[]
+        {
+            ("event", "trackerBbox"), ("event", "trackerMap"), ("", "trackerThemes"),
+            ("event", "alerts"), ("", "cookieLimitPerPerson"), ("", "signUpsOpen"), ("", "subscriptionsOpen"),
+        })
         {
             var without = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
             (parent == "" ? without.AsObject() : without[parent]!.AsObject()).Remove(key);

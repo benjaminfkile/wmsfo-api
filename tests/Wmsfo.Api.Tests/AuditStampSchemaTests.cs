@@ -17,7 +17,9 @@ public class AuditStampSchemaTests
         "ApiKeyDto",
         "CookieTypeDto",
         "SubscriberAdminDto",
-        "PersonDto",
+        // Person: the People page's `Person & { cookieCount }`; no endpoint
+        // returns a bare Person since GET /me went away (A117).
+        "PersonWithCookieCountDto",
         "ContactMessageDto",
         "SettingDto",
         "PageAdminDto",
