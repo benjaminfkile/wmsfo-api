@@ -14,8 +14,8 @@ namespace Wmsfo.Api.IntegrationTests;
 
 // Snapshot latest message acceptance (contracts 1.3 event.latestMessage):
 //   - latestMessage is the newest message by created_at, then id, keeps its
-//     four keys in order, and is the last key of event; event has no
-//     messages key.
+//     three keys in order, and is followed by alerts, trackerBbox, and
+//     trackerMap; event has no messages key.
 //   - no messages give null.
 //   - a message POST, PATCH, and DELETE rebuild latestMessage.
 //   - the snapshot schema validates the fixture and a built snapshot, and
@@ -76,8 +76,8 @@ public sealed class A73SnapshotLatestMessageTests : IClassFixture<PostgresFixtur
         using var doc = await ReadSnapshotAsync();
         var ev = doc.RootElement.GetProperty("event");
         Assert.False(ev.TryGetProperty("messages", out _));
-        Assert.Equal(new[] { "latestMessage", "trackerBbox", "trackerMap" },
-            ev.EnumerateObject().Select(p => p.Name).TakeLast(3).ToArray());
+        Assert.Equal(new[] { "latestMessage", "alerts", "trackerBbox", "trackerMap" },
+            ev.EnumerateObject().Select(p => p.Name).TakeLast(4).ToArray());
         var latest = ev.GetProperty("latestMessage");
         Assert.Equal(MessageKeys, latest.EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(newest, latest.GetProperty("id").GetInt64());

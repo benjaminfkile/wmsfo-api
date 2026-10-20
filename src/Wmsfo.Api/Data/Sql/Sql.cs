@@ -718,8 +718,8 @@ delete from beacon_enrollment_token
 where (consumed_at is not null and consumed_at < now() - interval '24 hours')
    or (consumed_at is null and expires_at < now() - interval '24 hours');";
 
-    // Alert topics keep 400 days so a person's alert history (contracts 4.4
-    // GET /me/alerts) spans a season (contracts 7.6). Everything else is 30.
+    // Alert topics keep 400 days so the snapshot's alerts (contracts 1.3,
+    // event.alerts) span a season (contracts 7.6). Everything else is 30.
     public const string NightlyOutbox = @"
 delete from outbox
 where published_at < now() - case

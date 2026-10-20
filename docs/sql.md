@@ -1189,6 +1189,20 @@ where event_id = $event_id
 order by created_at desc, id desc
 limit 1;
 
+-- the current event's alerts (event.alerts): the alert topics' outbox rows naming the event,
+-- newest first, at most 50, with the body of the message each names; the build leaves out an
+-- event.status_changed whose notify is not true and an event.message_posted whose message is gone
+select o.id, o.topic, coalesce(o.payload->>'toStatusId', o.payload->>'statusId')::int,
+       (o.payload->>'messageId')::bigint, m.body, o.created_at
+from outbox o
+left join event_message m on m.id = (o.payload->>'messageId')::bigint
+where o.topic in ('event.status_changed', 'event.status_notified', 'event.message_posted')
+  and o.payload->>'eventId' = $event_id::text
+  and (o.topic <> 'event.status_changed' or o.payload->>'notify' = 'true')
+  and (o.topic <> 'event.message_posted' or m.id is not null)
+order by o.id desc
+limit 50;
+
 -- the published content document (read before the route reads: its settings carry
 -- the site route and the default box)
 select id, document, media_ids from content_version order by id desc limit 1;
@@ -1237,7 +1251,7 @@ order by y.amount_donated desc nulls last, s.name asc, s.id asc;
 -- cookie types
 select id, name, icon, sort from cookie_type where active order by sort, id;
 
--- settings (linger constants, flight history cap; the route map reads its three route_map_* keys)
+-- settings (linger constants, flight history cap, cookie_limit_per_person; the route map reads its three route_map_* keys)
 select key, value from app_setting;
 
 -- the media map: assets the document, the listed sponsors, the cookie types, and the enabled themes' thumbnails reference, each with its ready dark version
@@ -1257,7 +1271,7 @@ where (m.id = any($ids)       -- content_version.media_ids, plus sponsor.logo_me
 order by m.id;
 ```
 
-`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeMapConfig` is the document's `settings.route.mapConfig` as published. `media[].url`, `media[].variants`, `trackerMap.tilesUrl` and `terrainUrl` (`prefix + '/tiles.pmtiles'`, `prefix + '/terrain.pmtiles'`, the latter null when `terrain_max_zoom` is null), `trackerThemes[].styleUrl` (`themes/{style_sha256}.json`), and `spriteUrl` (`themes/{id}/sprites/{sprite_sha256}/sprite` while `sprite_sha256` is not null) are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Every table here is tens of rows and the document is one row; plans are irrelevant.
+`lingerMs = max(sponsor_linger_min_ms, round(amount_donated * sponsor_linger_ms_per_dollar))`, or `sponsor_linger_min_ms` when `amount_donated` is null, computed in the API. `routeMapConfig` is the document's `settings.route.mapConfig` as published. `media[].url`, `media[].variants`, `trackerMap.tilesUrl` and `terrainUrl` (`prefix + '/tiles.pmtiles'`, `prefix + '/terrain.pmtiles'`, the latter null when `terrain_max_zoom` is null), `trackerThemes[].styleUrl` (`themes/{style_sha256}.json`), and `spriteUrl` (`themes/{id}/sprites/{sprite_sha256}/sprite` while `sprite_sha256` is not null) are `WMSFO_CDN_BASE_URL + '/' + key`; `icons` comes from the compiled library, not from a table. The content document is embedded verbatim. Each alert's `subject` is the alert email's subject line, built in the API from the status (`toStatusId` or `statusId`) or the message body by the helpers the alert-send chore uses; `cookieLimitPerPerson` is the setting (10 when the row is missing), and `signUpsOpen` and `subscriptionsOpen` are written true. Every table here is tens of rows and the document is one row; plans are irrelevant. The alerts read walks `outbox_pkey` backwards and stops at 50 matches: the table holds the alert topics for 400 days and everything else for 30 (section 11), a few thousand rows at most, so no index of its own is needed.
 
 ---
 
@@ -1412,7 +1426,7 @@ After commit: refresh memory from SQL (section 8.17), write the live object, pub
 
 ```sql
 begin;
-select * from snapshot where id = 1 for update;                               -- only when a message is given
+select * from snapshot where id = 1 for update;
 select id, status_id from event where id = $event for update;             -- none: 404
 -- only when a message is given (trimmed, 1 to 1000):
 insert into event_message (event_id, body, created_by) values ($event, $message, $admin_email)
@@ -1426,11 +1440,11 @@ returning id into $history;
 update outbox set payload = payload || jsonb_build_object('historyId', $history) where id = $outbox;
 update event set status_notified_at = now(), updated_at = now() where id = $event;
 insert into audit_log (...) values ($actor, 'notify', 'event', $event::text, $before, $after, $request_id);   -- $after: the Event plus messageId
--- only when a message is given: build and PUT the snapshot and bump snapshot.version as in 8.4
+-- build and PUT the snapshot and bump snapshot.version as in 8.4
 commit;
 ```
 
-Without a message it is not snapshot-affecting: nothing the site reads changes. With one, the new message is the event's `latestMessage`, so the snapshot is rebuilt in the same transaction. `sentCount` on a history row is its `sent_count` column, kept by the alert-send chore (section 9).
+It runs in the snapshot-affecting frame (8.5) with or without a message: the new outbox row is one of the snapshot's alerts (`event.alerts`, section 7), and with a message the new message is also the event's `latestMessage`, so the snapshot is rebuilt in the same transaction. `sentCount` on a history row is its `sent_count` column, kept by the alert-send chore (section 9).
 
 ### 8.4b Clone an event (`POST /admin/events/{id}/clone`)
 
@@ -1507,7 +1521,7 @@ update snapshot set version = version + 1, url = $url, s3_key = $key, built_at =
 commit;
 ```
 
-`POST /admin/snapshot/rebuild` is this frame with no write. A content publish is this frame with the writes of section 8.19. A media `PATCH` (alt, title, darkMediaId, invertInDark, smallMediaId, credit) is this frame with one `update media_asset` statement.
+`POST /admin/snapshot/rebuild` is this frame with no write. `POST /admin/events/{id}/notify` is this frame with the writes of 8.4a, with or without a message, and a status change (8.4) and every `event_message` write are too, so the snapshot's alerts (section 7) follow each of them at once. A content publish is this frame with the writes of section 8.19. A media `PATCH` (alt, title, darkMediaId, invertInDark, smallMediaId, credit) is this frame with one `update media_asset` statement.
 
 ### 8.6 Set the current event (`POST /admin/events/{id}/current`)
 
@@ -2030,7 +2044,12 @@ A sequential scan of a table with tens of rows.
 delete from beacon_enrollment_token
 where (consumed_at is not null and consumed_at < now() - interval '24 hours')
    or (consumed_at is null and expires_at < now() - interval '24 hours');
-delete from outbox where published_at < now() - interval '30 days';           -- cascades alert_delivery
+delete from outbox                                                            -- cascades alert_delivery
+where published_at < now() - case
+  when topic in ('event.status_changed', 'event.status_notified', 'event.message_posted')
+    then interval '400 days'                                                    -- the snapshot's alerts span a season
+  else interval '30 days'
+end;
 delete from subscriber where verified_at is null and created_at < now() - interval '7 days';
 delete from beacon_log where received_at < now() - interval '30 days';
 delete from preview_token where expires_at < now() - interval '24 hours';
@@ -2136,7 +2155,7 @@ Subscriber status filter: `verified` is `verified_at is not null and unsubscribe
 | `contact_message` | Until an admin deletes | admin endpoint |
 | `beacon_enrollment_token` | 24 h after expiry or consumption; also deleted by rotate and revoke while pending | nightly cleanup; beacon writes |
 | `beacon_log` | 30 days | nightly cleanup |
-| `outbox` | 30 days after `published_at`, except the alert topics (`event.status_changed`, `event.status_notified`, `event.message_posted`), kept 400 days for the person's alert history; rows that never publish (5 attempts) stay | nightly cleanup |
+| `outbox` | 30 days after `published_at`, except the alert topics (`event.status_changed`, `event.status_notified`, `event.message_posted`), kept 400 days for the snapshot's alerts (`event.alerts`); rows that never publish (5 attempts) stay | nightly cleanup |
 | `alert_delivery` | With its outbox row, 30 days after that row was published, through the cascade. No statement of its own. |
 | `audit_log` | Never. |
 | `qr_scan` | Never. |

@@ -171,6 +171,31 @@ public static class FixtureData
                     Body = "Santa is airborne over the valley.",
                     CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
                 },
+                // Newest first: a posted message, then the status alert of
+                // lift-off with the message typed on it.
+                Alerts = new List<SnapshotAlert>
+                {
+                    new()
+                    {
+                        Id = 41,
+                        Kind = "event_message",
+                        StatusId = null,
+                        MessageId = 12,
+                        Subject = "Santa update: Santa is airborne over the valley.",
+                        Message = "Santa is airborne over the valley.",
+                        CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:30.000Z"),
+                    },
+                    new()
+                    {
+                        Id = 40,
+                        Kind = "event_status",
+                        StatusId = 3,
+                        MessageId = 11,
+                        Subject = "Santa just lifted off",
+                        Message = "Santa is in the air. Wave from the porch!",
+                        CreatedAt = DateTimeOffset.Parse("2026-12-22T01:02:11.000Z"),
+                    },
+                },
                 TrackerBbox = new Bbox { West = -114.30, South = 46.75, East = -113.80, North = 47.05 },
                 TrackerMap = new SnapshotTrackerMap
                 {
@@ -289,6 +314,9 @@ public static class FixtureData
                 // the home role page and codes with no code- or place-set opens.
                 ["qr-002"] = new SnapshotQrCode { PageSlug = "/", ForwardUrl = null },
             },
+            CookieLimitPerPerson = 10,
+            SignUpsOpen = true,
+            SubscriptionsOpen = true,
         };
     }
 

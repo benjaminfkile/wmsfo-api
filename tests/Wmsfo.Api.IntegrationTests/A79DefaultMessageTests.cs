@@ -15,7 +15,7 @@ namespace Wmsfo.Api.IntegrationTests;
 //   - notify false and no message creates the row with the stock paragraph,
 //     the history references it, and the snapshot's latestMessage is it
 //   - an announce without a message creates no row
-//   - GET /me/alerts carries `message` for a status alert with a typed
+//   - the snapshot's alerts carry `message` for a status alert with a typed
 //     message, for one without (the stock paragraph), for a message alert
 //     (the body), and null once the message row is deleted
 public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAsyncLifetime
@@ -113,11 +113,9 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
     }
 
     [Fact]
-    public async Task My_alerts_carry_the_message_of_each_alert()
+    public async Task Snapshot_alerts_carry_the_message_of_each_alert()
     {
         var id = await CreateEventAsync(2203);
-        var personId = await UpsertDevPersonAsync();
-        await CreateVerifiedSubscriberAsync(personId, DevStaticTokens.PersonEmail);
 
         // A status alert with a typed message.
         var typed = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
@@ -137,7 +135,7 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
         Assert.Equal(HttpStatusCode.Created, posted.StatusCode);
         await DeliverAsync();
 
-        var items = await ReadMyAlertsAsync();
+        var items = await ReadSnapshotAlertsAsync();
         Assert.Equal(3, items.Count);
         var stock = EmailTemplates.StockParagraph(1, "Event 2203");
         var messageAlert = items.Single(i => i.GetProperty("kind").GetString() == "event_message");
@@ -151,7 +149,7 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
         var delete = await SendAdminAsync(HttpMethod.Delete,
             $"/admin/events/{id}/messages/{stockAlert.GetProperty("messageId").GetInt64()}", "");
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
-        var after = (await ReadMyAlertsAsync())
+        var after = (await ReadSnapshotAlertsAsync())
             .Single(i => i.GetProperty("kind").GetString() == "event_status" && i.GetProperty("statusId").GetInt32() == 1);
         Assert.Equal(JsonValueKind.Null, after.GetProperty("message").ValueKind);
     }
@@ -162,14 +160,8 @@ public sealed class A79DefaultMessageTests : IClassFixture<PostgresFixture>, IAs
         await _host.Alerts.RunOnceAsync(CancellationToken.None);
     }
 
-    private async Task<List<JsonElement>> ReadMyAlertsAsync()
-    {
-        using var req = _host!.PersonRequest(HttpMethod.Get, "/me/alerts");
-        var me = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        using var doc = JsonDocument.Parse(await me.Content.ReadAsStringAsync());
-        return doc.RootElement.GetProperty("items").EnumerateArray().Select(e => e.Clone()).ToList();
-    }
+    private Task<List<JsonElement>> ReadSnapshotAlertsAsync() =>
+        CurrentSnapshot.ReadAlertsAsync(_fixture.ConnectionString, _host!.Store);
 
     // ---------- helpers ----------
 
@@ -206,20 +198,6 @@ values ($1, $2, 1, true, $3, 'seed', now()) returning id;", conn);
         await using var cmd = new NpgsqlCommand(
             "insert into person (cognito_sub, email) values (gen_random_uuid(), $1) returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-        return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
-    }
-
-    // The DevStaticTokens person, so GET /me/alerts resolves to this row.
-    private async Task<long> UpsertDevPersonAsync()
-    {
-        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(@"
-insert into person (cognito_sub, email) values ($1::uuid, $2)
-on conflict (cognito_sub) do update set email = excluded.email
-returning id;", conn);
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Uuid, Value = Guid.Parse(DevStaticTokens.PersonSub) });
-        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = DevStaticTokens.PersonEmail });
         return (long)(await cmd.ExecuteScalarAsync() ?? 0L);
     }
 

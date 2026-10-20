@@ -1,12 +1,5 @@
 namespace Wmsfo.Api.Contracts.Dtos;
 
-// GET /me (contracts 4.4).
-public sealed class MeResponse
-{
-    public PersonDto Person { get; set; } = new();
-    public bool IsAdmin { get; set; }
-}
-
 // POST /me/subscriptions request (contracts 4.4). Strict.
 public sealed class CreateSubscriptionRequest
 {

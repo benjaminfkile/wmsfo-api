@@ -64,37 +64,6 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         await SnapshotSeed.EnsureAsync(conn);
     }
 
-    // GET /me
-
-    [Fact]
-    public async Task Get_me_returns_person_and_isAdmin_false_for_person()
-    {
-        using var req = _host!.PersonRequest(HttpMethod.Get, "/me");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        Assert.Equal(DevStaticTokens.PersonEmail,
-            body.RootElement.GetProperty("person").GetProperty("email").GetString());
-        Assert.False(body.RootElement.GetProperty("isAdmin").GetBoolean());
-    }
-
-    [Fact]
-    public async Task Get_me_returns_isAdmin_true_for_admin()
-    {
-        using var req = _host!.AdminRequest(HttpMethod.Get, "/me");
-        var response = await _host.Client.SendAsync(req);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await ReadJsonAsync(response);
-        Assert.True(body.RootElement.GetProperty("isAdmin").GetBoolean());
-    }
-
-    [Fact]
-    public async Task Get_me_without_token_is_401()
-    {
-        var response = await _host!.Client.GetAsync("/me");
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
     // POST /me/subscriptions
 
     [Fact]
@@ -500,8 +469,8 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
     private async Task<long> EnsurePersonIdAsync(string sub)
     {
         // The upsert filter runs on the first authorized request that has a sub
-        // claim; hit /me to force it.
-        using var req = _host!.PersonRequest(HttpMethod.Get, "/me");
+        // claim; hit /me/subscriptions to force it.
+        using var req = _host!.PersonRequest(HttpMethod.Get, "/me/subscriptions");
         await _host.Client.SendAsync(req);
         await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
         await conn.OpenAsync();

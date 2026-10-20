@@ -24,7 +24,7 @@ using Wmsfo.Api.Realtime;
 namespace Wmsfo.Api.IntegrationTests;
 
 // A30 test host - admin events (with notify + clone), admin sponsors (with
-// copy-from + import), and /me family (with /me/alerts) all wired to the real
+// copy-from + import), and the /me family all wired to the real
 // handlers. Adds an OutboxPublisher + AlertSender + FakeSesSender so the
 // alert pipeline can be driven end-to-end from a status change or notify call.
 public sealed class A30Host : IAsyncDisposable
