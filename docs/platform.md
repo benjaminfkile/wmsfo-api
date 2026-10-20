@@ -593,12 +593,14 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-prod"] },
     { "Effect": "Allow", "Action": "ses:GetAccount", "Resource": "*" },
     { "Effect": "Allow", "Action": "cognito-idp:AdminGetUser",
-      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] }
+      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] },
+    { "Effect": "Allow", "Action": ["cognito-idp:DescribeUserPool", "cognito-idp:UpdateUserPool"],
+      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] }
   ]
 }
 ```
 
-The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
+The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The third lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
 
 ### 6.2 CI role
 
@@ -874,7 +876,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - The migration tool imports legacy logos as media assets rather than keeping legacy keys; the legacy bucket is retired.
 - Price class North America and Europe.
 - Cognito pool mail through Cognito's default sender; SES is used only by the API. A Custom Message Lambda gives the account emails the layout of the API's emails; a failure there falls back to Cognito's default message rather than blocking sign-up or sign-in (2026-09-27).
-- One inline IAM policy `wmsfo-api` on the instance role for SES and `AdminGetUser`; the existing broad S3 grant is left as is.
+- One inline IAM policy `wmsfo-api` on the instance role for SES, `AdminGetUser`, and the people pool's `DescribeUserPool` and `UpdateUserPool` (the sign-ups switch); the existing broad S3 grant is left as is.
 - CI pushes through an OIDC role; no access keys in GitHub.
 - A second Vercel project per frontend with `dev` as its production branch, rather than relying on pull request previews (which are refused by every allow list).
 - Alarms in prod only; dev has metric filters for the dashboard.

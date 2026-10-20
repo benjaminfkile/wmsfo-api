@@ -43,7 +43,8 @@ public sealed class A11Host : IAsyncDisposable
         Gateway = gateway;
     }
 
-    public static async Task<A11Host> StartAsync(string connectionString)
+    public static async Task<A11Host> StartAsync(string connectionString,
+        Amazon.CognitoIdentityProvider.IAmazonCognitoIdentityProvider? cognito = null)
     {
         var options = new WmsfoOptions
         {
@@ -105,6 +106,9 @@ public sealed class A11Host : IAsyncDisposable
         builder.Services.AddSingleton<BeaconRateLimiter>();
         builder.Services.AddSingleton<LocationIngest>();
         builder.Services.AddSingleton<AdminSnapshotTransaction>();
+        builder.Services.AddSingleton<SignUpsSwitch>();
+        // A121: the sign-ups switch's Cognito client; none means local dev.
+        if (cognito is not null) builder.Services.AddSingleton(cognito);
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddScoped<AuditRecorder>();
         builder.Services.AddSingleton<AuditEndpointFilter>();

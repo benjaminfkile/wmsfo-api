@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Wmsfo.Api.Auth;
 using Wmsfo.Api.Config;
 using Wmsfo.Api.Node;
 
@@ -33,6 +34,7 @@ public sealed class ChoreHost : BackgroundService
     private readonly NightlyCleanup _nightly;
     private readonly PendingMapSweeper _mapSweep;
     private readonly ContactInboxImporter _contactInbox;
+    private readonly SignUpsSwitch _signUps;
     private readonly IChoreClock _clock;
     private readonly ILogger<ChoreHost> _logger;
 
@@ -48,6 +50,7 @@ public sealed class ChoreHost : BackgroundService
         NightlyCleanup nightly,
         PendingMapSweeper mapSweep,
         ContactInboxImporter contactInbox,
+        SignUpsSwitch signUps,
         IChoreClock clock,
         ILogger<ChoreHost> logger)
     {
@@ -60,6 +63,7 @@ public sealed class ChoreHost : BackgroundService
         _nightly = nightly;
         _mapSweep = mapSweep;
         _contactInbox = contactInbox;
+        _signUps = signUps;
         _clock = clock;
         _logger = logger;
     }
@@ -79,8 +83,28 @@ public sealed class ChoreHost : BackgroundService
         var orphanTask = RunOnCadenceAsync("media-orphan", OrphanCadence, _orphan.RunOnceAsync, stoppingToken);
         var contactInboxTask = RunOnCadenceAsync("contact-inbox", ContactInboxCadence, _contactInbox.RunOnceAsync, stoppingToken);
         var nightlyTask = RunNightlyAsync(stoppingToken);
+        var signUpsDriftTask = RunSignUpsDriftOnceAsync(stoppingToken);
 
-        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask).ConfigureAwait(false);
+        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask, signUpsDriftTask).ConfigureAwait(false);
+    }
+
+    // The sign-ups drift check runs once, on the first tick (at the outbox
+    // cadence) where this node is the leader, and then the loop ends.
+    private async Task RunSignUpsDriftOnceAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(OutboxCadence);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+            {
+                if (!_state.Leader.IsCurrentlyLeader(_clock.UtcNow)) continue;
+                await _signUps.CheckDriftAsync(ct).ConfigureAwait(false);
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     // Cadenced runner. Every chore starts only while IsLeader at the tick,

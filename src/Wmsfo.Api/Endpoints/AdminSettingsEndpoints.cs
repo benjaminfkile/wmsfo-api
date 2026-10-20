@@ -16,7 +16,9 @@ namespace Wmsfo.Api.Endpoints;
 // contracts 4.5 Settings + contracts 6 (`app_setting`). Every key of section 6
 // with the documented defaults; GET returns every key (missing rows fill in the
 // design default with updatedBy = updatedAt = null); PUT is a [snapshot] write
-// that upserts the row after per-key type and range validation.
+// that upserts the row after per-key type and range validation. A write of
+// `sign_ups_open` first sets the site pool's self sign-up (SignUpsSwitch) and
+// runs the row write only after Cognito answers.
 public static class AdminSettingsEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -27,8 +29,9 @@ public static class AdminSettingsEndpoints
 
     // The keys with their JSON defaults and numeric ranges (contracts 6). The
     // JSON type is `int` for every key except `location_min_distance_m`, which
-    // is `number` because sub-metre values are meaningful; the validator
-    // switches on `IsInteger`.
+    // is `number` because sub-metre values are meaningful, and the three
+    // switches, which are `bool` (default 1 is true); the validator switches on
+    // `IsBoolean` and `IsInteger`.
     public sealed record SettingKind(string Key, double DefaultValue, double Min, double Max, bool IsInteger = true, bool IsBoolean = false);
 
     public static readonly IReadOnlyList<SettingKind> Kinds = new SettingKind[]
@@ -45,6 +48,8 @@ public static class AdminSettingsEndpoints
         new(RouteMapSettings.SimplifyToleranceKey, RouteMapSettings.DefaultSimplifyToleranceM,     1,   500),
         new(RouteMapSettings.MaxPointsKey,         RouteMapSettings.DefaultMaxPoints,            100, 10000),
         new(RouteMapSettings.DefaultDurationKey,   RouteMapSettings.DefaultDefaultDurationMinutes, 10, 720),
+        new(SignUpsSwitch.SettingKey,         1,    0,      1, IsBoolean: true),
+        new("subscriptions_open",             1,    0,      1, IsBoolean: true),
     };
 
     private static readonly Dictionary<string, SettingKind> ByKey =
@@ -143,12 +148,15 @@ left join lateral (
     }
 
     // PUT /admin/settings/{key} [snapshot]. 400 validation_failed for an unknown
-    // key, a value of the wrong type, or a value outside the range.
+    // key, a value of the wrong type, or a value outside the range. For
+    // `sign_ups_open`: 503 unavailable without a Cognito client, 502
+    // upstream_failed when the pool update fails, and the row is untouched.
     private static void MapPut(IEndpointRouteBuilder app)
     {
         app.MapPut("/admin/settings/{key}",
             async (string key, SettingUpdateRequest body, HttpContext ctx,
-                   AdminSnapshotTransaction snap, AuditRecorder audit, CancellationToken ct) =>
+                   AdminSnapshotTransaction snap, AuditRecorder audit, SignUpsSwitch signUps,
+                   CancellationToken ct) =>
             {
                 if (!ByKey.TryGetValue(key, out var kind))
                     throw new ApiException(StatusCodes.Status400BadRequest, ApiErrorCodes.ValidationFailed, "unknown setting");
@@ -206,6 +214,9 @@ left join lateral (
                         $"value must be between {lo} and {hi}");
                 }
                 var email = AdminHelpers.RequireAdminEmail(ctx);
+
+                if (string.Equals(kind.Key, SignUpsSwitch.SettingKey, StringComparison.Ordinal))
+                    await signUps.ApplyAsync(parsedValue != 0, ct);
 
                 var (dto, _) = await snap.RunAsync<SettingDto>(async (conn, tx, token) =>
                 {

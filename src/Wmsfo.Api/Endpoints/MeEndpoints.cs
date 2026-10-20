@@ -80,6 +80,7 @@ order by id asc;", conn);
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
+                await RequireSubscriptionsOpenAsync(conn, ct);
 
                 SubscriptionDto dto;
                 int status;
@@ -186,6 +187,23 @@ where id = $2;", conn, tx))
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
+    // The `subscriptions_open` setting (contracts 4.4, 6), read before any
+    // write; a missing row means open. False is `409 subscriptions_closed`.
+    internal static async Task RequireSubscriptionsOpenAsync(NpgsqlConnection conn, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "select value from app_setting where key = 'subscriptions_open';", conn);
+        if (await cmd.ExecuteScalarAsync(ct) is string raw)
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.ValueKind == JsonValueKind.False)
+            {
+                throw new ApiException(StatusCodes.Status409Conflict,
+                    ApiErrorCodes.SubscriptionsClosed, "new alert sign-ups are closed for now");
+            }
+        }
+    }
+
     // POST /me/subscriptions/{id}/resend-verification.
     private static void MapResendVerification(IEndpointRouteBuilder app)
     {
@@ -195,6 +213,7 @@ where id = $2;", conn, tx))
                 var personId = RequirePersonId(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
+                await RequireSubscriptionsOpenAsync(conn, ct);
                 SubscriptionDto dto;
                 await using (var tx = await conn.BeginTransactionAsync(ct))
                 {

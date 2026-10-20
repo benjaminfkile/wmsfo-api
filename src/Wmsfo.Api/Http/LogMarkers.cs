@@ -20,6 +20,8 @@ public static class LogMarkers
     public const string IconLibraryWritten = "wmsfo_icon_library_written";
     // A tracker theme's style object is missing and its body is not a seeded one.
     public const string ThemeStyleMissing = "wmsfo_theme_style_missing";
+    // The site pool's self sign-up disagrees with `sign_ups_open` at boot.
+    public const string SignupsSwitchDrift = "wmsfo_signups_switch_drift";
 
     // The list every marker test iterates. Order matches api.md 16.
     public static readonly string[] All =
@@ -35,5 +37,6 @@ public static class LogMarkers
         MediaWriteFailed,
         ContentPublished,
         IconLibraryWritten,
+        SignupsSwitchDrift,
     };
 }

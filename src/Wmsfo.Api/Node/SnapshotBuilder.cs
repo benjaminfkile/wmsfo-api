@@ -132,14 +132,17 @@ returning version;", connection, transaction);
         int lingerMinMs = 2000;
         int flightHistoryMaxPoints = 2000;
         int cookieLimitPerPerson = 10;
+        bool signUpsOpen = true;
+        bool subscriptionsOpen = true;
 
-        // 1. settings (linger constants, flight history cap, cookie limit).
+        // 1. settings (linger constants, flight history cap, cookie limit, the
+        // two switches).
         // Read up-front so the sponsor and flight-history reads compose the
         // final numbers in a single pass.
         await using (var cmd = new NpgsqlCommand(@"
 select key, value from app_setting
 where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_history_max_points',
-              'cookie_limit_per_person');", conn, tx))
+              'cookie_limit_per_person', 'sign_ups_open', 'subscriptions_open');", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -147,7 +150,16 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
                 var key = reader.GetString(0);
                 var value = reader.GetString(1);
                 using var doc = JsonDocument.Parse(value);
-                if (doc.RootElement.ValueKind == JsonValueKind.Number && doc.RootElement.TryGetInt32(out var parsed))
+                var kind = doc.RootElement.ValueKind;
+                if (kind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    switch (key)
+                    {
+                        case "sign_ups_open":      signUpsOpen = kind == JsonValueKind.True; break;
+                        case "subscriptions_open": subscriptionsOpen = kind == JsonValueKind.True; break;
+                    }
+                }
+                else if (kind == JsonValueKind.Number && doc.RootElement.TryGetInt32(out var parsed))
                 {
                     switch (key)
                     {
@@ -452,9 +464,8 @@ select id, name, icon, sort from cookie_type where active order by sort, id;", c
         snap.SponsorsYear = sponsorsYear;
         snap.CookieTypes = cookieTypes;
         snap.CookieLimitPerPerson = cookieLimitPerPerson;
-        // No setting stands behind the two switches yet; both are open.
-        snap.SignUpsOpen = true;
-        snap.SubscriptionsOpen = true;
+        snap.SignUpsOpen = signUpsOpen;
+        snap.SubscriptionsOpen = subscriptionsOpen;
 
         // 6a. qrCodes: every active printed code already resolved (contracts 4.5a).
         // A code resolves its own opens setting, else the nearest ancestor of its
