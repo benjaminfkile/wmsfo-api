@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Wmsfo.Api.Auth;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Data;
+using Wmsfo.Api.Http;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Realtime;
 
@@ -16,8 +17,8 @@ namespace Wmsfo.Api.Node;
 //   POST /admin/snapshot/rebuild    - rebuild frame with no write
 //   GET  /admin/live                - live_state row + this node's memory
 //   POST /admin/live/republish      - WriteFromState("republish"); returns the object
-// Auth policies are not enforced here yet - A5 wires Admin on top of these when
-// the real handlers land; the routes are open for the tests to exercise them.
+// Each carries the Admin policy, the diagnostics capability, and the admin rate
+// limit (contracts 4.0).
 public static class AdminDiagnosticsEndpoints
 {
     public static void MapAdminDiagnostics(IEndpointRouteBuilder app)
@@ -33,7 +34,8 @@ public static class AdminDiagnosticsEndpoints
                 S3Key = row.S3Key,
                 BuiltAt = row.BuiltAt,
             });
-        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics);
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPost("/admin/snapshot/rebuild", async (SnapshotBuilder builder, LiveObjectWriter writer, CancellationToken ct) =>
         {
@@ -46,7 +48,8 @@ public static class AdminDiagnosticsEndpoints
                 S3Key = info.Key,
                 BuiltAt = info.BuiltAt,
             });
-        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics);
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapGet("/admin/live", async (WmsfoDbContext db, NodeStateService state, IGatewayInternalClient gateway, LiveObjectWriter writer, NodeCounters counters, CancellationToken ct) =>
         {
@@ -70,13 +73,15 @@ public static class AdminDiagnosticsEndpoints
                 },
             };
             return Results.Ok(response);
-        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics);
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
 
         app.MapPost("/admin/live/republish", async (LiveObjectWriter writer, CancellationToken ct) =>
         {
             await writer.WriteFromStateAsync("republish", ct);
             return Results.Ok(writer.LastWrittenObject ?? new LiveObject());
-        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics);
+        }).WithTags("AdminDiagnostics").RequireAuthorization(AuthPolicies.Admin).RequireCapability(ApiKeyCapabilities.Diagnostics)
+            .RequireRateLimiting(RateLimitPolicies.AdminPerPerson);
     }
 
     private static LiveObject BuildInMemoryObject(NodeStateService state, LiveObjectWriter writer)

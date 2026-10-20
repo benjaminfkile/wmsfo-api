@@ -49,7 +49,7 @@ public sealed class A19Host : IAsyncDisposable
         Gateway = gateway;
     }
 
-    public static async Task<A19Host> StartAsync(string connectionString)
+    public static async Task<A19Host> StartAsync(string connectionString, RateLimitTable? rateLimits = null)
     {
         var storeRoot = Path.Combine(Path.GetTempPath(), "wmsfo-a19-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(storeRoot);
@@ -134,14 +134,22 @@ public sealed class A19Host : IAsyncDisposable
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);
         builder.Services.AddWmsfoAuth(options);
-        builder.Services.AddRateLimiter(o =>
+        // Unlimited unless the caller passes a table, which runs the real limiter (A119).
+        if (rateLimits is not null)
         {
-            o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            foreach (var policy in AllPolicies())
+            builder.Services.ConfigureRateLimits(rateLimits);
+        }
+        else
+        {
+            builder.Services.AddRateLimiter(o =>
             {
-                o.AddPolicy(policy, _ => RateLimitPartition.GetNoLimiter("no-limit"));
-            }
-        });
+                o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                foreach (var policy in RateLimitPolicies.All)
+                {
+                    o.AddPolicy(policy, _ => RateLimitPartition.GetNoLimiter("no-limit"));
+                }
+            });
+        }
 
         var app = builder.Build();
 
@@ -199,24 +207,6 @@ public sealed class A19Host : IAsyncDisposable
             .Addresses.First().TrimEnd('/');
         var client = new HttpClient { BaseAddress = new Uri(address) };
         return new A19Host(app, client, options, store, storeRoot, gateway);
-    }
-
-    private static IEnumerable<string> AllPolicies()
-    {
-        yield return RateLimitPolicies.LocationsPerBeacon;
-        yield return RateLimitPolicies.HeartbeatPerBeacon;
-        yield return RateLimitPolicies.BeaconLogsPerBeacon;
-        yield return RateLimitPolicies.BeaconMePerBeacon;
-        yield return RateLimitPolicies.BeaconStateReadPerBeacon;
-        yield return RateLimitPolicies.BeaconStateWritePerBeacon;
-        yield return RateLimitPolicies.EnrollPerIp;
-        yield return RateLimitPolicies.ContactPerIp;
-        yield return RateLimitPolicies.SubscriptionsPerIp;
-        yield return RateLimitPolicies.PreviewPerIp;
-        yield return RateLimitPolicies.CookiesPerPerson;
-        yield return RateLimitPolicies.MeSubscribePerPerson;
-        yield return RateLimitPolicies.MediaUploadUrlPerPerson;
-        yield return RateLimitPolicies.AdminPerPerson;
     }
 
     public HttpRequestMessage AdminRequest(HttpMethod method, string path) =>

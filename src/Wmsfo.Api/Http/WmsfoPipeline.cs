@@ -220,7 +220,10 @@ public static class WmsfoPipeline
         app.UseAuthentication();
         app.UseAuthorization();
 
-        // Step 8: rate limiting per the contracts 4.0 table.
+        // Step 8: rate limiting per the contracts 4.0 table. The token capture
+        // step hashes the token a subscription write carries so the per-token
+        // policy can key on it.
+        app.UseRateLimitTokenCapture();
         app.UseRateLimiter();
     }
 

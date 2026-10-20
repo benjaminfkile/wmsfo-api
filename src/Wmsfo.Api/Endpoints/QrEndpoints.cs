@@ -511,7 +511,7 @@ values ($1, $2, $3, $4, $5, $6, $7, $8);", conn);
             .WithTags("Public")
             .Produces(StatusCodes.Status204NoContent)
             .WithBodyLimit(BodyLimits.JsonDefault)
-            .RequireRateLimiting(RateLimitPolicies.ContactPerIp);
+            .RequireRateLimiting(RateLimitPolicies.QrScansPerNode);
     }
 
     private static ApiException NotFound() =>

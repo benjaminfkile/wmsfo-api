@@ -24,7 +24,8 @@ namespace Wmsfo.Api.IntegrationTests;
 // A12 test host - the /me family, the public writes, moderation, and admin
 // inbox all wired to the real handlers. Uses DbPersonUpsert so person rows land
 // in the database (cookie inserts have a foreign key to person). Rate limits
-// are disabled so the concurrency test can hammer /cookies without self-throttling.
+// are disabled so the concurrency test can hammer /cookies without self-throttling,
+// unless a test passes a RateLimitTable.
 public sealed class A12Host : IAsyncDisposable
 {
     public WebApplication App { get; }
@@ -47,7 +48,7 @@ public sealed class A12Host : IAsyncDisposable
         QuotaReader = quotaReader;
     }
 
-    public static async Task<A12Host> StartAsync(string connectionString)
+    public static async Task<A12Host> StartAsync(string connectionString, RateLimitTable? rateLimits = null)
     {
         var options = new WmsfoOptions
         {
@@ -120,15 +121,23 @@ public sealed class A12Host : IAsyncDisposable
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);
         builder.Services.AddWmsfoAuth(options);
-        // Unlimited rate limiter so concurrency test can hammer the endpoint.
-        builder.Services.AddRateLimiter(o =>
+        // Unlimited rate limiter so concurrency test can hammer the endpoint,
+        // unless the caller passes a table, which runs the real limiter (A119).
+        if (rateLimits is not null)
         {
-            o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            foreach (var policy in AllPolicies())
+            builder.Services.ConfigureRateLimits(rateLimits);
+        }
+        else
+        {
+            builder.Services.AddRateLimiter(o =>
             {
-                o.AddPolicy(policy, _ => RateLimitPartition.GetNoLimiter("no-limit"));
-            }
-        });
+                o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                foreach (var policy in RateLimitPolicies.All)
+                {
+                    o.AddPolicy(policy, _ => RateLimitPartition.GetNoLimiter("no-limit"));
+                }
+            });
+        }
 
         var app = builder.Build();
 
@@ -149,24 +158,6 @@ public sealed class A12Host : IAsyncDisposable
 
     public HttpRequestMessage EditorRequest(HttpMethod method, string path) =>
         Bearer(method, path, DevStaticTokens.EditorToken);
-
-    private static IEnumerable<string> AllPolicies()
-    {
-        yield return RateLimitPolicies.LocationsPerBeacon;
-        yield return RateLimitPolicies.HeartbeatPerBeacon;
-        yield return RateLimitPolicies.BeaconLogsPerBeacon;
-        yield return RateLimitPolicies.BeaconMePerBeacon;
-        yield return RateLimitPolicies.BeaconStateReadPerBeacon;
-        yield return RateLimitPolicies.BeaconStateWritePerBeacon;
-        yield return RateLimitPolicies.EnrollPerIp;
-        yield return RateLimitPolicies.ContactPerIp;
-        yield return RateLimitPolicies.SubscriptionsPerIp;
-        yield return RateLimitPolicies.PreviewPerIp;
-        yield return RateLimitPolicies.CookiesPerPerson;
-        yield return RateLimitPolicies.MeSubscribePerPerson;
-        yield return RateLimitPolicies.MediaUploadUrlPerPerson;
-        yield return RateLimitPolicies.AdminPerPerson;
-    }
 
     public HttpRequestMessage PersonRequest(HttpMethod method, string path) =>
         Bearer(method, path, DevStaticTokens.PersonToken);

@@ -115,7 +115,7 @@ for update of t;", conn, tx))
             .Accepts<EnrollRequest>("application/json")
             .Produces<EnrollResponse>(StatusCodes.Status200OK)
             .WithBodyLimit(BodyLimits.JsonDefault)
-            .RequireRateLimiting(RateLimitPolicies.EnrollPerIp)
+            .RequireRateLimiting(RateLimitPolicies.EnrollPerNode)
             .AddServerTime();
     }
 
