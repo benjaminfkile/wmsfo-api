@@ -17,7 +17,8 @@ namespace Wmsfo.Api.Endpoints;
 
 // contracts 4.4 registered-person endpoints. The person is upserted by the
 // CognitoAuth filter (api.md 6.2); every handler reads the person id from the
-// principal. Subscriptions family follows sql.md 8.12; cookies follow sql.md 8.9.
+// principal. Subscriptions family follows sql.md 8.12; cookies follow sql.md 8.9;
+// the notification state follows the sql.md 3.12 recipe.
 public static class MeEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -28,6 +29,8 @@ public static class MeEndpoints
         MapDeleteSubscription(app);
         MapListMyCookies(app);
         MapCreateCookie(app);
+        MapGetNotifications(app);
+        MapMarkNotificationsSeen(app);
     }
 
     // GET /me/subscriptions → 200 { items: Subscription[] }.
@@ -512,6 +515,98 @@ returning id, cookie_type_id, left_at;", conn, tx))
             .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Person)
             .RequireRateLimiting(RateLimitPolicies.CookiesPerPerson)
+            .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+    }
+
+    // GET /me/notifications → 200 MeNotifications (contracts 4.4). Two read-only
+    // statements on App: the person row by primary key for the seen marker, then
+    // the newest open subscriber row by person_id.
+    private static void MapGetNotifications(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/me/notifications",
+            async (HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                var personId = RequirePersonId(ctx);
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+
+                long? seenUpToId = null;
+                await using (var person = new NpgsqlCommand(
+                    "select seen_up_to_id from person where id = $1;", conn))
+                {
+                    person.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+                    var r = await person.ExecuteScalarAsync(ct);
+                    if (r is long v) seenUpToId = v;
+                }
+
+                SubscriptionDto? subscription = null;
+                await using (var cmd = new NpgsqlCommand(@"
+select id, channel, address, verified_at, unsubscribed_at, created_at
+from subscriber
+where person_id = $1 and unsubscribed_at is null
+order by created_at desc, id desc
+limit 1;", conn))
+                {
+                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+                    await using var reader = await cmd.ExecuteReaderAsync(ct);
+                    if (await reader.ReadAsync(ct))
+                    {
+                        subscription = new SubscriptionDto
+                        {
+                            Id = reader.GetInt64(0),
+                            Channel = reader.GetString(1),
+                            Address = reader.GetString(2),
+                            VerifiedAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+                            UnsubscribedAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                        };
+                    }
+                }
+
+                return Results.Ok(new MeNotificationsResponse
+                {
+                    Subscription = subscription,
+                    SeenUpToId = seenUpToId,
+                });
+            })
+            .WithTags("Me")
+            .Produces<MeNotificationsResponse>(StatusCodes.Status200OK)
+            .RequireAuthorization(AuthPolicies.Person)
+            .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
+            .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+    }
+
+    // PUT /me/notifications/seen → 204 (contracts 4.4). One statement on App;
+    // the marker only rises, so a lower or equal id updates no row and still
+    // answers 204.
+    private static void MapMarkNotificationsSeen(IEndpointRouteBuilder app)
+    {
+        app.MapPut("/me/notifications/seen",
+            async (MeNotificationsSeenRequest body, HttpContext ctx,
+                   WmsfoConnectionStrings connections, CancellationToken ct) =>
+            {
+                var personId = RequirePersonId(ctx);
+                var v = new RequestValidation();
+                if (body.SeenUpToId is null) v.Field("seenUpToId", "required");
+                else if (body.SeenUpToId.Value <= 0) v.Field("seenUpToId", "must be greater than 0");
+                v.ThrowIfInvalid();
+                var seenUpToId = body.SeenUpToId!.Value;
+
+                await using var conn = new NpgsqlConnection(connections.App);
+                await conn.OpenAsync(ct);
+                await using var cmd = new NpgsqlCommand(@"
+update person set seen_up_to_id = $1
+where id = $2 and (seen_up_to_id is null or seen_up_to_id < $1);", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = seenUpToId });
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+                await cmd.ExecuteNonQueryAsync(ct);
+                return Results.NoContent();
+            })
+            .WithTags("Me")
+            .Accepts<MeNotificationsSeenRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent)
+            .RequireAuthorization(AuthPolicies.Person)
+            .RequireRateLimiting(RateLimitPolicies.MeSeenPerPerson)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 

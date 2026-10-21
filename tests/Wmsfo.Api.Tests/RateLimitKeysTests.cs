@@ -145,6 +145,7 @@ public class RateLimitKeysTests
         Assert.Equal(new TokenBucketRate(2, s, 5), t.MeReads);
         Assert.Equal(new TokenBucketRate(1, s, 3), t.Cookies);
         Assert.Equal(new TokenBucketRate(5, TimeSpan.FromHours(1), 5), t.MeSubscribe);
+        Assert.Equal(new TokenBucketRate(1, s, 3), t.MeSeen);
         Assert.Equal(new TokenBucketRate(200, s, 400), t.MeNode);
         Assert.Equal(new TokenBucketRate(30, min, 30), t.MediaUploadUrl);
         Assert.Equal(new TokenBucketRate(20, s, 40), t.Admin);

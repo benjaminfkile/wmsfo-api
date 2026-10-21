@@ -148,6 +148,8 @@ public sealed class A119RateLimitTests : IClassFixture<PostgresFixture>, IAsyncL
         Assert.Equal(RateLimitPolicies.MeReadsPerPerson, policies["GET /me/subscriptions"]);
         Assert.Equal(RateLimitPolicies.MeReadsPerPerson, policies["DELETE /me/subscriptions/{id:long}"]);
         Assert.Equal(RateLimitPolicies.MeReadsPerPerson, policies["GET /me/cookies"]);
+        Assert.Equal(RateLimitPolicies.MeReadsPerPerson, policies["GET /me/notifications"]);
+        Assert.Equal(RateLimitPolicies.MeSeenPerPerson, policies["PUT /me/notifications/seen"]);
         Assert.Equal(RateLimitPolicies.MeSubscribePerPerson, policies["POST /me/subscriptions"]);
         Assert.Equal(RateLimitPolicies.MeSubscribePerPerson, policies["POST /me/subscriptions/{id:long}/resend-verification"]);
         Assert.Equal(RateLimitPolicies.CookiesPerPerson, policies["POST /cookies"]);

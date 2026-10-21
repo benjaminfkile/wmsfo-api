@@ -505,6 +505,8 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Email).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.LastSeenAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.Property(x => x.SeenUpToId).HasColumnType("bigint")
+                .HasComment("The outbox id of the newest alert this person has seen, the same id space as snapshot.event.alerts[].id; null when never recorded.");
             e.HasAlternateKey(x => x.CognitoSub).HasName("person_cognito_sub_key");
         });
 

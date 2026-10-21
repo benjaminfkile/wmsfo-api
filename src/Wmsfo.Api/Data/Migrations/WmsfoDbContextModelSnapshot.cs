@@ -1631,6 +1631,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("last_seen_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<long?>("SeenUpToId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seen_up_to_id")
+                        .HasComment("The outbox id of the newest alert this person has seen, the same id space as snapshot.event.alerts[].id; null when never recorded.");
+
                     b.HasKey("Id")
                         .HasName("person_pkey");
 

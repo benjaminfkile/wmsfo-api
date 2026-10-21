@@ -380,11 +380,15 @@ create table person (
   cognito_sub  uuid not null unique,
   email        text not null,
   created_at   timestamptz not null default now(),
-  last_seen_at timestamptz not null default now()
+  last_seen_at timestamptz not null default now(),
+  seen_up_to_id bigint null
 );
 
 comment on table person is 'A registered person. Upserted on every authenticated request from the ID token (sub, email).';
+comment on column person.seen_up_to_id is 'The outbox id of the newest alert this person has seen, the same id space as snapshot.event.alerts[].id; null when never recorded.';
 ```
+
+`seen_up_to_id` is the site's unread marker for the bell (contracts 4.4, `GET /me/notifications` and `PUT /me/notifications/seen`, recipe 8.12a). It carries no foreign key, because the outbox rows it names are cleaned up (section 11) while the marker stays, and no index, because it is only read and written by `person` primary key. Migration `A128PersonSeenUpTo` adds it; `DELETE /admin/people/{id}` deletes it with the row, unchanged.
 
 ### 3.13 `subscriber`
 
@@ -1031,12 +1035,12 @@ Every index, including the ones created implicitly by primary keys and unique co
 | `sponsor_year_pinned_ux` | unique `(event_year, pinned_position) where pinned_position is not null` | one sponsor per pinned slot per year; `409 pinned_position_taken` |
 | `api_key_pkey`, `api_key_key_hash_key` | pk `(id)`, unique `(key_hash)` | revoke; the bearer lookup of the key scheme (api.md 6.4) |
 | `api_key_name_ux` | unique `(name) where revoked_at is null` | `409 name_taken` among unrevoked keys |
-| `person_pkey` | pk `(id)` | the `for update` in the cookie transaction; every person join |
+| `person_pkey` | pk `(id)` | the `for update` in the cookie transaction; every person join; both statements on `seen_up_to_id` (8.12a) |
 | `person_cognito_sub_key` | unique `(cognito_sub)` | the per-request upsert (`on conflict (cognito_sub)`) |
 | `subscriber_pkey` | pk `(id)` | |
 | `subscriber_channel_address_key` | unique `(channel, address)` | `409 address_taken` (pre-check plus `23505` mapping) |
 | `subscriber_unsubscribe_token_key` | unique `(unsubscribe_token)` | `POST /subscriptions/unsubscribe` |
-| `subscriber_person` | `(person_id)` | `GET /me/subscriptions`; cascade from `person` |
+| `subscriber_person` | `(person_id)` | `GET /me/subscriptions`; the newest open row of `GET /me/notifications` (8.12a); cascade from `person` |
 | `subscriber_verify_token_hash` | `(verify_token_hash) where verify_token_hash is not null` | `POST /subscriptions/verify` lookup by hash |
 | `cookie_type_pkey` | pk `(id)` | the type check in the cookie transaction |
 | `cookie_pkey` | pk `(id)` | moderation |
@@ -1733,6 +1737,28 @@ update subscriber set unsubscribed_at = coalesce(unsubscribed_at, now()), update
 where unsubscribe_token = $token;                                             -- or: where id = $id and person_id = $person; 0 rows: 404
 ```
 
+### 8.12a Notification state (`GET /me/notifications`, `PUT /me/notifications/seen`)
+
+Both run on the `App` pool in autocommit, after the person upsert of 8.1 (which moves `last_seen_at` as on every authenticated call). Neither touches the outbox or the snapshot.
+
+The read is two statements:
+
+```sql
+select seen_up_to_id from person where id = $person;                         -- person_pkey
+select id, channel, address, verified_at, unsubscribed_at, created_at
+from subscriber
+where person_id = $person and unsubscribed_at is null
+order by created_at desc, id desc
+limit 1;                                                                     -- subscriber_person; none: subscription null
+```
+
+The write is one statement; the marker only rises, so a lower or equal value updates no row and the endpoint still answers `204`:
+
+```sql
+update person set seen_up_to_id = $1
+where id = $2 and (seen_up_to_id is null or seen_up_to_id < $1);             -- person_pkey
+```
+
 ### 8.13 Contact (`POST /contact`)
 
 The request writes nothing to the database: it PUTs one object under `contact-inbox/` (contracts 4.3) and answers `202`. The leader's contact inbox import (9.8) runs these statements per object, `$created_at` being the object's `receivedAt`:
@@ -2145,6 +2171,9 @@ Plans below are what `explain` shows against a database holding one event of dat
 | Cookie transaction, type | `select id from cookie_type where id = $1 and active` | `cookie_type_pkey` | Index Scan, 1 row |
 | Cookie transaction, limit count | `select count(*) from cookie where event_id = $1 and person_id = $2` | `cookie_event_person` | Aggregate over Index Only Scan, at most `cookie_limit_per_person` rows |
 | `GET /me/cookies` | `select ... from cookie where event_id = $1 and person_id = $2 order by id` | `cookie_event_person` | Index Scan plus Sort of at most the limit rows |
+| `GET /me/notifications`, marker | `select seen_up_to_id from person where id = $1` | `person_pkey` | Index Scan, 1 row |
+| `GET /me/notifications`, subscription | `select ... from subscriber where person_id = $1 and unsubscribed_at is null order by created_at desc, id desc limit 1` | `subscriber_person` | Limit over Sort over Index Scan with `unsubscribed_at` as a filter; a person holds a handful of rows |
+| `PUT /me/notifications/seen` | `update person set seen_up_to_id = $1 where id = $2 and (seen_up_to_id is null or seen_up_to_id < $1)` | `person_pkey` | Update over Index Scan, 0 or 1 row |
 | Reconcile tick, current event | `select id, status_id from event where is_current` | `event_one_current` | Index Scan on the partial index, 0 or 1 row |
 | Reconcile tick, active beacon | `select id from beacon where is_active` | `beacon_one_active` | Index Scan on the partial index, 0 or 1 row |
 | Reconcile tick, latest published location | `select ... from location where event_id = $1 and published order by seq desc limit 1` | `location_event_published_seq`, or `location_event_id_seq_key` | Limit over Index Scan on the partial index (already `seq desc`) when unpublished rows are common; Limit over Index Scan Backward on the unique constraint's index with a `published` filter when nearly every row is published. Either reads a handful of entries and returns 1 row |

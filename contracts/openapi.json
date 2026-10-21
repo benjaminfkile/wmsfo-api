@@ -403,6 +403,47 @@
         }
       }
     },
+    "/me/notifications": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeNotificationsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/notifications/seen": {
+      "put": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeNotificationsSeenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/cookies": {
       "post": {
         "tags": [
@@ -7155,6 +7196,44 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "MeNotificationsResponse": {
+        "type": "object",
+        "properties": {
+          "subscription": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SubscriptionDto"
+              }
+            ]
+          },
+          "seenUpToId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "MeNotificationsSeenRequest": {
+        "type": "object",
+        "properties": {
+          "seenUpToId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },

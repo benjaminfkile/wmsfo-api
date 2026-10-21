@@ -584,4 +584,29 @@ public static class FixtureData
             ReceivedAt = DateTimeOffset.Parse("2026-12-22T01:31:07.123Z"),
         };
     }
+
+    public static MeNotificationsResponse BuildMeNotifications()
+    {
+        // contracts 4.4: GET /me/notifications for a verified subscriber who
+        // has seen the alerts up to outbox id 1042.
+        return new MeNotificationsResponse
+        {
+            Subscription = new SubscriptionDto
+            {
+                Id = 17,
+                Channel = "email",
+                Address = "jane@example.com",
+                VerifiedAt = DateTimeOffset.Parse("2026-11-30T18:04:11.000Z"),
+                UnsubscribedAt = null,
+                CreatedAt = DateTimeOffset.Parse("2026-11-30T18:02:40.000Z"),
+            },
+            SeenUpToId = 1042,
+        };
+    }
+
+    public static MeNotificationsSeenRequest BuildMeNotificationsSeen()
+    {
+        // contracts 4.4: the PUT /me/notifications/seen body.
+        return new MeNotificationsSeenRequest { SeenUpToId = 1043 };
+    }
 }
