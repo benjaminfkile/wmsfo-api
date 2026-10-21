@@ -54,3 +54,18 @@ public sealed class CookieLeft
     public long CookieTypeId { get; set; }
     public DateTimeOffset LeftAt { get; set; }
 }
+
+// GET /me/notifications response (contracts 4.4): the newest open subscriber
+// row of the person, or null, and the person's seen marker, or null.
+public sealed class MeNotificationsResponse
+{
+    public SubscriptionDto? Subscription { get; set; }
+    public long? SeenUpToId { get; set; }
+}
+
+// PUT /me/notifications/seen request (contracts 4.4). seenUpToId is required
+// and greater than 0; null here means the field was missing.
+public sealed class MeNotificationsSeenRequest
+{
+    public long? SeenUpToId { get; set; }
+}

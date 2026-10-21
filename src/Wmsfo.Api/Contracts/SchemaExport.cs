@@ -39,6 +39,8 @@ public static class SchemaExport
         yield return ("place-pin", Build(typeof(PlacePinDto)));
         yield return ("delete-impact", Build(typeof(DeleteImpactDto)));
         yield return ("contact-inbox", Build(typeof(ContactInboxObject)));
+        yield return ("me-notifications", Build(typeof(MeNotificationsResponse)));
+        yield return ("me-notifications-seen", Build(typeof(MeNotificationsSeenRequest)));
     }
 
     public static void WriteAll(string outputDir)
@@ -84,6 +86,17 @@ public static class SchemaExport
                 if (t == typeof(decimal?))
                 {
                     return new JsonObject { ["type"] = new JsonArray("number", "null") };
+                }
+                // contracts 4.4: the seen body's id is nullable in the DTO only so a
+                // missing value reaches the field-level 400; the schema states the
+                // documented rule, required and at least 1.
+                if (context.PropertyInfo?.DeclaringType == typeof(MeNotificationsSeenRequest))
+                {
+                    return new JsonObject { ["type"] = "integer", ["minimum"] = 1 };
+                }
+                if (t == typeof(MeNotificationsSeenRequest) && schema is JsonObject seen)
+                {
+                    seen["required"] = new JsonArray("seenUpToId");
                 }
                 return schema;
             },

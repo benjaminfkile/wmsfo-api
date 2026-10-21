@@ -179,6 +179,7 @@ public sealed class Person
     public string Email { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
+    public long? SeenUpToId { get; set; }
 }
 
 public sealed class ApiKey
