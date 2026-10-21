@@ -27,6 +27,9 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | `<distribution-arn>` | The CloudFront distribution's ARN, used by the bucket policy's origin access control condition. |
 | `<basemap-build-url>` | A published OpenStreetMap basemap build in PMTiles form: the source of the seeded valley extract and of the glyph set (1.8). The tile CLI probes the newest daily build itself. |
 | `<elevation-tiles-url>` | The tile URL template of a public terrarium-encoded elevation tile set, the tile CLI's terrain source (1.8). |
+| `<allowlist-secret>` | Secrets Manager secret holding the dev allow list, a JSON array of addresses and patterns (sections 4.1, 5, 6.2b). |
+| `<instance-role>` | The gateway fleet's instance role, which carries the inline policy `wmsfo-api` (6.1). |
+| `<dev-gate-function>` | The dev gate Lambda, `wmsfo-dev-gate` (6.2b). |
 
 ### 0.2 What differs between dev and prod
 
@@ -516,6 +519,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | Self sign-up | People pools: on, the hosted UI offers sign-up and the site's sign-in link leads there. Admin pools: off (`AllowAdminCreateUserOnly`), every account is created by an operator and invited by email; the admin panel's sign-in page never offers sign-up |
 | Verification | Email, code, sent by Cognito's default sender (no SES integration for pool mail in v1) |
 | Custom message trigger | Every pool: the Lambda `wmsfo-cognito-message-<env>` (section 9.1a) as the Custom Message trigger. It renders the account emails (sign-up and resend code, password reset code, email change and verify code, admin invite) in the layout of the API's emails, `templates/email/_layout.html`, and returns the event unchanged on any failure so Cognito sends its default message |
+| Pre sign-up trigger | The dev people pool `wmsfo-dev` only: the Lambda `wmsfo-dev-gate` (sections 6.2b, 9.1c). It refuses a self sign-up (`PreSignUp_SignUp`, `PreSignUp_ExternalProvider`) whose email is not on the allow list in `<allowlist-secret>` with "This site is by invitation. Ask the operator to add your address.", which Cognito returns as `UserLambdaValidationException`; it passes an operator-created user (`PreSignUp_AdminCreateUser`) unchanged, never auto-confirms or auto-verifies, and refuses every sign-up with "Sign-up is unavailable right now. Try again later." when the list cannot be read. The prod people pool and the admin pools have no Pre sign-up trigger |
 | Required attributes | `email` |
 | Password policy | 12 characters minimum, no composition rules, temporary passwords valid 7 days |
 | MFA | Optional, TOTP only, SMS off. Members of `admin` and `editor` enrol TOTP; the API refuses panel requests from users without TOTP (`403 mfa_required`, api.md 6.3) |
@@ -558,7 +562,7 @@ Removing or changing a role: edit the groups; the API sees the change on the nex
 | Suppression | Account-level suppression list on for bounces and complaints. The API does nothing further in v1 (contracts 7.8) |
 | Sandbox | The account has production access, so mail reaches any recipient in both environments |
 | Quota | The sending rate must be at or above `WMSFO_ALERT_SEND_PER_SEC` (10) and the daily quota above 100,000 (one alert to about 20,000 recipients, three times per December). The account's rate is 14 per second and its daily quota 50,000, so a quota increase is an operator to-do (section 18); check both in the console the week before the event |
-| Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set; a notify on dev emails every verified dev subscriber |
+| Dev | The dev API sends real mail through the same identity with the `wmsfo-dev` configuration set, and only to the allow list: a notify on dev emails the verified dev subscribers whose addresses are on it, and SES refuses a send to any other address with an access denied error |
 
 Cognito pool mail (section 4.1) sends through the same SES identity: both pools use `DEVELOPER` sending with the identity as `SourceArn`, `From` = `Western Montana Santa Flyover <no-reply@<mail-domain>>`, and the environment's configuration set, and an identity policy on `<mail-domain>` lets `cognito-idp.amazonaws.com` send, conditioned on the account and the pool ARNs. The Custom Message Lambda supplies the subject and the HTML body. Those bodies use the same layout and the same CDN logo, `email/<sha256>.png`, which the API's boot migrator writes. The trigger's templates, all HTML only:
 
@@ -572,6 +576,8 @@ Cognito pool mail (section 4.1) sends through the same SES identity: both pools 
 Any other trigger source is returned untouched.
 
 The instance role's SES permission is section 6.
+
+**The dev allow list.** One list in `<allowlist-secret>` decides who can use dev: the dev people pool's Pre sign-up trigger refuses everyone else (4.1), and dev mail reaches no one else. The second is enforced by IAM, not by the API: the instance role's SES grant (6.1) is two statements, `SesSendProd` (the identity and the `wmsfo-prod` configuration set, no condition) and `SesSendDevAllowList` (the `wmsfo-dev` configuration set only, with `"Condition": { "ForAllValues:StringLike": { "ses:Recipients": [ <the entries, lowercased, in list order> ] } }`). A dev send names the `wmsfo-dev` configuration set, so it is allowed only when every recipient matches an entry. The list is a JSON array of full addresses (`someone@example.com`) and patterns where `*` matches any run of characters (`*@example.com`, `name+*@example.com`); entries do not use `?`, which IAM's `StringLike` reads as one character and the trigger reads literally. An empty array is legal: dev then sends nothing. The dev gate Lambda rewrites `SesSendDevAllowList` from the list every 5 minutes (6.2b), so an edit to the secret reaches sign-up within 60 seconds and mail within about 5 minutes. Cognito pool mail is sent by Cognito under the identity policy above, not by the instance role, so the codes of a signed-up dev person are unaffected.
 
 **Inbound mail.** `contact-us@<mail-domain>` is the operator's own mailbox and is always one of the addresses in the API's `WMSFO_CONTACT_NOTIFY_EMAIL` list, so it and the `contact_message` table keep a record of every contact form message. The list may name further inboxes (one email to all of them, reply-to the sender). The site settings' `contactEmail` (the contact section's mailto) is the address shown to visitors and may be any of those inboxes; mail sent straight to an address other than `contact-us@<mail-domain>` reaches only that inbox. The mailboxes are hosted on Zoho Mail: the apex MX points at Zoho, and SES receives nothing. The apex SPF record is a single record naming both Zoho and SES (`include:zohomail.com include:amazonses.com`); a second SPF record would invalidate both, so a new sender is merged into it. Zoho signs with its own DKIM selector beside the SES ones, and the SES MAIL FROM subdomain keeps its own MX for bounces. The mailbox credentials live in the secrets manager (`wmsfo-contact-us-mailbox`, and `wmsfo-admin-mailbox` for `admin@<mail-domain>`). A new notify address must exist in Zoho before it goes into `WMSFO_CONTACT_NOTIFY_EMAIL`, or the notification bounces and the bounce counts against the SES account.
 
@@ -587,10 +593,12 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
 {
   "Version": "2012-10-17",
   "Statement": [
-    { "Effect": "Allow", "Action": ["ses:SendEmail", "ses:SendRawEmail"],
+    { "Sid": "SesSendProd", "Effect": "Allow", "Action": ["ses:SendEmail", "ses:SendRawEmail"],
       "Resource": ["arn:aws:ses:<region>:<account-id>:identity/<mail-domain>",
-                   "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-dev",
                    "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-prod"] },
+    { "Sid": "SesSendDevAllowList", "Effect": "Allow", "Action": ["ses:SendEmail", "ses:SendRawEmail"],
+      "Resource": "arn:aws:ses:<region>:<account-id>:configuration-set/wmsfo-dev",
+      "Condition": { "ForAllValues:StringLike": { "ses:Recipients": ["<the allow list entries>"] } } },
     { "Effect": "Allow", "Action": "ses:GetAccount", "Resource": "*" },
     { "Effect": "Allow", "Action": "cognito-idp:AdminGetUser",
       "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] },
@@ -600,7 +608,7 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
 }
 ```
 
-The second statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The third lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
+The first two statements are the SES grant of section 5, written by the dev gate Lambda (6.2b) and not edited by hand: it reads the list in `<allowlist-secret>`, rewrites exactly these two statements, and leaves every other statement and their order alone. Before its first run the policy holds the earlier single statement with no Sid (the two actions on the identity and both configuration sets); the first run replaces it with the pair in its place, and later runs find the pair by Sid. The `cognito-idp:AdminGetUser` statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The last lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
 
 ### 6.2 CI role
 
@@ -609,6 +617,29 @@ One IAM role `<oidc-role-arn>` trusted by GitHub's OIDC provider for repository 
 ### 6.2a Custom Message Lambda
 
 The function `wmsfo-cognito-message-<env>` (Node.js 22, handler `index.handler`, 128 MB, 5 s timeout) runs as its own execution role with only the `AWSLambdaBasicExecutionRole` managed policy (its log group). It calls no AWS API. Each pool invokes it through a resource-based permission for `cognito-idp.amazonaws.com` scoped to that pool's ARN. The CI role (6.2) additionally holds `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on the dev function's ARN, `arn:aws:lambda:<region>:<account-id>:function:<cognito-message-function>`.
+
+### 6.2b Dev gate Lambda
+
+The function `wmsfo-dev-gate` (`<dev-gate-function>`; Node.js 22, handler `index.handler`, 128 MB, 10 s timeout) exists in dev only and runs as its own execution role with the `AWSLambdaBasicExecutionRole` managed policy (its log group) and one inline policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Effect": "Allow", "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:<region>:<account-id>:secret:<allowlist-secret>-*" },
+    { "Effect": "Allow", "Action": ["iam:GetRolePolicy", "iam:PutRolePolicy"],
+      "Resource": "arn:aws:iam::<account-id>:role/<instance-role>" }
+  ]
+}
+```
+
+It is invoked two ways:
+
+- **Pre sign-up**, by the dev people pool through a resource-based permission for `cognito-idp.amazonaws.com` scoped to that pool's ARN (4.1). It reads the list and keeps it for 60 seconds. One JSON log line per call carries the trigger source and `allowed`, never the address.
+- **SES sync**, by an EventBridge schedule `rate(5 minutes)` with the constant input `{"action":"sync-ses"}` (the schedule's own role holds `lambda:InvokeFunction` on the function). It reads the list and the instance role's inline policy `wmsfo-api`, rewrites `SesSendProd` and `SesSendDevAllowList` (6.1), and calls `PutRolePolicy` only when the document changed. One JSON log line `{ action, changed, entries }` per run; any failure throws, so the function's `Errors` metric shows a failing sync.
+
+Environment variables: `ALLOWLIST_SECRET_ID` (`<allowlist-secret>`), `SES_ROLE_NAME` (`<instance-role>`), `SES_POLICY_NAME` (`wmsfo-api`), `SES_SEND_RESOURCES_PROD` (comma separated: the identity ARN and the `wmsfo-prod` configuration set ARN), `SES_SEND_RESOURCE_DEV` (the `wmsfo-dev` configuration set ARN). The optional `ALLOWLIST_TTL_SECONDS` overrides the 60 second cache. The CI role (6.2) additionally holds `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on `arn:aws:lambda:<region>:<account-id>:function:<dev-gate-function>`.
 
 ### 6.3 Operators
 
@@ -664,6 +695,10 @@ The deploy client credential is the existing CI app client on the ops pool with 
 ### 9.1a Cognito Custom Message Lambda
 
 `wmsfo-api/.github/workflows/cognito-message.yml` runs on pull requests and on pushes to `dev` and `main` that touch `lambdas/**` or `templates/email/**`: `node scripts/check-no-infra.mjs` and `node --test lambdas/cognito-message`. On a push to `dev` or `main` it zips `lambdas/cognito-message/` with `templates/email/` (without `_golden/`) and runs `aws lambda update-function-code` through the OIDC role of 6.2, the account id masked, with the function name from the branch's environment secret `COGNITO_MESSAGE_FUNCTION` (`dev` updates the dev function, `main` the prod function). The function's environment variables: `CDN_BASE_URL` (the logo URL's base, as `WMSFO_CDN_BASE_URL`), `SITE_BASE_URL` (the layout's site link), and `PANEL_BASE_URL` (the invite's Sign in button). The handler writes one JSON log line per call with the trigger source and the template, never the address or the code.
+
+### 9.1c Dev gate Lambda
+
+`wmsfo-api/.github/workflows/dev-gate.yml` runs on pull requests and on pushes to `dev` and `main` that touch `lambdas/dev-gate/**`: `node scripts/check-no-infra.mjs` and `node --test lambdas/dev-gate`. The folder has the layout of `lambdas/cognito-message/`: an ES module, no npm dependency, no lockfile, no bundler; the AWS SDK v3 clients come from the Node 22 runtime and the tests inject them, so they run offline. On a push to `dev` it zips `lambdas/dev-gate/` and runs `aws lambda update-function-code` through the OIDC role of 6.2, the account id masked, with the function name from the `dev` environment secret `DEV_GATE_FUNCTION`; the steps skip while the secret is empty, as in 9.1a. A push to `main` runs the tests only: the function has no prod counterpart.
 
 ### 9.1b Tile CLI
 
@@ -896,4 +931,12 @@ Nothing open.
 - **SES daily quota.** Raise the account's daily sending quota above 100,000 before the event (section 5); it is 50,000.
 - **CloudFront cache hit ratio.** The dashboard of 10.4 leaves the cache hit ratio out: CloudFront publishes it only with additional metrics switched on for the distribution, which is billed as custom metrics per distribution per month. Switch it on for prod before the event if the number is wanted, and add the widget then.
 - **Tracker maps.** The glyph set is the one hand upload left (1.8); tile packages come through the tile CLI as `maps/{packageKey}/`. Both buckets hold the seeded valley archives and the glyphs under `basemap/`; every further package comes through `wmsfo-tiles upload` against the environment. `VITE_ROUTE_BASEMAP_URL` stays set on the two panel projects only (optional there, contracts 8.4) and is removed from the site projects.
+- **Dev gate.** In dev only (sections 4.1, 5, 6.1, 6.2b, 9.1c):
+  1. Create `<allowlist-secret>` in Secrets Manager with the first list as its string, a JSON array such as `["you@<mail-domain>", "*@<mail-domain>"]`.
+  2. Create the function's execution role with `AWSLambdaBasicExecutionRole` and the inline policy of 6.2b.
+  3. Create `<dev-gate-function>` (`wmsfo-dev-gate`, Node.js 22, `index.handler`, 128 MB, 10 s) from a zip of `lambdas/dev-gate/`, with its five environment variables `ALLOWLIST_SECRET_ID`, `SES_ROLE_NAME`, `SES_POLICY_NAME`, `SES_SEND_RESOURCES_PROD`, `SES_SEND_RESOURCE_DEV`.
+  4. Invoke it once with `{"action":"sync-ses"}` and check the log line and that `wmsfo-api` on `<instance-role>` now holds `SesSendProd` and `SesSendDevAllowList` in place of the unnamed SES statement.
+  5. Add the resource-based permission for `cognito-idp.amazonaws.com` scoped to the dev people pool's ARN, and set the function as the Pre sign-up trigger of `wmsfo-dev`. Try a sign-up with an address outside the list and see the refusal.
+  6. Create the EventBridge schedule `rate(5 minutes)` targeting the function with the input `{"action":"sync-ses"}`.
+  7. Grant the CI role `lambda:UpdateFunctionCode` and `lambda:GetFunctionConfiguration` on the function, and set the `dev` environment secret `DEV_GATE_FUNCTION` to its name.
 - **Cut-over mail cleanup.** Remove the unused wmsfo-cognito-dev identity policy on the personal domain identity; the legacy PHP mail relay and its contact address on the old flyover domain retire with the legacy stack.

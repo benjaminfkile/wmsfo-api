@@ -1,0 +1,59 @@
+# docs/platform.md section 9.1c: the dev gate Lambda.
+name: dev-gate
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["lambdas/dev-gate/**"]
+  pull_request:
+    paths: ["lambdas/dev-gate/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
+      - run: node --test lambdas/dev-gate
+
+  deploy:
+    needs: test
+    # Pushes to dev update the dev function (environment dev). The function
+    # has no prod counterpart, so a push to main runs the tests only.
+    if: github.event_name == 'push' && github.ref_name == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Empty until the function and its secret exist (platform.md 18): the
+      # steps below skip so a dev push stays green before the dev gate
+      # infrastructure is created. The secrets context is not readable in a
+      # job-level if, so the guard sits on the steps.
+      DEV_GATE_FUNCTION: ${{ secrets.DEV_GATE_FUNCTION }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: env.DEV_GATE_FUNCTION != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Package the handler
+        if: env.DEV_GATE_FUNCTION != ''
+        run: |
+          mkdir -p build
+          cp lambdas/dev-gate/index.mjs lambdas/dev-gate/package.json build/
+          (cd build && zip -qr ../dev-gate.zip .)
+      - name: Update the function code
+        if: env.DEV_GATE_FUNCTION != ''
+        run: |
+          aws lambda update-function-code \
+            --function-name "$DEV_GATE_FUNCTION" \
+            --zip-file fileb://dev-gate.zip > /dev/null
+          aws lambda wait function-updated --function-name "$DEV_GATE_FUNCTION"
