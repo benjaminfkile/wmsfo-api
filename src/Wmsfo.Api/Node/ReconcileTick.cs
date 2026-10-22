@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Wmsfo.Api.Config;
+using Wmsfo.Api.Http;
 
 namespace Wmsfo.Api.Node;
 
@@ -16,6 +17,9 @@ namespace Wmsfo.Api.Node;
 //     tally in the object this node last wrote while the event is live:
 //     liveObjectWriter.WriteFromState("tally"), so cookies reach the CDN within
 //     a tick even when no beacon is sending locations.
+// After every refresh, whether or not the object was rewritten, the leader logs
+// `live tick` with the `wmsfo_live_tick` marker while the event is live, at most
+// once per 60 s (api.md 16).
 public sealed class ReconcileTick : BackgroundService
 {
     private readonly NodeStateService _state;
@@ -23,19 +27,28 @@ public sealed class ReconcileTick : BackgroundService
     private readonly WmsfoOptions _options;
     private readonly WmsfoReadinessGate _readiness;
     private readonly ILogger<ReconcileTick> _logger;
+    private readonly TimeProvider _time;
+
+    public static readonly TimeSpan LiveTickInterval = TimeSpan.FromSeconds(60);
+
+    // The time of the last `live tick` line; null while the event is not live
+    // or this node is not the leader, so the next live tick logs at once.
+    private DateTimeOffset? _lastLiveTickAt;
 
     public ReconcileTick(
         NodeStateService state,
         LiveObjectWriter writer,
         WmsfoOptions options,
         WmsfoReadinessGate readiness,
-        ILogger<ReconcileTick> logger)
+        ILogger<ReconcileTick> logger,
+        TimeProvider? time = null)
     {
         _state = state;
         _writer = writer;
         _options = options;
         _readiness = readiness;
         _logger = logger;
+        _time = time ?? TimeProvider.System;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,7 +78,7 @@ public sealed class ReconcileTick : BackgroundService
     private bool TallyMoved(NodeSnapshot refreshed)
     {
         if (refreshed.CurrentEvent is not { StatusId: 3 }) return false;
-        if (!_state.Leader.IsCurrentlyLeader(DateTimeOffset.UtcNow)) return false;
+        if (!_state.Leader.IsCurrentlyLeader(_time.GetUtcNow())) return false;
         var last = _writer.LastWrittenObject?.CookieTally;
         var now = refreshed.CookieTally;
         if (last is null) return now.Count > 0;
@@ -77,6 +90,23 @@ public sealed class ReconcileTick : BackgroundService
         return false;
     }
 
+    // api.md 16: on the leader, while the refreshed event is live, one
+    // `live tick` line per 60 s. The stamp clears when the event is not live or
+    // this node is not the leader. The `node` field every line carries names
+    // the node. Public so tests can drive it without a database.
+    public void LogLiveTick(NodeSnapshot refreshed)
+    {
+        var now = _time.GetUtcNow();
+        if (refreshed.CurrentEvent is not { StatusId: 3 } ev || !_state.Leader.IsCurrentlyLeader(now))
+        {
+            _lastLiveTickAt = null;
+            return;
+        }
+        if (_lastLiveTickAt is { } last && now - last < LiveTickInterval) return;
+        _lastLiveTickAt = now;
+        _logger.LogInformation("live tick eventId={EventId}; marker={Marker}", ev.Id, LogMarkers.LiveTick);
+    }
+
     // Extracted so tests can drive one tick without waiting on the timer.
     public async Task TickOnceAsync(CancellationToken ct)
     {
@@ -84,6 +114,7 @@ public sealed class ReconcileTick : BackgroundService
         {
             var before = _state.Current.SnapshotVersion;
             var refreshed = await _state.RefreshAsync("tick", ct).ConfigureAwait(false);
+            LogLiveTick(refreshed);
             if (refreshed.SnapshotVersion == before)
             {
                 if (TallyMoved(refreshed))
