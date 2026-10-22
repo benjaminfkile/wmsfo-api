@@ -151,7 +151,7 @@
     "page": "Events",
     "label": "Status card",
     "title": "Changing the event status",
-    "body": "The Status card shows the current status and whether subscribers know about it. If nobody was told, a warning line and a Notify subscribers button appear.\n\nUnder that is one button per other status. Some are gated, with a tooltip explaining why. Scheduled needs a scheduled time. Live needs this event to be current, no other event live, and a healthy active beacon. Planned, Ended, Cancelled, and Postponed have no gate. Clicking opens the status dialog, where you choose whether to notify.\n\nThe history below lists every change, newest first, with who, when, and whether subscribers were notified and how many emails went out. While an alert is still sending, the sent count climbs on its own.",
+    "body": "The Status card shows the current status and whether subscribers know about it. If nobody was told, a warning line and a Notify subscribers button appear.\n\nUnder that is one button per other status. Some are gated, with a tooltip explaining why. Scheduled needs a scheduled time that is still ahead. Live needs this event to be current, no other event live, and a healthy active beacon. Planned, Ended, Cancelled, and Postponed have no gate; going back to Planned from Scheduled clears the scheduled time. Clicking opens the status dialog, where you choose whether to notify.\n\nThe history below lists every change, newest first, with who, when, and whether subscribers were notified and how many emails went out. While an alert is still sending, the sent count climbs on its own.",
     "links": [
       { "label": "Beacons", "to": "/beacons" }
     ]

@@ -299,7 +299,7 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     {
         var id = await CreateEvent(year: 2085);
         var setSchedule = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
-            "{\"scheduledAt\":\"2026-12-19T01:00:00Z\"}");
+            "{\"scheduledAt\":\"2099-12-19T01:00:00Z\"}");
         Assert.Equal(HttpStatusCode.OK, setSchedule.StatusCode);
         var toScheduled = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
             "{\"statusId\":2,\"notify\":false}");
@@ -840,6 +840,8 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
     {
         var id = await CreateEvent(year: 2100 + from * 10 + to);
         await SeedStampedStatusAsync(id, from);
+        // Entry into 2 needs a scheduled time still ahead.
+        if (to == 2) await RunSqlAsync($"update event set scheduled_at = '2099-12-24T23:00:00Z' where id = {id};");
 
         var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
             $"{{\"statusId\":{to},\"notify\":false}}");
@@ -850,7 +852,10 @@ public sealed class A9AdminEventEndpointsTests : IClassFixture<PostgresFixture>,
 
         Assert.Null(await ReadTimestampAsync("select went_live_at from event where id = $1;", id));
         Assert.Null(await ReadTimestampAsync("select ended_at from event where id = $1;", id));
-        await AssertScheduledAtKeptAsync(id);
+        if (to == 2)
+            Assert.Equal(FutureScheduledAt, await ReadTimestampAsync("select scheduled_at from event where id = $1;", id));
+        else
+            await AssertScheduledAtKeptAsync(id);
 
         using var snapshot = await ReadSnapshotAsync();
         var ev = snapshot.RootElement.GetProperty("event");
@@ -985,6 +990,148 @@ order by id desc limit 1;", conn);
         Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("wentLiveAt").ValueKind);
         Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("endedAt").ValueKind);
         Assert.Equal(SeededWentLiveAt, after.RootElement.GetProperty("scheduledAt").GetDateTimeOffset());
+    }
+
+    // ---------- scheduled_at rules (contracts 4.5, 14) ----------
+
+    private static readonly DateTimeOffset FutureScheduledAt = DateTimeOffset.Parse("2099-12-24T23:00:00Z");
+
+    [Fact]
+    public async Task Status_2_with_a_past_scheduled_at_is_409_scheduled_at_past()
+    {
+        var id = await CreateEvent(year: 2086);
+        // A past time is accepted while the status is 1.
+        var patch = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2020-12-24T23:00:00Z\"}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":2,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        Assert.Equal("scheduled_at_past", doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal("scheduled_at has passed", doc.RootElement.GetProperty("message").GetString());
+        Assert.Equal("2020-12-24T23:00:00.000Z",
+            doc.RootElement.GetProperty("details").GetProperty("scheduledAt").GetString());
+
+        Assert.Equal(1, await CountAsync("select status_id from event where id = $1;", id));
+        Assert.Equal(0, await CountAsync("select count(*) from event_status_history where event_id = $1;", id));
+    }
+
+    [Fact]
+    public async Task Status_2_with_a_future_scheduled_at_is_200()
+    {
+        var id = await CreateEvent(year: 2087);
+        var patch = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2099-12-24T23:00:00Z\"}");
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":2,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var dto = await ReadJsonAsync(response);
+        Assert.Equal(2, dto.RootElement.GetProperty("statusId").GetInt32());
+        Assert.Equal(FutureScheduledAt, dto.RootElement.GetProperty("scheduledAt").GetDateTimeOffset());
+    }
+
+    [Fact]
+    public async Task Status_2_to_1_clears_scheduled_at_and_the_audit_row_keeps_its_shape()
+    {
+        var id = await CreateEvent(year: 2088);
+        await SeedStatusAsync(id, 2);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":1,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var dto = await ReadJsonAsync(response);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("scheduledAt").ValueKind);
+        Assert.Null(await ReadTimestampAsync("select scheduled_at from event where id = $1;", id));
+
+        using var snapshot = await ReadSnapshotAsync();
+        var ev = snapshot.RootElement.GetProperty("event");
+        Assert.Equal(id, ev.GetProperty("id").GetInt64());
+        Assert.Equal(JsonValueKind.Null, ev.GetProperty("scheduledAt").ValueKind);
+
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(@"
+select before::text, after::text from audit_log
+where entity = 'event' and entity_id = $1 and action = 'status'
+order by id desc limit 1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = id.ToString(System.Globalization.CultureInfo.InvariantCulture) });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        using var before = JsonDocument.Parse(reader.GetString(0));
+        using var after = JsonDocument.Parse(reader.GetString(1));
+        Assert.Equal(SeededWentLiveAt, before.RootElement.GetProperty("scheduledAt").GetDateTimeOffset());
+        Assert.Equal(JsonValueKind.Null, after.RootElement.GetProperty("scheduledAt").ValueKind);
+        Assert.Equal(JsonValueKind.Number, after.RootElement.GetProperty("messageId").ValueKind);
+        var beforeKeys = before.RootElement.EnumerateObject().Select(p => p.Name).Order().ToList();
+        var afterKeys = after.RootElement.EnumerateObject().Select(p => p.Name).Where(n => n != "messageId").Order().ToList();
+        Assert.Equal(beforeKeys, afterKeys);
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(6)]
+    public async Task Status_2_to_anything_but_1_keeps_scheduled_at(int to)
+    {
+        var id = await CreateEvent(year: 2084 + to);
+        await SeedStatusAsync(id, 2);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            $"{{\"statusId\":{to},\"notify\":false}}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var dto = await ReadJsonAsync(response);
+        Assert.Equal(SeededWentLiveAt, dto.RootElement.GetProperty("scheduledAt").GetDateTimeOffset());
+        await AssertScheduledAtKeptAsync(id);
+    }
+
+    [Fact]
+    public async Task Status_into_1_from_anything_but_2_keeps_scheduled_at()
+    {
+        var id = await CreateEvent(year: 2091);
+        await SeedStatusAsync(id, 5);
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{id}/status",
+            "{\"statusId\":1,\"notify\":false}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await AssertScheduledAtKeptAsync(id);
+    }
+
+    [Fact]
+    public async Task Patch_past_scheduledAt_while_scheduled_is_409_scheduled_at_past()
+    {
+        var id = await CreateEvent(year: 2092);
+        await SeedStatusAsync(id, 2);
+
+        var response = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2021-01-01T00:00:00-07:00\"}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        Assert.Equal("scheduled_at_past", doc.RootElement.GetProperty("code").GetString());
+        Assert.Equal("scheduled_at has passed", doc.RootElement.GetProperty("message").GetString());
+        Assert.Equal("2021-01-01T07:00:00.000Z",
+            doc.RootElement.GetProperty("details").GetProperty("scheduledAt").GetString());
+        await AssertScheduledAtKeptAsync(id);
+
+        var future = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2099-12-24T23:00:00Z\"}");
+        Assert.Equal(HttpStatusCode.OK, future.StatusCode);
+        Assert.Equal(FutureScheduledAt, await ReadTimestampAsync("select scheduled_at from event where id = $1;", id));
+    }
+
+    [Fact]
+    public async Task Patch_past_scheduledAt_while_ended_is_200()
+    {
+        var id = await CreateEvent(year: 2093);
+        await SeedStampedStatusAsync(id, 4);
+
+        var response = await SendAdminAsync(HttpMethod.Patch, $"/admin/events/{id}",
+            "{\"scheduledAt\":\"2021-01-01T00:00:00-07:00\"}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(DateTimeOffset.Parse("2021-01-01T07:00:00Z"),
+            await ReadTimestampAsync("select scheduled_at from event where id = $1;", id));
     }
 
     // ---------- GET /admin/events/{id}/status-history ----------
@@ -1225,7 +1372,7 @@ values ($1, $2, 1, 'seed', now()) returning id;", conn);
         await cmd.ExecuteNonQueryAsync();
     }
 
-    // Both seed helpers set scheduled_at to SeededWentLiveAt; a status change never touches it.
+    // Both seed helpers set scheduled_at to SeededWentLiveAt; only a change from 2 to 1 clears it.
     private async Task AssertScheduledAtKeptAsync(long id)
     {
         Assert.Equal(SeededWentLiveAt, await ReadTimestampAsync("select scheduled_at from event where id = $1;", id));

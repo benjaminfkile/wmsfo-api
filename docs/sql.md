@@ -1394,6 +1394,7 @@ select id, status_id, is_current, scheduled_at, name from event where id = $even
 --   to 3 and not is_current                         -> 409 event_not_current
 --   to 3 and exists (select 1 from event where status_id = 3 and id <> $event) -> 409 another_event_live
 --   to 2 and scheduled_at is null                   -> 409 scheduled_at_required
+--   to 2 and scheduled_at <= now (server clock)     -> 409 scheduled_at_past, details.scheduledAt the stored value
 --   to 3: select id, name, revoked_at, stale_since, last_seen_at from beacon where is_active;
 --         no row, or revoked_at not null, or stale_since not null, or last_seen_at null -> 409 no_healthy_beacon
 update event
@@ -1403,6 +1404,8 @@ set status_id    = $to,
                         else null end,                                            -- entry into 1, 2, 5, or 6
     ended_at     = case when $to = 4 then now()
                         else null end,                                            -- entry into 1, 2, 3, 5, or 6
+    scheduled_at = case when $from = 2 and $to = 1 then null                      -- 2 to 1 clears it
+                        else scheduled_at end,                                    -- every other change keeps it
     updated_at   = now()
 where id = $event;
 -- always, with notify true or false: $body is the message when given (trimmed, 1 to 1000),
