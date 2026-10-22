@@ -80,6 +80,8 @@ order by id asc;", conn);
             {
                 var personId = RequirePersonId(ctx);
                 var (channel, address) = ValidateSubscriptionRequest(body);
+                // The account's own verified address is verified at once: no token, no email.
+                var verifiedAtOnce = IsAccountVerifiedAddress(ctx.User, address);
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
@@ -133,31 +135,37 @@ for update;", conn, tx))
                             return Results.Ok(existing);
                         }
                         // Same person, unsubscribed: clear unsubscribed_at, keep verified_at.
+                        // A never-verified row for the account's verified address is
+                        // verified now.
                         subscriberId = existingId.Value;
                         await using (var reactivate = new NpgsqlCommand(@"
-update subscriber set unsubscribed_at = null, updated_at = now()
+update subscriber set unsubscribed_at = null,
+  verified_at = case when $2 then coalesce(verified_at, now()) else verified_at end,
+  updated_at = now()
 where id = $1;", conn, tx))
                         {
                             reactivate.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = subscriberId });
+                            reactivate.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = verifiedAtOnce });
                             await reactivate.ExecuteNonQueryAsync(ct);
                         }
-                        // Only re-verify when it was never verified.
-                        needsToken = verifiedAt is null;
+                        // Only re-verify when it was never verified and is not verified now.
+                        needsToken = verifiedAt is null && !verifiedAtOnce;
                     }
                     else
                     {
                         var unsubToken = Keys.MintUnsubscribeToken();
                         await using (var insert = new NpgsqlCommand(@"
-insert into subscriber (person_id, channel, address, unsubscribe_token)
-values ($1, 'email', $2, $3) returning id;", conn, tx))
+insert into subscriber (person_id, channel, address, unsubscribe_token, verified_at)
+values ($1, 'email', $2, $3, case when $4 then now() end) returning id;", conn, tx))
                         {
                             insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
                             insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = address });
                             insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = unsubToken.Token });
+                            insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = verifiedAtOnce });
                             var r = await insert.ExecuteScalarAsync(ct);
                             subscriberId = Convert.ToInt64(r ?? 0L, CultureInfo.InvariantCulture);
                         }
-                        needsToken = true;
+                        needsToken = !verifiedAtOnce;
                     }
 
                     if (needsToken)
@@ -655,6 +663,19 @@ from subscriber where id = $1;", conn, tx);
 insert into outbox (topic, payload) values ('subscription.verify', $1::jsonb);", conn, tx);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = payload });
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    // contracts 4.4: the address is the account's verified address when it equals
+    // the id token's `email` claim trimmed and lowercased and the token's
+    // `email_verified` claim is true (a boolean claim arrives as the string
+    // "true"). An absent claim or any other value is not verified.
+    internal static bool IsAccountVerifiedAddress(System.Security.Claims.ClaimsPrincipal user, string address)
+    {
+        var email = user.FindFirst(PersonClaims.Email)?.Value;
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        if (!string.Equals(email.Trim().ToLowerInvariant(), address, StringComparison.Ordinal)) return false;
+        var verified = user.FindFirst(PersonClaims.EmailVerified)?.Value;
+        return bool.TryParse(verified, out var isVerified) && isVerified;
     }
 
     // contracts 4.4: channel must be email, address trimmed and lowercased before

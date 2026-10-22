@@ -7,7 +7,7 @@ using Wmsfo.Api.Config;
 
 namespace Wmsfo.Api.Auth;
 
-// api.md 20: WMSFO_DEV_STATIC_TOKENS=true accepts three fixed test bearer tokens
+// api.md 20: WMSFO_DEV_STATIC_TOKENS=true accepts the fixed test bearer tokens below
 // so the integration tests can exercise every policy without a real Cognito pool.
 // Refused when WMSFO_ENV is prod (validator in WmsfoOptionsValidator).
 public static class DevStaticTokens
@@ -16,6 +16,10 @@ public static class DevStaticTokens
     public const string EditorToken = "wmsfo-dev-editor";
     public const string AdminToken = "wmsfo-dev-admin";
     public const string CanvasserToken = "wmsfo-dev-canvasser";
+    // The person token with the id token's `email_verified` claim set: true for
+    // the first, false for the second. The plain person token carries no claim.
+    public const string PersonEmailVerifiedToken = "wmsfo-dev-person-email-verified";
+    public const string PersonEmailUnverifiedToken = "wmsfo-dev-person-email-unverified";
 
     // Cognito subs are UUIDs; a stable fake per role keeps the person upsert
     // deterministic across test runs.
@@ -29,20 +33,22 @@ public static class DevStaticTokens
     public const string AdminEmail = "admin@wmsfo.test";
     public const string CanvasserEmail = "canvasser@wmsfo.test";
 
-    public static (string Sub, string Email, string[] Groups)? Resolve(string token, WmsfoOptions options)
+    public static (string Sub, string Email, string[] Groups, bool? EmailVerified)? Resolve(string token, WmsfoOptions options)
     {
         return token switch
         {
-            PersonToken => (PersonSub, PersonEmail, Array.Empty<string>()),
-            EditorToken => (EditorSub, EditorEmail, new[] { options.EditorGroup }),
-            AdminToken => (AdminSub, AdminEmail, new[] { options.AdminGroup }),
-            CanvasserToken => (CanvasserSub, CanvasserEmail, new[] { options.CanvasserGroup }),
+            PersonToken => (PersonSub, PersonEmail, Array.Empty<string>(), null),
+            PersonEmailVerifiedToken => (PersonSub, PersonEmail, Array.Empty<string>(), true),
+            PersonEmailUnverifiedToken => (PersonSub, PersonEmail, Array.Empty<string>(), false),
+            EditorToken => (EditorSub, EditorEmail, new[] { options.EditorGroup }, null),
+            AdminToken => (AdminSub, AdminEmail, new[] { options.AdminGroup }, null),
+            CanvasserToken => (CanvasserSub, CanvasserEmail, new[] { options.CanvasserGroup }, null),
             _ => null,
         };
     }
 }
 
-// Bearer scheme that accepts the three tokens above. Registered instead of the
+// Bearer scheme that accepts the tokens above. Registered instead of the
 // JwtBearer scheme when WMSFO_DEV_STATIC_TOKENS is on. Same scheme name so every
 // [RequireAuthorization("Person"|"Editor"|"Admin")] works without change.
 public sealed class DevStaticTokenAuthenticationOptions : AuthenticationSchemeOptions { }
@@ -78,11 +84,15 @@ public sealed class DevStaticTokenAuthenticationHandler : AuthenticationHandler<
         {
             return Task.FromResult(AuthenticateResult.Fail("unknown dev token"));
         }
-        var (sub, email, groups) = resolved.Value;
+        var (sub, email, groups, emailVerified) = resolved.Value;
 
         var identity = new ClaimsIdentity(AuthSchemes.CognitoJwt);
         identity.AddClaim(new Claim(PersonClaims.Sub, sub));
         identity.AddClaim(new Claim(PersonClaims.Email, email));
+        if (emailVerified is bool verified)
+        {
+            identity.AddClaim(new Claim(PersonClaims.EmailVerified, verified ? "true" : "false", ClaimValueTypes.Boolean));
+        }
         identity.AddClaim(new Claim(PersonClaims.TokenUse, "id"));
         identity.AddClaim(new Claim(PersonClaims.Pool, System.Linq.Enumerable.Any(groups) ? PersonClaims.PoolAdmin : PersonClaims.PoolPeople));
         foreach (var group in groups)

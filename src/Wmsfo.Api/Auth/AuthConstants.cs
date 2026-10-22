@@ -42,6 +42,7 @@ public static class PersonClaims
     public const string PersonId = "wmsfo_person_id";
     public const string Sub = "sub";
     public const string Email = "email";
+    public const string EmailVerified = "email_verified";
     public const string Groups = "cognito:groups";
     public const string TokenUse = "token_use";
     // Stamped by the scheme that validated the token: "admin" for the admin
