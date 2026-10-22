@@ -33,10 +33,10 @@ if (args.Length > 0)
             Directory.CreateDirectory(root);
             SchemaExport.WriteAll(Path.Combine(root, "schema"));
             FixtureExport.WriteAll(Path.Combine(root, "fixtures"));
-            // Starter content mirrors the content-document fixture byte-for-byte; the seed loader reads this file.
+            // Starter content is the content-document fixture without its aligned blocks; the seed loader reads this file.
             await File.WriteAllBytesAsync(
                 Path.Combine(root, "starter-content.json"),
-                CanonicalJson.SerializeToUtf8Bytes(FixtureData.BuildContentDocument()));
+                CanonicalJson.SerializeToUtf8Bytes(StarterContentBuilder.Build()));
             AdminThresholds.WriteTo(Path.Combine(root, "admin-thresholds.json"));
             // The help topic keys the admin panel may ask for, from help/topics.json.
             var helpSeedRoot = HelpTopicSeed.ResolveRoot(AppContext.BaseDirectory, Directory.GetCurrentDirectory())

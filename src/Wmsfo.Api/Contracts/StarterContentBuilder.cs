@@ -4,9 +4,9 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.Contracts;
 
 // Builds the seed ContentDocument (contracts 1.3a). One source used by:
-//   - the fixture writer (`contracts/fixtures/content-document.json`)
 //   - the seed file (`contracts/starter-content.json`)
-//   - the snapshot fixture's `content`
+//   - the fixture writer (`contracts/fixtures/content-document.json`) and the snapshot
+//     fixture's `content`, which add the aligned blocks of `FixtureData.BuildContentDocument`
 // Every icon references the built-in library; no media assets are used so a fresh
 // bucket publishes cleanly. All sections satisfy the publish-level schemas.
 public static class StarterContentBuilder
@@ -359,7 +359,7 @@ public static class StarterContentBuilder
                 ["location"] = true,
                 ["dataRow"] = true,
             },
-            ["flightHistoryDefault"] = false,
+            ["flightHistoryDefault"] = true,
             ["overlays"] = new JsonObject
             {
                 ["liveIndicator"] = true,

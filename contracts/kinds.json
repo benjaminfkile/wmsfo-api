@@ -173,7 +173,7 @@
           "location": true,
           "dataRow": true
         },
-        "flightHistoryDefault": false,
+        "flightHistoryDefault": true,
         "overlays": {
           "liveIndicator": true,
           "liftoffTimer": true,
