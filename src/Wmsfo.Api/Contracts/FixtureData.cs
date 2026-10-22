@@ -50,7 +50,45 @@ public static class FixtureData
         OnlineCount = 214,
     };
 
-    public static ContentDocument BuildContentDocument() => StarterContentBuilder.Build();
+    // The starter content with one block of each kind that takes an optional `align`
+    // appended to the about page's rich text section, each with `align` set, so the
+    // fixture exercises the field (contracts 1.3a).
+    public static ContentDocument BuildContentDocument()
+    {
+        var doc = StarterContentBuilder.Build();
+        var about = doc.Pages.Single(p => p.Slug == "about").Sections.First(s => s.Kind == "rich_text");
+        var blocks = about.Data["blocks"]!.AsArray();
+        blocks.Add(new JsonObject { ["kind"] = "heading", ["level"] = 2, ["text"] = "How it works", ["icon"] = null, ["align"] = "center" });
+        blocks.Add(new JsonObject { ["kind"] = "paragraph", ["text"] = "The crew posts the route before the flight.", ["align"] = "start" });
+        blocks.Add(new JsonObject
+        {
+            ["kind"] = "list",
+            ["style"] = "bullet",
+            ["icon"] = null,
+            ["items"] = new JsonArray { "Check the route.", "Watch the map." },
+            ["align"] = "start",
+        });
+        blocks.Add(new JsonObject { ["kind"] = "quote", ["text"] = "Best night of the year.", ["attribution"] = null, ["align"] = "center" });
+        blocks.Add(new JsonObject
+        {
+            ["kind"] = "media",
+            ["media"] = new JsonObject { ["mediaId"] = HangarMediaId, ["alt"] = "The helicopter in its hangar" },
+            ["caption"] = null,
+            ["size"] = "medium",
+            ["align"] = "center",
+        });
+        blocks.Add(new JsonObject
+        {
+            ["kind"] = "links",
+            ["links"] = new JsonArray
+            {
+                new JsonObject { ["label"] = "Donate", ["href"] = "/donate", ["icon"] = null, ["newTab"] = false },
+            },
+            ["style"] = "buttons",
+            ["align"] = "start",
+        });
+        return doc;
+    }
 
     public static Snapshot BuildSnapshot()
     {

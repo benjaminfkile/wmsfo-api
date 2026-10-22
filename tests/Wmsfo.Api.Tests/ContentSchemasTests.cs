@@ -408,9 +408,19 @@ public class ContentSchemasTests
     {
         var starter = File.ReadAllBytes(Path.Combine(ContractsPaths.ContractsDir, "starter-content.json"));
         var contentFixture = File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "content-document.json"));
-        Assert.Equal(starter, contentFixture);
 
-        // The snapshot fixture's `content` key carries the same bytes once its
+        // The content-document fixture is the starter content plus the six aligned
+        // blocks at the end of the about page's rich text section.
+        var fixtureNode = JsonNode.Parse(contentFixture)!;
+        var about = fixtureNode["pages"]!.AsArray().Single(p => (string?)p!["slug"] == "about")!;
+        var blocks = about["sections"]!.AsArray().First(x => (string?)x!["kind"] == "rich_text")!["data"]!["blocks"]!.AsArray();
+        var aligned = blocks.Skip(blocks.Count - 6).ToList();
+        Assert.Equal(AlignableBlockKinds, aligned.Select(b => (string?)b!["kind"]).ToArray());
+        Assert.All(aligned, b => Assert.Contains((string?)b!["align"], new[] { "start", "center" }));
+        foreach (var b in aligned) blocks.Remove(b);
+        Assert.Equal(System.Text.Encoding.UTF8.GetString(starter), fixtureNode.ToJsonString(CanonicalJson.Options));
+
+        // The snapshot fixture's `content` key carries the fixture's bytes once its
         // `settings.route` (the example site route; the starter content names
         // none) is taken out.
         var snapshot = JsonNode.Parse(File.ReadAllBytes(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
@@ -418,8 +428,108 @@ public class ContentSchemasTests
         Assert.Equal(3, settings["route"]!["routeId"]!.GetValue<long>());
         settings.Remove("route");
         var content = snapshot["content"]!.ToJsonString(CanonicalJson.Options);
-        var expected = System.Text.Encoding.UTF8.GetString(starter);
+        var expected = System.Text.Encoding.UTF8.GetString(contentFixture);
         Assert.Equal(expected, content);
+    }
+
+    // Contracts 1.3a: the heading, paragraph, list, quote, media, and links blocks take
+    // an optional `align`, "start" or "center"; absent follows the section.
+    private static readonly string[] AlignableBlockKinds = { "heading", "paragraph", "list", "quote", "media", "links" };
+
+    public static IEnumerable<object[]> AlignableBlocksAtBothLevels() =>
+        AlignableBlockKinds.SelectMany(k => new[]
+        {
+            new object[] { k, ValidationLevel.Draft },
+            new object[] { k, ValidationLevel.Publish },
+        });
+
+    private static JsonObject MinimalBlock(string kind) => kind switch
+    {
+        "heading" => new JsonObject { ["kind"] = "heading", ["level"] = 2, ["text"] = "Title", ["icon"] = null },
+        "paragraph" => new JsonObject { ["kind"] = "paragraph", ["text"] = "Body." },
+        "list" => new JsonObject { ["kind"] = "list", ["style"] = "bullet", ["icon"] = null, ["items"] = new JsonArray { "One" } },
+        "quote" => new JsonObject { ["kind"] = "quote", ["text"] = "Said.", ["attribution"] = null },
+        "media" => new JsonObject
+        {
+            ["kind"] = "media",
+            ["media"] = new JsonObject { ["mediaId"] = FixtureData.HangarMediaId, ["alt"] = null },
+            ["caption"] = null,
+            ["size"] = "medium",
+        },
+        "links" => new JsonObject
+        {
+            ["kind"] = "links",
+            ["links"] = new JsonArray { new JsonObject { ["label"] = "Donate", ["href"] = "/donate", ["icon"] = null, ["newTab"] = false } },
+            ["style"] = "buttons",
+        },
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
+    private static JsonObject RichTextWith(JsonObject block) =>
+        new() { ["blocks"] = new JsonArray { block.DeepClone() } };
+
+    [Theory]
+    [MemberData(nameof(AlignableBlocksAtBothLevels))]
+    public void Block_align_absent_start_and_center_pass(string kind, ValidationLevel level)
+    {
+        var absent = Validator.ValidateSectionData("rich_text", RichTextWith(MinimalBlock(kind)), level);
+        Assert.True(absent.Count == 0, $"`{kind}` without align: " + string.Join("; ", absent.Select(p => $"{p.Path}: {p.Message}")));
+        foreach (var align in new[] { "start", "center" })
+        {
+            var block = MinimalBlock(kind);
+            block["align"] = align;
+            var problems = Validator.ValidateSectionData("rich_text", RichTextWith(block), level);
+            Assert.True(problems.Count == 0, $"`{kind}` with align {align}: " + string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(AlignableBlocksAtBothLevels))]
+    public void Block_align_end_fails(string kind, ValidationLevel level)
+    {
+        var block = MinimalBlock(kind);
+        block["align"] = "end";
+        Assert.NotEmpty(Validator.ValidateSectionData("rich_text", RichTextWith(block), level));
+    }
+
+    [Fact]
+    public void Icon_block_still_requires_its_align()
+    {
+        var withAlign = new JsonObject
+        {
+            ["kind"] = "icon",
+            ["icon"] = new JsonObject { ["source"] = "library", ["id"] = "star" },
+            ["size"] = "md",
+            ["align"] = "center",
+        };
+        Assert.Empty(Validator.ValidateSectionData("rich_text", RichTextWith(withAlign), ValidationLevel.Publish));
+
+        var withoutAlign = (JsonObject)withAlign.DeepClone();
+        withoutAlign.Remove("align");
+        Assert.NotEmpty(Validator.ValidateSectionData("rich_text", RichTextWith(withoutAlign), ValidationLevel.Publish));
+
+        var end = (JsonObject)withAlign.DeepClone();
+        end["align"] = "end";
+        Assert.NotEmpty(Validator.ValidateSectionData("rich_text", RichTextWith(end), ValidationLevel.Draft));
+        Assert.NotEmpty(Validator.ValidateSectionData("rich_text", RichTextWith(end), ValidationLevel.Publish));
+    }
+
+    // Contracts 1.3a: a new map section starts with the flight history on.
+    [Fact]
+    public void Map_defaults_validate_at_publish_and_start_with_flight_history_on()
+    {
+        var defaults = Registry.ByName["map"].Defaults;
+        var problems = Validator.ValidateSectionData("map", defaults, ValidationLevel.Publish);
+        Assert.True(problems.Count == 0, string.Join("; ", problems.Select(p => $"{p.Path}: {p.Message}")));
+        Assert.True(defaults!["flightHistoryDefault"]!.GetValue<bool>());
+
+        var starter = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.ContractsDir, "starter-content.json")))!;
+        var maps = starter["pages"]!.AsArray()
+            .SelectMany(p => p!["sections"]!.AsArray())
+            .Where(x => (string?)x!["kind"] == "map")
+            .ToList();
+        Assert.NotEmpty(maps);
+        Assert.All(maps, m => Assert.True(m!["data"]!["flightHistoryDefault"]!.GetValue<bool>()));
     }
 
     [Fact]
