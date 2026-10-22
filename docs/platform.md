@@ -53,7 +53,7 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | SES configuration set | `wmsfo-dev` | `wmsfo-prod` |
 | CloudWatch log group | `/gateway/services/wmsfo-api-dev` | `/gateway/services/wmsfo-api` |
 | Metric namespace | `WMSFO/dev` | `WMSFO/prod` |
-| Alarms | metric filters only, no alarms | full alarm set (section 10.3) |
+| Alarms | full alarm set (section 10.3), names under the dev prefix `wmsfo-dev-` | full alarm set (section 10.3) |
 | Fleet | shared, two small instances day to day | same fleet, scaled to 10 or more large instances before the event |
 
 Shared by both environments: the AWS account, `<region>`, the gateway fleet and `<gateway-domain>`, the ALB, the RDS instance, the ECR repository `wmsfo-api`, the SES domain identity `<mail-domain>`, the GitHub repositories, `<inbox-address>`.
@@ -738,16 +738,17 @@ Container logs land in `/gateway/services/<service>` (one stream per instance, 3
 | `health-unavailable` | `{ $.marker = "wmsfo_health_unavailable" }` | `HealthUnavailable` |
 | `media-write-failed` | `{ $.marker = "wmsfo_media_write_failed" }` | `MediaWriteFailed` |
 | `content-published` | `{ $.marker = "wmsfo_content_published" }` | `ContentPublished` |
+| `live-tick` | `{ $.marker = "wmsfo_live_tick" }` (the leader's once-a-minute line while the event is live, api.md 16), value 1, default 0 | `EventLive` |
 | `location-stored` | `{ $.outcome = "stored" && $.published is true }` (the `location accepted` line, api.md 16) | `LocationPublished` |
 | `http-5xx` | `{ $.status >= 500 }` | `Http5xx` |
 
 S3 request metrics on prefix `live/` (section 1.1) give `PutRequests` and `5xxErrors` for the live object; CloudFront's default metrics give requests, error rate, and cache hit ratio per distribution.
 
-### 10.3 Alarms (prod only), all to `<alarm-topic>`
+### 10.3 Alarms, all to `<alarm-topic>`
 
 | Alarm | Condition | Meaning on event night |
 |---|---|---|
-| `wmsfo-no-location-while-live` | `LocationPublished` sum over 60 s is 0 for 2 consecutive periods, enabled by the pre-event runbook while status is 3 and disabled after | the helicopter phone stopped delivering |
+| `wmsfo-no-location-while-live` | metric math: `EventLive` sum over 60 s at least 1 and `LocationPublished` sum over 60 s equal to 0, for 2 consecutive periods; missing data is not breaching; actions always on, in both environments (the dev copy is `wmsfo-dev-no-location-while-live`), so nobody enables or disables it | the helicopter phone stopped delivering |
 | `wmsfo-live-put-failed` | `LivePutFailed` sum over 60 s at or above 5 | CDN is falling behind; check S3 and the instance role |
 | `wmsfo-publish-failed` | `PublishFailed` sum over 60 s at or above 20 | hub delivery failing; site is on polling |
 | `wmsfo-no-leader` | `LeaderGained` and `LeaderLost` pattern: `LeaderLost` in the last 60 s with no `LeaderGained` after it, evaluated as `LeaderGained` sum over 120 s is 0 while `LeaderLost` sum is at least 1 | alerts and outbox stalled |
@@ -756,6 +757,8 @@ S3 request metrics on prefix `live/` (section 1.1) give `PutRequests` and `5xxEr
 | `wmsfo-snapshot-write-failed` | any occurrence | admin writes failing on S3 |
 | `wmsfo-s3-live-5xx` | S3 `5xxErrors` on filter `live` at or above 1 per minute | S3 itself |
 | `wmsfo-cdn-error-rate` | CloudFront `5xxErrorRate` above 1 percent over 5 minutes | CDN or origin |
+
+Every other prod alarm has a dev twin under the dev prefix `wmsfo-dev-` that watches the dev resources, except the two SES reputation alarms, whose metric is account-wide.
 
 `<alarm-topic>` has `<inbox-address>` subscribed by email always and `<oncall-number>` by SMS during the event window (subscribed in the pre-event runbook, unsubscribed after).
 
@@ -774,7 +777,7 @@ One CloudWatch dashboard `wmsfo-<env>` with: `LocationPublished` per minute, `Li
 3. Confirm the prod secret's values and that both containers report healthy on `GET /api/health` through `<api-domain>`; confirm `POST https://<api-domain>/realtime/authorize` with an empty JSON body answers `404` with no body (the forwarded-header guard) and note whether the gateway refuses the path before it reaches the container.
 4. Confirm `GET /admin/live` shows `lastWriteError` null and the CDN object matches (dashboard card green).
 5. Scale the fleet: set the Auto Scaling group `<asg-name>` minimum and desired capacity to 10 (or more) large instances the day before, raising the maximum first if it is lower; confirm every instance runs both containers and the hub answers on each. The minimum matters: the group's target tracking policy scales an idle fleet back in within about six minutes when only the desired capacity (or only the maximum) is raised. Put the minimum back after the event.
-6. Subscribe `<oncall-number>` to `<alarm-topic>`; enable `wmsfo-no-location-while-live` when the event goes live (step 11.2).
+6. Subscribe `<oncall-number>` to `<alarm-topic>`.
 7. Beacons: create or rotate the helicopter beacon and the spare; enrol both phones; run the Red-Nose checklist on each; confirm heartbeats and telemetry on the beacons page; set the helicopter phone active.
 8. Dry run against dev: dev event set live, Red-Nose replay of the 2025 route, preview site showing the tracker, alert email to a verified address.
 9. Create the year's event in prod (inherits the latest route), set current, set scheduled with `scheduledAt`, `notify` as decided; check the site shows the countdown.
@@ -785,9 +788,9 @@ One CloudWatch dashboard `wmsfo-<env>` with: `LocationPublished` per minute, `Li
 |---|---|---|
 | T-60 min | operator | Fleet scaled and healthy; beacons page shows both phones green; `POST /admin/live/republish` and confirm the dashboard card |
 | T-10 min | operator | Message posted with `notify: false` unless the admin wants the email |
-| T-0 | admin | `POST /admin/events/{id}/status { 3, notify }` from the panel; confirm the site switches to the tracker; enable `wmsfo-no-location-while-live` |
+| T-0 | admin | `POST /admin/events/{id}/status { 3, notify }` from the panel; confirm the site switches to the tracker |
 | flight | operator | Watch the beacons page and the dashboard card; on `lastWriteError`, Republish; on a stale helicopter phone, activate the spare |
-| landing | admin | status 4 with `notify: false`; the leaderboard freezes; disable `wmsfo-no-location-while-live` |
+| landing | admin | status 4 with `notify: false`; the leaderboard freezes |
 | T+1 h | operator | Scale the fleet back to 2; unsubscribe the SMS number; manual RDS snapshot; export the event's locations (`GET /admin/events/{id}/locations` as CSV) to the team share |
 
 ### 11.3 Incident quick reference
@@ -914,8 +917,8 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - One inline IAM policy `wmsfo-api` on the instance role for SES, `AdminGetUser`, and the people pool's `DescribeUserPool` and `UpdateUserPool` (the sign-ups switch); the existing broad S3 grant is left as is.
 - CI pushes through an OIDC role; no access keys in GitHub.
 - A second Vercel project per frontend with `dev` as its production branch, rather than relying on pull request previews (which are refused by every allow list).
-- Alarms in prod only; dev has metric filters for the dashboard.
-- The no-location alarm is toggled by the runbook rather than reading the event status.
+- Alarms in both environments, the dev copies under the dev prefix; both have metric filters for the dashboard.
+- The no-location alarm reads the event status through the `EventLive` metric (the API's `live tick` line) and is never toggled by hand (2026-10-22).
 - The legacy database is kept 90 days after cut-over.
 - The simulator beacon and the legacy beacon are manifest services with their own secrets and ECR repositories, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12). The simulator is a test beacon: never registered in prod, one fleet service against the dev API, one control page from `main` (2026-09-18). The simulator has no database: its run lives in its beacon state document (contracts 9.5), and its old database and roles were dropped (2026-10-18).
 - The people pool's hosted UI is unused: the site signs people in through the Cognito API (2026-09-12).
