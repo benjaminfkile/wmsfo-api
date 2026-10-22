@@ -158,7 +158,9 @@ returning id;", conn, tx))
     // null clears it), trackerBbox (a Bbox sets it; null is 400),
     // trackerMapId (a ready map containing the box sets it, null clears it),
     // trackerThemeIds (replaces the enabled set whole).
-    // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required).
+    // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required),
+    // and a scheduledAt at or before now is 409 scheduled_at_past while
+    // status_id = 2; in every other status a past time is accepted.
     private static void MapPatch(IEndpointRouteBuilder app)
     {
         app.MapPatch("/admin/events/{id:long}",
@@ -311,6 +313,11 @@ returning id;", conn, tx))
                     if (currentStatus == 2 && effectiveScheduled is null)
                     {
                         throw new ApiException(StatusCodes.Status409Conflict, "scheduled_at_required", "scheduled_at required for status 2");
+                    }
+                    // A scheduledAt in the body at or before now while status = 2 → 409 scheduled_at_past.
+                    if (currentStatus == 2 && scheduledPatch.Value is DateTimeOffset patchedScheduled)
+                    {
+                        ScheduleRules.RequireAhead(patchedScheduled, DateTimeOffset.UtcNow);
                     }
 
                     var sets = new List<string>();
@@ -579,6 +586,7 @@ returning id;", conn, tx))
     // Stamps went_live_at and clears ended_at on every entry into 3, stamps
     // ended_at on every entry into 4, and clears both on a change from 3 to
     // any status other than 4; sets final_cookie_tally on entry into 4 and clears it on exit.
+    // Entry into 2 needs a scheduled_at still ahead; a change from 2 to 1 clears scheduled_at.
     // Inserts the event_status_history row and the outbox row.
     private static void MapStatus(IEndpointRouteBuilder app)
     {
@@ -621,6 +629,8 @@ returning id;", conn, tx))
                         throw new ApiException(StatusCodes.Status409Conflict, "event_not_current", "event is not current");
                     if (to == 2 && scheduledAt is null)
                         throw new ApiException(StatusCodes.Status409Conflict, "scheduled_at_required", "scheduled_at required for status 2");
+                    if (to == 2)
+                        ScheduleRules.RequireAhead(scheduledAt!.Value, DateTimeOffset.UtcNow);
                     if (to == 3)
                     {
                         await using var guard = new NpgsqlCommand(
@@ -717,14 +727,17 @@ returning id;", conn, tx))
                         : to == 4 ? "went_live_at"
                         : "null";
                     var endedFragment = to == 4 ? "now()" : "null";
+                    // From 2 to 1 clears scheduled_at; every other change keeps it.
+                    var scheduledFragment = from == 2 && to == 1 ? "null" : "scheduled_at";
 
                     var toParamIndex = next++;
-                    // update event ... set status_id = $to, went_live_at, ended_at, final_cookie_tally
+                    // update event ... set status_id = $to, went_live_at, ended_at, scheduled_at, final_cookie_tally
                     var sql = @"
 update event
 set status_id = $" + toParamIndex + @",
     went_live_at = " + wentLiveFragment + @",
     ended_at = " + endedFragment + @",
+    scheduled_at = " + scheduledFragment + @",
     final_cookie_tally = " + finalTallyFragment + @",
     updated_at = now()
 where id = $" + idParamIndex + @";";
