@@ -688,6 +688,8 @@ Settings on every project: framework preset Vite, output `dist`, SPA rewrite (`/
 
 ### 9.1 API
 
+A push whose head commit message carries `[skip ci]` (the doc recopies) runs no workflow, so a branch promoted with such a head does not deploy until the next push without it.
+
 `wmsfo-api/.github/workflows/deploy.yml`, per api.md 19: test, contract check, OIDC assume role, multi-arch build and push `wmsfo-api:<sha>-<env>`, deploy call, wait for `done`. The deploy job runs for pushes to `dev` (environment `dev`, service `wmsfo-api-dev`) and `main` (environment `prod`, service `wmsfo-api`); the beacon workflows (9.2a) deploy from `dev` only until their prod entries exist. Environment secrets (contracts 8.2): `AWS_ROLE_ARN`, `ECR_REPOSITORY`, `GATEWAY_BASE_URL`, `GATEWAY_TOKEN_URL`, `GATEWAY_CLIENT_ID`, `GATEWAY_CLIENT_SECRET`, `GATEWAY_SERVICE_NAME`. The image installs the RDS certificate bundle (api.md 18) so `Trust Server Certificate=false` validates.
 
 The deploy client credential is the existing CI app client on the ops pool with scope `mgmt/deploy`; it cannot upsert the manifest, which is the intended limit.
