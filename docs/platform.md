@@ -521,7 +521,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | Custom message trigger | Every pool: the Lambda `wmsfo-cognito-message-<env>` (section 9.1a) as the Custom Message trigger. It renders the account emails (sign-up and resend code, password reset code, email change and verify code, admin invite) in the layout of the API's emails, `templates/email/_layout.html`, and returns the event unchanged on any failure so Cognito sends its default message |
 | Pre sign-up trigger | The dev people pool `wmsfo-dev` only: the Lambda `wmsfo-dev-gate` (sections 6.2b, 9.1c). It refuses a self sign-up (`PreSignUp_SignUp`, `PreSignUp_ExternalProvider`) whose email is not on the allow list in `<allowlist-secret>` with "This site is by invitation. Ask the operator to add your address.", which Cognito returns as `UserLambdaValidationException`; it passes an operator-created user (`PreSignUp_AdminCreateUser`) unchanged, never auto-confirms or auto-verifies, and refuses every sign-up with "Sign-up is unavailable right now. Try again later." when the list cannot be read. The prod people pool and the admin pools have no Pre sign-up trigger |
 | Required attributes | `email` |
-| Password policy | 12 characters minimum, no composition rules, temporary passwords valid 7 days |
+| Password policy | 8 characters minimum (12 until 2026-10-22), no composition rules, temporary passwords valid 7 days |
 | MFA | Optional, TOTP only, SMS off. Members of `admin` and `editor` enrol TOTP; the API refuses panel requests from users without TOTP (`403 mfa_required`, api.md 6.3) |
 | Account recovery | Email only |
 | Deletion protection | On (prod) |
