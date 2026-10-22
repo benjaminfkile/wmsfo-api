@@ -1709,12 +1709,16 @@ from subscriber where channel = 'email' and address = $address for update;
 -- row exists, person_id <> $person                              -> 409 address_taken
 -- row exists, same person, verified, not unsubscribed            -> 409 already_subscribed
 -- row exists, same person, unverified, not unsubscribed          -> 200 existing row, no token, no outbox row
+-- $own: the address is the account's verified address (id token `email` with `email_verified` true, contracts 4.4)
 -- row exists, same person, unsubscribed:
-update subscriber set unsubscribed_at = null, updated_at = now() where id = $subscriber;
+update subscriber set unsubscribed_at = null,
+  verified_at = case when $own then coalesce(verified_at, now()) else verified_at end,
+  updated_at = now()
+where id = $subscriber;
 -- no row:
-insert into subscriber (person_id, channel, address, unsubscribe_token)
-values ($person, 'email', $address, $unsubscribe_token) returning id;
--- when the row is not verified (new, or re-activated unverified):
+insert into subscriber (person_id, channel, address, unsubscribe_token, verified_at)
+values ($person, 'email', $address, $unsubscribe_token, case when $own then now() end) returning id;
+-- when the row is not verified (new, or re-activated unverified, and not $own):
 update subscriber set verify_token_hash = $verify_hash, verify_expires_at = now() + interval '24 hours', updated_at = now()
   where id = $subscriber;
 insert into outbox (topic, payload)

@@ -162,6 +162,99 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         Assert.Equal(ApiErrorCodes.ValidationFailed, await ReadCodeAsync(response));
     }
 
+    // The account's own verified address (contracts 4.4): verified at once, no email.
+
+    [Fact]
+    public async Task Subscribe_account_address_with_email_verified_is_verified_at_once()
+    {
+        var response = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            $"{{\"channel\":\"email\",\"address\":\"{DevStaticTokens.PersonEmail}\"}}",
+            DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(DevStaticTokens.PersonEmail, dto.RootElement.GetProperty("address").GetString());
+        Assert.Equal(JsonValueKind.String, dto.RootElement.GetProperty("verifiedAt").ValueKind);
+        Assert.Equal(0, await CountOutboxAsync("subscription.verify"));
+        Assert.False(await HasVerifyTokenAsync(dto.RootElement.GetProperty("id").GetInt64()));
+    }
+
+    [Fact]
+    public async Task Subscribe_other_address_with_email_verified_follows_pending_flow()
+    {
+        var response = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            "{\"channel\":\"email\",\"address\":\"other@example.com\"}",
+            DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("verifiedAt").ValueKind);
+        Assert.Equal(1, await CountOutboxAsync("subscription.verify"));
+    }
+
+    [Theory]
+    [InlineData(DevStaticTokens.PersonToken)]
+    [InlineData(DevStaticTokens.PersonEmailUnverifiedToken)]
+    public async Task Subscribe_account_address_without_email_verified_follows_pending_flow(string token)
+    {
+        var response = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            $"{{\"channel\":\"email\",\"address\":\"{DevStaticTokens.PersonEmail}\"}}", token);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("verifiedAt").ValueKind);
+        Assert.Equal(1, await CountOutboxAsync("subscription.verify"));
+    }
+
+    [Fact]
+    public async Task Subscribe_account_address_in_other_case_with_spaces_still_matches()
+    {
+        var response = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            "{\"channel\":\"email\",\"address\":\"  Person@WMSFO.Test  \"}",
+            DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(DevStaticTokens.PersonEmail, dto.RootElement.GetProperty("address").GetString());
+        Assert.Equal(JsonValueKind.String, dto.RootElement.GetProperty("verifiedAt").ValueKind);
+        Assert.Equal(0, await CountOutboxAsync("subscription.verify"));
+    }
+
+    [Fact]
+    public async Task Subscribe_reactivate_never_verified_account_address_is_verified_at_once()
+    {
+        // A pending row made without the claim, then unsubscribed.
+        var create = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            $"{{\"channel\":\"email\",\"address\":\"{DevStaticTokens.PersonEmail}\"}}",
+            DevStaticTokens.PersonToken);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await ReadJsonAsync(create)).RootElement.GetProperty("id").GetInt64();
+        await MarkUnsubscribedAsync(id);
+        var outboxBefore = await CountOutboxAsync("subscription.verify");
+
+        var response = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            $"{{\"channel\":\"email\",\"address\":\"{DevStaticTokens.PersonEmail}\"}}",
+            DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(id, dto.RootElement.GetProperty("id").GetInt64());
+        Assert.Equal(JsonValueKind.String, dto.RootElement.GetProperty("verifiedAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("unsubscribedAt").ValueKind);
+        Assert.Equal(outboxBefore, await CountOutboxAsync("subscription.verify"));
+    }
+
+    [Fact]
+    public async Task Resend_verification_on_account_address_verified_at_once_is_409_already_verified()
+    {
+        var create = await SendJsonAsync(HttpMethod.Post, "/me/subscriptions",
+            $"{{\"channel\":\"email\",\"address\":\"{DevStaticTokens.PersonEmail}\"}}",
+            DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var id = (await ReadJsonAsync(create)).RootElement.GetProperty("id").GetInt64();
+
+        var response = await SendJsonAsync(HttpMethod.Post, $"/me/subscriptions/{id}/resend-verification",
+            "{}", DevStaticTokens.PersonEmailVerifiedToken);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("already_verified", await ReadCodeAsync(response));
+        Assert.Equal(0, await CountOutboxAsync("subscription.verify"));
+    }
+
     // POST /me/subscriptions/{id}/resend-verification
 
     [Fact]
@@ -444,6 +537,16 @@ public sealed class A12MeEndpointsTests : IClassFixture<PostgresFixture>, IAsync
         await using var cmd = new NpgsqlCommand("select count(*) from cookie where event_id = $1;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
         return (int)Convert.ToInt64(await cmd.ExecuteScalarAsync() ?? 0L);
+    }
+
+    private async Task<bool> HasVerifyTokenAsync(long id)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select verify_token_hash is not null from subscriber where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        return await cmd.ExecuteScalarAsync() is true;
     }
 
     private async Task MarkVerifiedAsync(long id)
