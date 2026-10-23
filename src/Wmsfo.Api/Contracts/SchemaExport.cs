@@ -39,8 +39,9 @@ public static class SchemaExport
         yield return ("place-pin", Build(typeof(PlacePinDto)));
         yield return ("delete-impact", Build(typeof(DeleteImpactDto)));
         yield return ("contact-inbox", Build(typeof(ContactInboxObject)));
-        yield return ("me-notifications", Build(typeof(MeNotificationsResponse)));
-        yield return ("me-notifications-seen", Build(typeof(MeNotificationsSeenRequest)));
+        yield return ("me", Build(typeof(MeResponse)));
+        yield return ("me-preferences", Build(typeof(PreferencesDto)));
+        yield return ("me-seen", Build(typeof(MeSeenRequest)));
     }
 
     public static void WriteAll(string outputDir)
@@ -90,13 +91,35 @@ public static class SchemaExport
                 // contracts 4.4: the seen body's id is nullable in the DTO only so a
                 // missing value reaches the field-level 400; the schema states the
                 // documented rule, required and at least 1.
-                if (context.PropertyInfo?.DeclaringType == typeof(MeNotificationsSeenRequest))
+                if (context.PropertyInfo?.DeclaringType == typeof(MeSeenRequest))
                 {
                     return new JsonObject { ["type"] = "integer", ["minimum"] = 1 };
                 }
-                if (t == typeof(MeNotificationsSeenRequest) && schema is JsonObject seen)
+                if (t == typeof(MeSeenRequest) && schema is JsonObject seen)
                 {
                     seen["required"] = new JsonArray("seenUpToId");
+                }
+                // contracts 4.4: the preferences shape. theme is one of two
+                // values or null and required with tracker; the tracker's keys
+                // are optional and never null, mapType one of two values.
+                if (context.PropertyInfo?.DeclaringType == typeof(PreferencesDto)
+                    && context.PropertyInfo.Name == "theme")
+                {
+                    return new JsonObject
+                    {
+                        ["type"] = new JsonArray("string", "null"),
+                        ["enum"] = new JsonArray("light", "dark", null),
+                    };
+                }
+                if (context.PropertyInfo?.DeclaringType == typeof(TrackerPreferencesDto))
+                {
+                    return context.PropertyInfo.Name == "mapType"
+                        ? new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("terrain", "roadmap") }
+                        : new JsonObject { ["type"] = "boolean" };
+                }
+                if (t == typeof(PreferencesDto) && schema is JsonObject prefs)
+                {
+                    prefs["required"] = new JsonArray("theme", "tracker");
                 }
                 return schema;
             },

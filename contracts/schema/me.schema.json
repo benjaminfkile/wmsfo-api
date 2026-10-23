@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "subscription": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "verifiedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "unsubscribedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "seenUpToId": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "preferences": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "theme": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "light",
+            "dark",
+            null
+          ]
+        },
+        "tracker": {
+          "type": "object",
+          "properties": {
+            "flightHistory": {
+              "type": "boolean"
+            },
+            "timeLabels": {
+              "type": "boolean"
+            },
+            "landmarks": {
+              "type": "boolean"
+            },
+            "flightDock": {
+              "type": "boolean"
+            },
+            "cookieTally": {
+              "type": "boolean"
+            },
+            "snow": {
+              "type": "boolean"
+            },
+            "mapType": {
+              "type": "string",
+              "enum": [
+                "terrain",
+                "roadmap"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "theme",
+        "tracker"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

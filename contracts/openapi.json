@@ -403,7 +403,7 @@
         }
       }
     },
-    "/me/notifications": {
+    "/me": {
       "get": {
         "tags": [
           "Me"
@@ -414,7 +414,71 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeNotificationsResponse"
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/preferences": {
+      "put": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreferencesDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/me/seen": {
+      "put": {
+        "tags": [
+          "Me"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MeSeenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/me/notifications": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "description": "Alias, removed once the site has moved to /me",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
                 }
               }
             }
@@ -427,11 +491,12 @@
         "tags": [
           "Me"
         ],
+        "description": "Alias, removed once the site has moved to /me",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MeNotificationsSeenRequest"
+                "$ref": "#/components/schemas/MeSeenRequest"
               }
             }
           },
@@ -7199,7 +7264,7 @@
           }
         }
       },
-      "MeNotificationsResponse": {
+      "MeResponse": {
         "type": "object",
         "properties": {
           "subscription": {
@@ -7220,10 +7285,20 @@
               "string"
             ],
             "format": "int64"
+          },
+          "preferences": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PreferencesDto"
+              }
+            ]
           }
         }
       },
-      "MeNotificationsSeenRequest": {
+      "MeSeenRequest": {
         "type": "object",
         "properties": {
           "seenUpToId": {
@@ -8683,6 +8758,20 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "PreferencesDto": {
+        "type": "object",
+        "properties": {
+          "theme": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tracker": {
+            "$ref": "#/components/schemas/TrackerPreferencesDto"
           }
         }
       },
@@ -10753,6 +10842,53 @@
               {
                 "$ref": "#/components/schemas/TrackerMapUploadIdDto"
               }
+            ]
+          }
+        }
+      },
+      "TrackerPreferencesDto": {
+        "type": "object",
+        "properties": {
+          "flightHistory": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "timeLabels": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "landmarks": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "flightDock": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "cookieTally": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "snow": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "mapType": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }

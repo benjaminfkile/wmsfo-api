@@ -36,6 +36,7 @@ public static class RateLimitPolicies
     public const string CookiesPerPerson = "wmsfo:cookies";                      // 1/s burst 3 per person id
     public const string MeSubscribePerPerson = "wmsfo:me-subscribe";             // 5/hour burst 5 per person id
     public const string MeSeenPerPerson = "wmsfo:me-seen";                       // 1/s burst 3 per person id
+    public const string MePreferencesPerPerson = "wmsfo:me-preferences";         // 1/s burst 3 per person id
     public const string MediaUploadUrlPerPerson = "wmsfo:media-upload-url";      // 30/min burst 30 per person id
     public const string AdminPerPerson = "wmsfo:admin";                          // 20/s burst 40 per person id or API key id
 
@@ -57,6 +58,7 @@ public static class RateLimitPolicies
         CookiesPerPerson,
         MeSubscribePerPerson,
         MeSeenPerPerson,
+        MePreferencesPerPerson,
         MediaUploadUrlPerPerson,
         AdminPerPerson,
     ];
@@ -90,6 +92,7 @@ public sealed record RateLimitTable
     public TokenBucketRate Cookies { get; init; } = new(1, TimeSpan.FromSeconds(1), 3);
     public TokenBucketRate MeSubscribe { get; init; } = new(5, TimeSpan.FromHours(1), 5);
     public TokenBucketRate MeSeen { get; init; } = new(1, TimeSpan.FromSeconds(1), 3);
+    public TokenBucketRate MePreferences { get; init; } = new(1, TimeSpan.FromSeconds(1), 3);
     public TokenBucketRate MediaUploadUrl { get; init; } = new(30, TimeSpan.FromMinutes(1), 30);
     public TokenBucketRate Admin { get; init; } = new(20, TimeSpan.FromSeconds(1), 40);
 
@@ -197,6 +200,7 @@ public static class RateLimitPipeline
             AddPolicy(options, RateLimitPolicies.CookiesPerPerson, RateLimitKeys.Person, t.Cookies);
             AddPolicy(options, RateLimitPolicies.MeSubscribePerPerson, RateLimitKeys.Person, t.MeSubscribe);
             AddPolicy(options, RateLimitPolicies.MeSeenPerPerson, RateLimitKeys.Person, t.MeSeen);
+            AddPolicy(options, RateLimitPolicies.MePreferencesPerPerson, RateLimitKeys.Person, t.MePreferences);
             AddPolicy(options, RateLimitPolicies.MediaUploadUrlPerPerson, RateLimitKeys.Person, t.MediaUploadUrl);
             AddPolicy(options, RateLimitPolicies.AdminPerPerson, RateLimitKeys.Person, t.Admin);
         });

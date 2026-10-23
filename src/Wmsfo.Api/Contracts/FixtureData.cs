@@ -623,11 +623,11 @@ public static class FixtureData
         };
     }
 
-    public static MeNotificationsResponse BuildMeNotifications()
+    public static MeResponse BuildMe()
     {
-        // contracts 4.4: GET /me/notifications for a verified subscriber who
-        // has seen the alerts up to outbox id 1042.
-        return new MeNotificationsResponse
+        // contracts 4.4: GET /me for a verified subscriber who has seen the
+        // alerts up to outbox id 1042 and saved a dark theme and tracker choices.
+        return new MeResponse
         {
             Subscription = new SubscriptionDto
             {
@@ -639,12 +639,29 @@ public static class FixtureData
                 CreatedAt = DateTimeOffset.Parse("2026-11-30T18:02:40.000Z"),
             },
             SeenUpToId = 1042,
+            Preferences = BuildMePreferences(),
         };
     }
 
-    public static MeNotificationsSeenRequest BuildMeNotificationsSeen()
+    public static PreferencesDto BuildMePreferences()
     {
-        // contracts 4.4: the PUT /me/notifications/seen body.
-        return new MeNotificationsSeenRequest { SeenUpToId = 1043 };
+        // contracts 4.4: the PUT /me/preferences body, a partial tracker.
+        return new PreferencesDto
+        {
+            Theme = "dark",
+            Tracker = new TrackerPreferencesDto
+            {
+                FlightHistory = true,
+                TimeLabels = false,
+                Snow = true,
+                MapType = "terrain",
+            },
+        };
+    }
+
+    public static MeSeenRequest BuildMeSeen()
+    {
+        // contracts 4.4: the PUT /me/seen body.
+        return new MeSeenRequest { SeenUpToId = 1043 };
     }
 }

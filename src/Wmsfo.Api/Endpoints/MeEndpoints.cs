@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Npgsql;
 using NpgsqlTypes;
@@ -11,6 +12,7 @@ using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Email;
 using Wmsfo.Api.Http;
 using Wmsfo.Api.Node;
+using Wmsfo.Api.Objects;
 using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.Endpoints;
@@ -18,7 +20,7 @@ namespace Wmsfo.Api.Endpoints;
 // contracts 4.4 registered-person endpoints. The person is upserted by the
 // CognitoAuth filter (api.md 6.2); every handler reads the person id from the
 // principal. Subscriptions family follows sql.md 8.12; cookies follow sql.md 8.9;
-// the notification state follows the sql.md 3.12 recipe.
+// the person state (GET /me, PUT /me/seen, PUT /me/preferences) follows sql.md 8.12a.
 public static class MeEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -29,9 +31,14 @@ public static class MeEndpoints
         MapDeleteSubscription(app);
         MapListMyCookies(app);
         MapCreateCookie(app);
-        MapGetNotifications(app);
-        MapMarkNotificationsSeen(app);
+        MapGetMe(app);
+        MapPutPreferences(app);
+        MapPutSeen(app);
     }
+
+    // The OpenAPI description of GET /me/notifications and PUT /me/notifications/seen,
+    // which answer as GET /me and PUT /me/seen until A136 removes them.
+    public const string AliasDescription = "Alias, removed once the site has moved to /me";
 
     // GET /me/subscriptions → 200 { items: Subscription[] }.
     private static void MapListSubscriptions(IEndpointRouteBuilder app)
@@ -526,96 +533,150 @@ returning id, cookie_type_id, left_at;", conn, tx))
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
     }
 
-    // GET /me/notifications → 200 MeNotifications (contracts 4.4). Two read-only
-    // statements on App: the person row by primary key for the seen marker, then
-    // the newest open subscriber row by person_id.
-    private static void MapGetNotifications(IEndpointRouteBuilder app)
+    // GET /me → 200 Me (contracts 4.4). Two read-only statements on App: the
+    // person row by primary key for the seen marker and the preferences, then
+    // the newest open subscriber row by person_id. GET /me/notifications is an
+    // alias of the same handler until the site has moved to /me.
+    private static void MapGetMe(IEndpointRouteBuilder app)
     {
-        app.MapGet("/me/notifications",
-            async (HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct) =>
+        foreach (var (path, alias) in new[] { ("/me", false), ("/me/notifications", true) })
+        {
+            var route = app.MapGet(path, GetMeAsync)
+                .WithTags("Me")
+                .Produces<MeResponse>(StatusCodes.Status200OK)
+                .RequireAuthorization(AuthPolicies.Person)
+                .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
+                .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+            if (alias) route.WithDescription(AliasDescription);
+        }
+    }
+
+    private static async Task<IResult> GetMeAsync(
+        HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct)
+    {
+        var personId = RequirePersonId(ctx);
+        await using var conn = new NpgsqlConnection(connections.App);
+        await conn.OpenAsync(ct);
+
+        long? seenUpToId = null;
+        PreferencesDto? preferences = null;
+        await using (var person = new NpgsqlCommand(
+            "select seen_up_to_id, preferences::text from person where id = $1;", conn))
+        {
+            person.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+            await using var reader = await person.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
             {
-                var personId = RequirePersonId(ctx);
-                await using var conn = new NpgsqlConnection(connections.App);
-                await conn.OpenAsync(ct);
-
-                long? seenUpToId = null;
-                await using (var person = new NpgsqlCommand(
-                    "select seen_up_to_id from person where id = $1;", conn))
+                if (!reader.IsDBNull(0)) seenUpToId = reader.GetInt64(0);
+                if (!reader.IsDBNull(1))
                 {
-                    person.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
-                    var r = await person.ExecuteScalarAsync(ct);
-                    if (r is long v) seenUpToId = v;
+                    preferences = JsonSerializer.Deserialize<PreferencesDto>(reader.GetString(1), CanonicalJson.Options);
                 }
+            }
+        }
 
-                SubscriptionDto? subscription = null;
-                await using (var cmd = new NpgsqlCommand(@"
+        SubscriptionDto? subscription = null;
+        await using (var cmd = new NpgsqlCommand(@"
 select id, channel, address, verified_at, unsubscribed_at, created_at
 from subscriber
 where person_id = $1 and unsubscribed_at is null
 order by created_at desc, id desc
 limit 1;", conn))
+        {
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (await reader.ReadAsync(ct))
+            {
+                subscription = new SubscriptionDto
                 {
-                    cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
-                    await using var reader = await cmd.ExecuteReaderAsync(ct);
-                    if (await reader.ReadAsync(ct))
-                    {
-                        subscription = new SubscriptionDto
-                        {
-                            Id = reader.GetInt64(0),
-                            Channel = reader.GetString(1),
-                            Address = reader.GetString(2),
-                            VerifiedAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
-                            UnsubscribedAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
-                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
-                        };
-                    }
-                }
+                    Id = reader.GetInt64(0),
+                    Channel = reader.GetString(1),
+                    Address = reader.GetString(2),
+                    VerifiedAt = reader.IsDBNull(3) ? null : reader.GetFieldValue<DateTimeOffset>(3),
+                    UnsubscribedAt = reader.IsDBNull(4) ? null : reader.GetFieldValue<DateTimeOffset>(4),
+                    CreatedAt = reader.GetFieldValue<DateTimeOffset>(5),
+                };
+            }
+        }
 
-                return Results.Ok(new MeNotificationsResponse
-                {
-                    Subscription = subscription,
-                    SeenUpToId = seenUpToId,
-                });
-            })
-            .WithTags("Me")
-            .Produces<MeNotificationsResponse>(StatusCodes.Status200OK)
-            .RequireAuthorization(AuthPolicies.Person)
-            .RequireRateLimiting(RateLimitPolicies.MeReadsPerPerson)
-            .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+        return Results.Ok(new MeResponse
+        {
+            Subscription = subscription,
+            SeenUpToId = seenUpToId,
+            Preferences = preferences,
+        });
     }
 
-    // PUT /me/notifications/seen → 204 (contracts 4.4). One statement on App;
-    // the marker only rises, so a lower or equal id updates no row and still
-    // answers 204.
-    private static void MapMarkNotificationsSeen(IEndpointRouteBuilder app)
+    // PUT /me/preferences → 204 (contracts 4.4). MePreferencesRules validates
+    // the body; the validated object, re-serialized, replaces person.preferences
+    // whole in one update by primary key on App. No read, no outbox row, no
+    // snapshot work, no audit row.
+    private static void MapPutPreferences(IEndpointRouteBuilder app)
     {
-        app.MapPut("/me/notifications/seen",
-            async (MeNotificationsSeenRequest body, HttpContext ctx,
+        app.MapPut("/me/preferences",
+            async ([FromBody] JsonElement body, HttpContext ctx,
                    WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 var personId = RequirePersonId(ctx);
-                var v = new RequestValidation();
-                if (body.SeenUpToId is null) v.Field("seenUpToId", "required");
-                else if (body.SeenUpToId.Value <= 0) v.Field("seenUpToId", "must be greater than 0");
-                v.ThrowIfInvalid();
-                var seenUpToId = body.SeenUpToId!.Value;
+                var preferences = MePreferencesRules.Parse(body);
+                var json = System.Text.Encoding.UTF8.GetString(CanonicalJson.SerializeToUtf8Bytes(preferences));
 
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
-                await using var cmd = new NpgsqlCommand(@"
-update person set seen_up_to_id = $1
-where id = $2 and (seen_up_to_id is null or seen_up_to_id < $1);", conn);
-                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = seenUpToId });
+                await using var cmd = new NpgsqlCommand(
+                    "update person set preferences = $1 where id = $2;", conn);
+                cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = json });
                 cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
                 await cmd.ExecuteNonQueryAsync(ct);
                 return Results.NoContent();
             })
             .WithTags("Me")
-            .Accepts<MeNotificationsSeenRequest>("application/json")
+            .Accepts<PreferencesDto>("application/json")
             .Produces(StatusCodes.Status204NoContent)
+            .WithBodyLimit(BodyLimits.JsonDefault)
             .RequireAuthorization(AuthPolicies.Person)
-            .RequireRateLimiting(RateLimitPolicies.MeSeenPerPerson)
+            .RequireRateLimiting(RateLimitPolicies.MePreferencesPerPerson)
             .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+    }
+
+    // PUT /me/seen → 204 (contracts 4.4). One statement on App; the marker only
+    // rises, so a lower or equal id updates no row and still answers 204.
+    // PUT /me/notifications/seen is an alias of the same handler until the site
+    // has moved to /me.
+    private static void MapPutSeen(IEndpointRouteBuilder app)
+    {
+        foreach (var (path, alias) in new[] { ("/me/seen", false), ("/me/notifications/seen", true) })
+        {
+            var route = app.MapPut(path, PutSeenAsync)
+                .WithTags("Me")
+                .Accepts<MeSeenRequest>("application/json")
+                .Produces(StatusCodes.Status204NoContent)
+                .RequireAuthorization(AuthPolicies.Person)
+                .RequireRateLimiting(RateLimitPolicies.MeSeenPerPerson)
+                .AddEndpointFilter(CognitoAuth.PersonUpsertFilter);
+            if (alias) route.WithDescription(AliasDescription);
+        }
+    }
+
+    private static async Task<IResult> PutSeenAsync(
+        MeSeenRequest body, HttpContext ctx, WmsfoConnectionStrings connections, CancellationToken ct)
+    {
+        var personId = RequirePersonId(ctx);
+        var v = new RequestValidation();
+        if (body.SeenUpToId is null) v.Field("seenUpToId", "required");
+        else if (body.SeenUpToId.Value <= 0) v.Field("seenUpToId", "must be greater than 0");
+        v.ThrowIfInvalid();
+        var seenUpToId = body.SeenUpToId!.Value;
+
+        await using var conn = new NpgsqlConnection(connections.App);
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(@"
+update person set seen_up_to_id = $1
+where id = $2 and (seen_up_to_id is null or seen_up_to_id < $1);", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = seenUpToId });
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = personId });
+        await cmd.ExecuteNonQueryAsync(ct);
+        return Results.NoContent();
     }
 
     // -------- helpers --------

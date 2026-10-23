@@ -180,6 +180,7 @@ public sealed class Person
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastSeenAt { get; set; }
     public long? SeenUpToId { get; set; }
+    public JsonDocument? Preferences { get; set; }
 }
 
 public sealed class ApiKey
