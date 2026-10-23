@@ -299,13 +299,29 @@ public static class EndpointStubs
             .WithTags("Me")
             .Produces<MyCookiesResponse>(StatusCodes.Status200OK);
 
+        app.MapGet("/me", NotImplemented)
+            .WithTags("Me")
+            .Produces<MeResponse>(StatusCodes.Status200OK);
+
+        app.MapPut("/me/preferences", NotImplemented)
+            .WithTags("Me")
+            .Accepts<PreferencesDto>("application/json")
+            .Produces(StatusCodes.Status204NoContent);
+
+        app.MapPut("/me/seen", NotImplemented)
+            .WithTags("Me")
+            .Accepts<MeSeenRequest>("application/json")
+            .Produces(StatusCodes.Status204NoContent);
+
         app.MapGet("/me/notifications", NotImplemented)
             .WithTags("Me")
-            .Produces<MeNotificationsResponse>(StatusCodes.Status200OK);
+            .WithDescription(Endpoints.MeEndpoints.AliasDescription)
+            .Produces<MeResponse>(StatusCodes.Status200OK);
 
         app.MapPut("/me/notifications/seen", NotImplemented)
             .WithTags("Me")
-            .Accepts<MeNotificationsSeenRequest>("application/json")
+            .WithDescription(Endpoints.MeEndpoints.AliasDescription)
+            .Accepts<MeSeenRequest>("application/json")
             .Produces(StatusCodes.Status204NoContent);
 
         app.MapPost("/cookies", NotImplemented)

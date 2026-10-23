@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Wmsfo.Api.Contracts.Dtos;
 
 // POST /me/subscriptions request (contracts 4.4). Strict.
@@ -55,17 +57,42 @@ public sealed class CookieLeft
     public DateTimeOffset LeftAt { get; set; }
 }
 
-// GET /me/notifications response (contracts 4.4): the newest open subscriber
-// row of the person, or null, and the person's seen marker, or null.
-public sealed class MeNotificationsResponse
+// GET /me response (contracts 4.4), also answered by the GET /me/notifications
+// alias: the newest open subscriber row of the person, or null, the person's
+// seen marker, or null, and the stored preferences, or null.
+public sealed class MeResponse
 {
     public SubscriptionDto? Subscription { get; set; }
     public long? SeenUpToId { get; set; }
+    public PreferencesDto? Preferences { get; set; }
 }
 
-// PUT /me/notifications/seen request (contracts 4.4). seenUpToId is required
-// and greater than 0; null here means the field was missing.
-public sealed class MeNotificationsSeenRequest
+// PUT /me/preferences body and the stored person.preferences document
+// (contracts 4.4). Both keys are required; a null theme means follow the
+// system. MePreferencesRules validates the raw body before this is built.
+public sealed class PreferencesDto
+{
+    public string? Theme { get; set; }
+    public TrackerPreferencesDto Tracker { get; set; } = new();
+}
+
+// The tracker menu choices (contracts 4.4). Every key is optional; an absent
+// key is omitted on write, never written as null.
+public sealed class TrackerPreferencesDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? FlightHistory { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? TimeLabels { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Landmarks { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? FlightDock { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? CookieTally { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Snow { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MapType { get; set; }
+}
+
+// PUT /me/seen request (contracts 4.4), also taken by the
+// PUT /me/notifications/seen alias. seenUpToId is required and greater than 0;
+// null here means the field was missing.
+public sealed class MeSeenRequest
 {
     public long? SeenUpToId { get; set; }
 }

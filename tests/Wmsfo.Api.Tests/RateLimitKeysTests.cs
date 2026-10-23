@@ -89,6 +89,9 @@ public class RateLimitKeysTests
 
     [Theory]
     [InlineData("/me/cookies", RateLimitKeys.MeGroup)]
+    [InlineData("/me", RateLimitKeys.MeGroup)]
+    [InlineData("/me/preferences", RateLimitKeys.MeGroup)]
+    [InlineData("/me/seen", RateLimitKeys.MeGroup)]
     [InlineData("/me/subscriptions", RateLimitKeys.MeGroup)]
     [InlineData("/me/subscriptions/3/resend-verification", RateLimitKeys.MeGroup)]
     [InlineData("/cookies", RateLimitKeys.MeGroup)]
@@ -146,6 +149,7 @@ public class RateLimitKeysTests
         Assert.Equal(new TokenBucketRate(1, s, 3), t.Cookies);
         Assert.Equal(new TokenBucketRate(5, TimeSpan.FromHours(1), 5), t.MeSubscribe);
         Assert.Equal(new TokenBucketRate(1, s, 3), t.MeSeen);
+        Assert.Equal(new TokenBucketRate(1, s, 3), t.MePreferences);
         Assert.Equal(new TokenBucketRate(200, s, 400), t.MeNode);
         Assert.Equal(new TokenBucketRate(30, min, 30), t.MediaUploadUrl);
         Assert.Equal(new TokenBucketRate(20, s, 40), t.Admin);

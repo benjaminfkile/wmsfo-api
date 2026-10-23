@@ -189,12 +189,11 @@ public sealed class A117SnapshotAlertsTests : IClassFixture<PostgresFixture>, IA
         Assert.All(alerts, a => Assert.Equal("event_message", a.GetProperty("kind").GetString()));
     }
 
-    [Theory]
-    [InlineData("/me")]
-    [InlineData("/me/alerts")]
-    public async Task Removed_me_routes_are_404(string path)
+    // GET /me came back in A135 as the person's state; /me/alerts stays gone.
+    [Fact]
+    public async Task Removed_me_alerts_route_is_404()
     {
-        using var req = _host!.PersonRequest(HttpMethod.Get, path);
+        using var req = _host!.PersonRequest(HttpMethod.Get, "/me/alerts");
         var response = await _host.Client.SendAsync(req);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }

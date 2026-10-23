@@ -1631,6 +1631,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("last_seen_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<JsonDocument>("Preferences")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("preferences")
+                        .HasComment("The person's site preferences (theme and tracker menu choices) as the site last saved them; null when never saved.");
+
                     b.Property<long?>("SeenUpToId")
                         .HasColumnType("bigint")
                         .HasColumnName("seen_up_to_id")
