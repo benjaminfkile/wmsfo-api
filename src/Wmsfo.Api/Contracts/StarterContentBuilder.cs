@@ -306,6 +306,7 @@ public static class StarterContentBuilder
             ["heading"] = "Get alerts",
             ["copy"] = "We will email you when Santa is scheduled and when he lifts off.",
             ["signedOutCopy"] = "Sign in to sign up for alerts.",
+            ["subscribedHeading"] = "Alerts",
         },
     };
 
