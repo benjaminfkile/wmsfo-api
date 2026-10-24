@@ -121,6 +121,21 @@ public static class SchemaExport
                         _ => new JsonObject { ["type"] = "boolean" },
                     };
                 }
+                // contracts 1.3: the tracker start view as `$defs/TrackerStartView`
+                // states it, both keys required and the zoom 3 to 18.
+                if (context.PropertyInfo?.DeclaringType == typeof(TrackerStartView)
+                    && context.PropertyInfo.Name == "zoom")
+                {
+                    return new JsonObject { ["type"] = "integer", ["minimum"] = 3, ["maximum"] = 18 };
+                }
+                if (t == typeof(TrackerStartView) && schema is JsonObject startView)
+                {
+                    startView["required"] = new JsonArray("center", "zoom");
+                }
+                if (t == typeof(LatLng) && schema is JsonObject latLng)
+                {
+                    latLng["required"] = new JsonArray("lat", "lng");
+                }
                 if (t == typeof(PreferencesDto) && schema is JsonObject prefs)
                 {
                     prefs["required"] = new JsonArray("theme", "tracker");

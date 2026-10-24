@@ -41,7 +41,7 @@ public class KeyOrderTests
         {
             "id", "year", "name", "statusId", "scheduledAt", "wentLiveAt", "endedAt",
             "fundsPercent", "flightHistory", "latestMessage", "alerts",
-            "trackerBbox", "trackerMap",
+            "trackerBbox", "trackerStartView", "trackerMap",
         };
         var expectedBbox = new[] { "west", "south", "east", "north" };
         var expectedTrackerMap = new[]

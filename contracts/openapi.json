@@ -4729,6 +4729,9 @@
           },
           "trackerBbox": {
             "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerStartView": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -5236,6 +5239,9 @@
             "$ref": "#/components/schemas/JsonElement"
           },
           "trackerMapId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerStartView": {
             "$ref": "#/components/schemas/JsonElement"
           }
         },
@@ -5822,6 +5828,16 @@
               "string"
             ],
             "format": "int64"
+          },
+          "trackerStartView": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TrackerStartView"
+              }
+            ]
           },
           "trackerThemeIds": {
             "type": "array",
@@ -6458,6 +6474,27 @@
                 "$ref": "#/components/schemas/JsonElement"
               }
             ]
+          }
+        }
+      },
+      "LatLng": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "lng": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -8055,6 +8092,9 @@
             "$ref": "#/components/schemas/JsonElement"
           },
           "trackerMapId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerStartView": {
             "$ref": "#/components/schemas/JsonElement"
           },
           "trackerThemeIds": {
@@ -10911,6 +10951,22 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "TrackerStartView": {
+        "type": "object",
+        "properties": {
+          "center": {
+            "$ref": "#/components/schemas/LatLng"
+          },
+          "zoom": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

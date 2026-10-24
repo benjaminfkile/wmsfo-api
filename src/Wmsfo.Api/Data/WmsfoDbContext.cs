@@ -137,6 +137,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("{ west, south, east, north } in degrees, west < east, south < north, at least 0.05 and at most 20 degrees on a side. Required on create (the API always writes it; the column default exists only so a rolled-back API that does not know the column can still insert events, which works because the event inserts name their columns). Both tracker renderers lock to it; the snapshot carries it; the tile CLI builds from it. The migration fills existing events with the Missoula valley box.");
             e.Property(x => x.TrackerMapId).HasColumnType("bigint")
                 .HasComment("The tile package the tracker renders with MapLibre. Null means Google Maps for every viewer. Write rule: the package bbox contains tracker_bbox (400 validation_failed at trackerMapId); shrinking or moving the box later must keep it inside the package or the write is refused the same way at trackerBbox.");
+            e.Property(x => x.TrackerStartView).HasColumnType("jsonb")
+                .HasComment("Where the tracker map opens: { center: { lat, lng }, zoom }, zoom an integer 3 to 18, no other key. Rule: center lies inside tracker_bbox (west <= lng <= east, south <= lat <= north); a write that names a view outside the box is 400 validation_failed at trackerStartView, and a write that moves the box away from a stored view clears it in the same update. Null means the tracker fits the whole box.");
             e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired();
             e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
             e.Property(x => x.UpdatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");

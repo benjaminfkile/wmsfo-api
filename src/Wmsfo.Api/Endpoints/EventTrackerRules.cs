@@ -146,6 +146,65 @@ from content_version order by id desc limit 1;", conn, tx);
     // the event's map.
     public const string InsideMapMessage = "must lie inside the map's area";
 
+    // The one sentence every write answers at trackerStartView when the view's
+    // centre lies outside the box that applies after the write.
+    public const string InsideBboxMessage = "must lie inside trackerBbox";
+
+    // A written trackerStartView: absent (Set false), null (Set true, no
+    // view), or a `$defs/TrackerStartView` object; any other value is a
+    // problem at trackerStartView. The box rule is checked once the box after
+    // the write is known.
+    public static (bool Set, TrackerStartView? View) ReadStartView(
+        JsonElement value, SchemaValidator validator, RequestValidation v)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Undefined:
+                return (false, null);
+            case JsonValueKind.Null:
+                return (true, null);
+            case JsonValueKind.Object:
+                var problems = validator.ValidateTrackerStartView(JsonNode.Parse(value.GetRawText()));
+                if (problems.Count > 0)
+                {
+                    v.Field("trackerStartView", problems[0].Message);
+                    return (false, null);
+                }
+                return (true, JsonSerializer.Deserialize<TrackerStartView>(value.GetRawText(), CanonicalJson.Options)!);
+            default:
+                v.Field("trackerStartView", "must be a TrackerStartView object or null");
+                return (false, null);
+        }
+    }
+
+    // The view's centre lies inside `box` (west <= lng <= east, south <= lat
+    // <= north).
+    public static bool Contains(Bbox box, TrackerStartView view) =>
+        double.IsFinite(view.Center.Lat) && double.IsFinite(view.Center.Lng)
+        && box.West <= view.Center.Lng && view.Center.Lng <= box.East
+        && box.South <= view.Center.Lat && view.Center.Lat <= box.North;
+
+    // The start view a write stores: the named one, which must lie inside
+    // `box` (400 validation_failed at trackerStartView otherwise); else the
+    // kept one while its centre stays inside `box`, else null.
+    public static TrackerStartView? SettleStartView(
+        (bool Set, TrackerStartView? View) named, TrackerStartView? kept, Bbox box)
+    {
+        if (named.Set)
+        {
+            if (named.View is not null && !Contains(box, named.View))
+                RequestValidation.Throw("trackerStartView", InsideBboxMessage);
+            return named.View;
+        }
+        return kept is not null && Contains(box, kept) ? kept : null;
+    }
+
+    public static TrackerStartView? ParseStoredStartView(string? json) =>
+        json is null ? null : JsonSerializer.Deserialize<TrackerStartView>(json, CanonicalJson.Options);
+
+    public static string Serialize(TrackerStartView view) =>
+        JsonSerializer.Serialize(view, CanonicalJson.Options);
+
     // A written trackerMapId on create or clone: absent (Set false), null
     // (Set true, no id), or a map id; any other value is a problem at
     // trackerMapId.

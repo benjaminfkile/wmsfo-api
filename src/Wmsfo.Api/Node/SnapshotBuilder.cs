@@ -175,7 +175,7 @@ where key in ('sponsor_linger_ms_per_dollar', 'sponsor_linger_min_ms', 'flight_h
         // 2. current event (nullable).
         await using (var cmd = new NpgsqlCommand(@"
 select e.id, e.year, e.name, e.status_id, e.scheduled_at, e.went_live_at, e.ended_at,
-       e.funds_percent, e.tracker_bbox
+       e.funds_percent, e.tracker_bbox, e.tracker_start_view
 from event e
 where e.is_current;", conn, tx))
         await using (var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
@@ -195,6 +195,7 @@ where e.is_current;", conn, tx))
                     FlightHistory = null,
                     LatestMessage = null,
                     TrackerBbox = ReadJson<Bbox>(reader.GetString(8)),
+                    TrackerStartView = reader.IsDBNull(9) ? null : ReadJson<TrackerStartView>(reader.GetString(9)),
                     TrackerMap = null,
                 };
             }

@@ -43,6 +43,7 @@ public sealed class Event
     public JsonDocument? LatestFix { get; set; }
     public JsonDocument TrackerBbox { get; set; } = JsonDocument.Parse(TrackerThemeSeed.ValleyBboxJson);
     public long? TrackerMapId { get; set; }   // null means Google Maps for every viewer
+    public JsonDocument? TrackerStartView { get; set; }   // { center: { lat, lng }, zoom }; null fits the box
     public string CreatedBy { get; set; } = "";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }

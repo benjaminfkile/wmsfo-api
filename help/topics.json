@@ -220,7 +220,7 @@
     "page": "Events",
     "label": "Tracker map card",
     "title": "The area, map, and themes of this event",
-    "body": "This card sets how the live tracker and the route map look for this event. It has three parts: the area the maps are locked to, the map the tiles come from, and the themes viewers can choose between.\n\nWith a ready map picked, viewers whose browser can run it see the event on MapLibre, drawn from your own tiles. Without one, every viewer sees Google Maps. Either way the view stays inside the area.\n\nThe site uses this card's choices while this is the current event. With no current event, the route map on the site uses the newest event's area, map, and themes. Every change here is part of the snapshot, so the public site shows it on the next snapshot.",
+    "body": "This card sets how the live tracker and the route map look for this event. It has four parts: the area the maps are locked to, where the tracker opens inside it, the map the tiles come from, and the themes viewers can choose between.\n\nWith a ready map picked, viewers whose browser can run it see the event on MapLibre, drawn from your own tiles. Without one, every viewer sees Google Maps. Either way the view stays inside the area.\n\nThe site uses this card's choices while this is the current event. With no current event, the route map on the site uses the newest event's area, map, and themes. Every change here is part of the snapshot, so the public site shows it on the next snapshot.",
     "links": [
       { "label": "Maps", "to": "/maps" },
       { "label": "Tracker themes", "to": "/themes" }
@@ -231,10 +231,18 @@
     "page": "Events",
     "label": "Tracker area",
     "title": "The area both maps lock to",
-    "body": "The area is a box on the map, west, south, east, and north in degrees. Both renderers lock to it: viewers cannot pan outside it, and the furthest they can zoom out is the zoom that fits the box on their screen. The route map uses it as its pan limit too.\n\nDraw the box on the map or type the four edges. Each side must be at least 0.05 and at most 20 degrees. Keep it tight around where the flight goes; a wide box makes a large tile package.\n\nExport for tile builder saves the box as a file the tile builder reads, so a map can be built for exactly this area. If the event has a map, the new box must stay inside that map's area or the save is refused.",
+    "body": "The area is a box on the map, west, south, east, and north in degrees. Both renderers lock to it: viewers cannot pan outside it, and the furthest they can zoom out is the zoom that fits the box on their screen. The route map uses it as its pan limit too.\n\nDraw the box on the map or type the four edges. Each side must be at least 0.05 and at most 20 degrees. Keep it tight around where the flight goes; a wide box makes a large tile package.\n\nExport for tile builder saves the box as a file the tile builder reads, so a map can be built for exactly this area. If the event has a map, the new box must stay inside that map's area or the save is refused. Moving the area moves a start view it would leave outside back inside the new area, and a start view saved outside the area is refused.",
     "links": [
       { "label": "Maps", "to": "/maps" }
     ]
+  },
+  {
+    "key": "events.detail.tracker-map.start-view",
+    "page": "Events",
+    "label": "Tracker start view",
+    "title": "Where the tracker opens",
+    "body": "The start view is where the live tracker opens for this event: the point the map is centred on and how far it is zoomed in. Set it next to the area by moving the small map to the view you want and saving.\n\nThe centre must lie inside the event's area; a start view outside it is refused. If you later move or shrink the area so the start view would fall outside, it is moved back inside, and the save never leaves it stranded.\n\nUse whole area clears the start view. The tracker then opens showing the whole area, never a corner of it. Events made before start views existed open that way too. Cloning an event copies its start view along with the area.",
+    "links": []
   },
   {
     "key": "events.detail.tracker-map.map",
@@ -261,7 +269,7 @@
     "page": "Events",
     "label": "New event area",
     "title": "The area a new event starts with",
-    "body": "The area follows the map chosen in the dialog. Picking a map fills the area with that map's area; you can shrink or move it by hand, each side at least 0.05 degrees, but never past the map's edge, so there is never a place without tiles or terrain. Switching to another map resets the area to the new map's.\n\nWith No map the dialog fills the area from the default area in Site settings, and you keep it or draw or type another box with each side between 0.05 and 20 degrees. Viewers then get Google Maps.\n\nThe themes are copied from the newest event, by year. You can change the area, map, and themes afterwards on the event page's Tracker map card.",
+    "body": "The area follows the map chosen in the dialog. Picking a map fills the area with that map's area; you can shrink or move it by hand, each side at least 0.05 degrees, but never past the map's edge, so there is never a place without tiles or terrain. Switching to another map resets the area to the new map's. Moving the area moves a start view it would leave outside back inside the new area, and a start view saved outside the area is refused.\n\nWith No map the dialog fills the area from the default area in Site settings, and you keep it or draw or type another box with each side between 0.05 and 20 degrees. Viewers then get Google Maps.\n\nThe themes are copied from the newest event, by year. You can change the area, map, and themes afterwards on the event page's Tracker map card.",
     "links": [
       { "label": "Site settings", "to": "/site-settings" }
     ]

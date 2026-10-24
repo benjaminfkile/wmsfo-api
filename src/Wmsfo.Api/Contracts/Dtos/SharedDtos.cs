@@ -26,6 +26,8 @@ public sealed class EventDto
     // The ready tracker map whose package contains the box; null means Google
     // Maps for every viewer.
     public long? TrackerMapId { get; set; }
+    // Where the tracker opens, its centre inside the box; null fits the box.
+    public TrackerStartView? TrackerStartView { get; set; }
     // The enabled themes in sort_order, id order.
     public IList<long> TrackerThemeIds { get; set; } = new List<long>();
     public string CreatedBy { get; set; } = "";
@@ -619,6 +621,21 @@ public sealed class Bbox
     [JsonPropertyOrder(1)] public double South { get; set; }
     [JsonPropertyOrder(2)] public double East { get; set; }
     [JsonPropertyOrder(3)] public double North { get; set; }
+}
+
+// Where the tracker map opens (contracts 1.3, `$defs/TrackerStartView`), keys
+// in this order: a centre inside the event's trackerBbox and a zoom 3 to 18.
+public sealed class TrackerStartView
+{
+    [JsonPropertyOrder(0)] public LatLng Center { get; set; } = new();
+    [JsonPropertyOrder(1)] public int Zoom { get; set; }
+}
+
+// A point in degrees, keys in this order.
+public sealed class LatLng
+{
+    [JsonPropertyOrder(0)] public double Lat { get; set; }
+    [JsonPropertyOrder(1)] public double Lng { get; set; }
 }
 
 // A tracker theme's colours for everything on the tracker screen that is not

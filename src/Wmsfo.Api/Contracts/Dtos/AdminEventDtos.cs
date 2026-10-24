@@ -23,6 +23,9 @@ public sealed class CreateEventRequest
     // A map id names a ready map for the event, null means no map (Google
     // only), absent takes the map of the event with the greatest year.
     public JsonElement TrackerMapId { get; set; }
+    // A `$defs/TrackerStartView` whose centre lies inside the event's box;
+    // null or absent stores none (the tracker fits the box).
+    public JsonElement TrackerStartView { get; set; }
 }
 
 // PATCH /admin/events/{id} - any of the listed fields; any other field is
@@ -49,6 +52,10 @@ public sealed class PatchEventRequest
     public JsonElement TrackerBbox { get; set; }
     // A map id sets the event's map, null clears it, absent leaves it unchanged.
     public JsonElement TrackerMapId { get; set; }
+    // A `$defs/TrackerStartView` inside the box after this write sets it, null
+    // clears it, absent leaves it unchanged unless a new box leaves its
+    // centre outside, which clears it.
+    public JsonElement TrackerStartView { get; set; }
     // An array of theme ids replaces the enabled set whole; absent leaves it
     // unchanged.
     public JsonElement TrackerThemeIds { get; set; }
@@ -82,6 +89,10 @@ public sealed class CloneEventRequest
     // A Bbox inside the clone's map; absent takes the source's box, or the
     // named map's area when the source's box leaves it.
     public JsonElement TrackerBbox { get; set; }
+    // A `$defs/TrackerStartView` inside the clone's box, or null for none;
+    // absent copies the source's view while its centre lies inside the
+    // clone's box, else none.
+    public JsonElement TrackerStartView { get; set; }
 }
 
 // `copy` lists `sponsors` and `tracker`; any other key is 400
