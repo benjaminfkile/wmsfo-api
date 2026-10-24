@@ -15,7 +15,7 @@ namespace Wmsfo.Api.Tests;
 //  - a `map` section's schema rejects a `themes` key
 public class ContentSchemasTests
 {
-    private static readonly KindRegistry Registry = KindRegistry.Load(ContractsPaths.ContractsDir);
+    internal static readonly KindRegistry Registry = KindRegistry.Load(ContractsPaths.ContractsDir);
     internal static readonly SchemaValidator Validator = new(Registry);
 
     public static IEnumerable<object[]> AllKinds() =>

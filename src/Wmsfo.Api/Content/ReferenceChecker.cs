@@ -599,7 +599,7 @@ public sealed class ReferenceChecker
         private static readonly HashSet<string> InlineKeyNames = new(StringComparer.Ordinal)
         {
             "text", "heading", "title", "tagline", "caption", "attribution",
-            "description", "label", "copy", "signedOutCopy", "closedCopy",
+            "description", "label", "copy", "signedOutCopy", "closedCopy", "subscribedHeading",
             "successText", "emptyText", "footerText", "siteName", "homeNavLabel",
             "scheduledAt", "wentLiveAt", "endedAt", "airborneFor", "body",
         };

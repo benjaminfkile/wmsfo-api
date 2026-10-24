@@ -72,6 +72,9 @@ public sealed class A13AdminContentEndpointsTests : IClassFixture<PostgresFixtur
         Assert.Equal(new[] { "live" }, allowedRoles);
         // A new map section starts with the flight history on.
         Assert.True(map.GetProperty("defaults").GetProperty("flightHistoryDefault").GetBoolean());
+        // A new alerts_signup section carries the heading a subscriber sees.
+        var alerts = items.First(e => e.GetProperty("kind").GetString() == "alerts_signup");
+        Assert.Equal("Alerts", alerts.GetProperty("defaults").GetProperty("subscribedHeading").GetString());
         // The schema is inlined with the primitives under $defs.
         var schema = map.GetProperty("schema");
         Assert.True(schema.TryGetProperty("$defs", out _), "$defs is missing from the inlined schema");

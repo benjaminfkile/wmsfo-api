@@ -267,7 +267,8 @@
       "defaults": {
         "heading": "Get alerts",
         "copy": null,
-        "signedOutCopy": "Sign in to sign up for alerts."
+        "signedOutCopy": "Sign in to sign up for alerts.",
+        "subscribedHeading": "Alerts"
       },
       "itemDefaults": null
     },
