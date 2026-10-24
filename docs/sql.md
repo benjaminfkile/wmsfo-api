@@ -35,7 +35,7 @@ This document is the technical design of the Postgres schema and the data layer 
 | `route` | Uploaded route objects (metadata; bytes live on the CDN); the site settings name one as the site route | Route upload; route delete; migration tool | tens |
 | `poster` | The admin panel's poster documents: a name and the opaque layout | `/admin/posters` writes | tens |
 | `help_topic` | The admin panel's help popover texts: the seed's defaults from `help/topics.json`, the text shown, the edit stamp | Boot ensure (section 8.16); `PUT /admin/help/{key}`, reset | about 120 |
-| `tracker_map` | One tile package the operator built for a bounding box and uploaded under `maps/{package_key}/`; the routeView event's (the current event, else the newest) rides in the snapshot | `/admin/maps` writes (the CLI's create, complete, confirm; rename; delete); the pending map sweep; the migration seed | tens |
+| `tracker_map` | One tile package the operator built for a bounding box and uploaded under `maps/{package_key}/`; the routeView event's (the current event, else the newest) rides in the snapshot | `/admin/maps` writes (the CLI's create, complete, confirm; rename; delete); the pending map sweep; the map size measure (`tiles_bytes`, `terrain_bytes`); the migration seed | tens |
 | `tracker_theme` | One tracker look for one renderer: style hash, chrome, overlay, thumbnail, default flags | `/admin/themes` writes; the migration seed | tens |
 | `event_tracker_theme` | The themes an event offers, one row per pair | Event create, patch, clone; theme delete; the migration seed | tens per event |
 | `tracker_theme_state` | Single row: when the seeded themes' style objects were last written to the bucket | Boot first-boot step (section 8.16) | 1 |
@@ -2167,6 +2167,21 @@ select id, prefix from tracker_map where state = 'pending' and created_at < now(
 ```
 
 A map the CLI confirms within the day is `ready` and never selected; a failed S3 call leaves the row for the next run. The bucket's lifecycle rule aborts the same uploads on its own after a day (platform.md 1.1), so the abort here usually finds nothing.
+
+**Map size measure** (once at leader start, and at 09:00 UTC after the sweep; `MapSizeMeasurer`):
+
+```sql
+select id, prefix, terrain_max_zoom, tiles_bytes, terrain_bytes from tracker_map where state = 'ready' order by id;
+  -- per row: HeadObject on prefix/tiles.pmtiles and, when terrain_max_zoom is not null, on prefix/terrain.pmtiles;
+  -- $tiles and $terrain are the measured lengths, null for an archive missing, failed, or not declared; when either differs:
+  update tracker_map
+  set tiles_bytes = coalesce($tiles, tiles_bytes), terrain_bytes = coalesce($terrain, terrain_bytes)
+  where id = $id and state = 'ready'
+    and (tiles_bytes is distinct from coalesce($tiles, tiles_bytes)
+      or terrain_bytes is distinct from coalesce($terrain, terrain_bytes));
+```
+
+A missing object or a failed HEAD keeps the stored size and logs one Warning with the map id and the file; a size is never cleared. Nothing else on the row changes (`state`, `terrain_max_zoom`, `updated_by`, `updated_at`), and no object is written, `basemap/` included. Whether a map has terrain is `terrain_max_zoom`, never `terrain_bytes`: a null size means not measured yet. A second run with the same objects updates nothing.
 
 ### 9.8 Contact inbox import (every 60 s)
 

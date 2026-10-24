@@ -20,7 +20,7 @@ public sealed class ChoreHost : BackgroundService
     public static readonly TimeSpan NightlyPollCadence = TimeSpan.FromMinutes(1);
 
     // Nightly cleanup fires at 09:00 UTC exactly once per day, the pending
-    // map sweep right after it. The poll cadence above is how often the host
+    // map sweep right after it, then the map size measure. The poll cadence above is how often the host
     // wakes to check the clock; each day's fire is guarded by
     // _nightlyLastRunDate.
     public static readonly TimeSpan NightlyRunAt = TimeSpan.FromHours(9);
@@ -33,6 +33,7 @@ public sealed class ChoreHost : BackgroundService
     private readonly MediaOrphanCollector _orphan;
     private readonly NightlyCleanup _nightly;
     private readonly PendingMapSweeper _mapSweep;
+    private readonly MapSizeMeasurer _mapSizes;
     private readonly ContactInboxImporter _contactInbox;
     private readonly SignUpsSwitch _signUps;
     private readonly IChoreClock _clock;
@@ -49,6 +50,7 @@ public sealed class ChoreHost : BackgroundService
         MediaOrphanCollector orphan,
         NightlyCleanup nightly,
         PendingMapSweeper mapSweep,
+        MapSizeMeasurer mapSizes,
         ContactInboxImporter contactInbox,
         SignUpsSwitch signUps,
         IChoreClock clock,
@@ -62,6 +64,7 @@ public sealed class ChoreHost : BackgroundService
         _orphan = orphan;
         _nightly = nightly;
         _mapSweep = mapSweep;
+        _mapSizes = mapSizes;
         _contactInbox = contactInbox;
         _signUps = signUps;
         _clock = clock;
@@ -83,14 +86,14 @@ public sealed class ChoreHost : BackgroundService
         var orphanTask = RunOnCadenceAsync("media-orphan", OrphanCadence, _orphan.RunOnceAsync, stoppingToken);
         var contactInboxTask = RunOnCadenceAsync("contact-inbox", ContactInboxCadence, _contactInbox.RunOnceAsync, stoppingToken);
         var nightlyTask = RunNightlyAsync(stoppingToken);
-        var signUpsDriftTask = RunSignUpsDriftOnceAsync(stoppingToken);
+        var leaderStartTask = RunLeaderStartOnceAsync(stoppingToken);
 
-        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask, signUpsDriftTask).ConfigureAwait(false);
+        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask, leaderStartTask).ConfigureAwait(false);
     }
 
-    // The sign-ups drift check runs once, on the first tick (at the outbox
+    // The leader start work runs once, on the first tick (at the outbox
     // cadence) where this node is the leader, and then the loop ends.
-    private async Task RunSignUpsDriftOnceAsync(CancellationToken ct)
+    private async Task RunLeaderStartOnceAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(OutboxCadence);
         try
@@ -98,13 +101,21 @@ public sealed class ChoreHost : BackgroundService
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
                 if (!_state.Leader.IsCurrentlyLeader(_clock.UtcNow)) continue;
-                await _signUps.CheckDriftAsync(ct).ConfigureAwait(false);
+                await RunLeaderStartAsync(ct).ConfigureAwait(false);
                 return;
             }
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    // The leader start work in order: the sign-ups drift check, then the map
+    // size measure. A throw from the measure is logged.
+    public async Task RunLeaderStartAsync(CancellationToken ct)
+    {
+        await _signUps.CheckDriftAsync(ct).ConfigureAwait(false);
+        await RunNightlyChoreAsync("map-size-measure", _mapSizes.RunOnceAsync, ct).ConfigureAwait(false);
     }
 
     // Cadenced runner. Every chore starts only while IsLeader at the tick,
@@ -155,13 +166,21 @@ public sealed class ChoreHost : BackgroundService
                 if (now < targetToday) continue;
                 if (_nightlyLastRunDate == today) continue;
                 _nightlyLastRunDate = today;
-                if (!await RunNightlyChoreAsync("nightly", _nightly.RunOnceAsync, ct).ConfigureAwait(false)) return;
-                if (!await RunNightlyChoreAsync("pending-map-sweep", _mapSweep.RunOnceAsync, ct).ConfigureAwait(false)) return;
+                if (!await RunNightlySequenceAsync(ct).ConfigureAwait(false)) return;
             }
         }
         catch (OperationCanceledException)
         {
         }
+    }
+
+    // The nightly run in order: the cleanup, the pending map sweep, the map
+    // size measure. False when the host is stopping.
+    public async Task<bool> RunNightlySequenceAsync(CancellationToken ct)
+    {
+        if (!await RunNightlyChoreAsync("nightly", _nightly.RunOnceAsync, ct).ConfigureAwait(false)) return false;
+        if (!await RunNightlyChoreAsync("pending-map-sweep", _mapSweep.RunOnceAsync, ct).ConfigureAwait(false)) return false;
+        return await RunNightlyChoreAsync("map-size-measure", _mapSizes.RunOnceAsync, ct).ConfigureAwait(false);
     }
 
     // One nightly chore; a throw is logged and the next chore still runs.

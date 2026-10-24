@@ -1275,7 +1275,7 @@
     "page": "Maps",
     "label": "Map columns",
     "title": "Reading the maps list",
-    "body": "Each row shows the map's area, its state, the zoom range, the size of the tiles and of the terrain, the date of the source build the tiles came from, and how many events use it.\n\nA ready map can be picked on an event. A pending map is an upload that has not been confirmed yet: the tile builder is still sending it, or it stopped part way. Running the upload again resumes it, and a pending map left for a day is removed on its own.",
+    "body": "Each row shows the map's area, its state, the zoom range, the size of the tiles and of the terrain, the date of the source build the tiles came from, and how many events use it.\n\nThe size columns show each file's length as the API last measured it. A size reads Not measured yet until the API has measured it, which happens when the map is confirmed, when the API starts, and every night. The terrain is present whenever the map was built with it, whatever the size column says.\n\nA ready map can be picked on an event. A pending map is an upload that has not been confirmed yet: the tile builder is still sending it, or it stopped part way. Running the upload again resumes it, and a pending map left for a day is removed on its own.",
     "links": []
   },
   {
