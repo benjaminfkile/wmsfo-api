@@ -235,6 +235,7 @@ public static class FixtureData
                     },
                 },
                 TrackerBbox = new Bbox { West = -114.30, South = 46.75, East = -113.80, North = 47.05 },
+                TrackerStartView = new TrackerStartView { Center = new LatLng { Lat = 46.87, Lng = -113.99 }, Zoom = 11 },
                 TrackerMap = new SnapshotTrackerMap
                 {
                     Id = 3,

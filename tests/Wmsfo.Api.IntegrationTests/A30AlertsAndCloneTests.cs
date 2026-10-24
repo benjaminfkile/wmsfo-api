@@ -309,6 +309,37 @@ order by id desc limit 1;", conn);
         Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("trackerMapId").ValueKind);
     }
 
+    // A142: the clone copies the source's tracker start view with the box;
+    // a named view outside the clone's box is 400 at trackerStartView.
+    [Fact]
+    public async Task Clone_copies_the_start_view_and_refuses_one_outside_the_box()
+    {
+        var srcId = await CreateEventAsync(year: 2064);
+        await using (var conn = new NpgsqlConnection(_fixture.ConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand(
+                "update event set tracker_start_view = '{\"center\":{\"lat\":46.87,\"lng\":-113.99},\"zoom\":11}'::jsonb where id = $1;", conn);
+            cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = srcId });
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2065,\"name\":\"n\"}");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        var view = dto.RootElement.GetProperty("trackerStartView");
+        Assert.Equal(46.87, view.GetProperty("center").GetProperty("lat").GetDouble());
+        Assert.Equal(-113.99, view.GetProperty("center").GetProperty("lng").GetDouble());
+        Assert.Equal(11, view.GetProperty("zoom").GetInt32());
+
+        var outside = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2066,\"name\":\"n\",\"trackerStartView\":{\"center\":{\"lat\":10,\"lng\":10},\"zoom\":11}}");
+        Assert.Equal(HttpStatusCode.BadRequest, outside.StatusCode);
+        Assert.Contains("trackerStartView", await outside.Content.ReadAsStringAsync());
+        Assert.Equal(0L, await CountAsync("select count(*) from event where year = 2066;"));
+    }
+
     [Fact]
     public async Task Clone_conflicting_year_is_409_year_taken()
     {

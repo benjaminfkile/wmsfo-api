@@ -15,7 +15,8 @@ namespace Wmsfo.Api.IntegrationTests;
 // A94: the event's tracker fields on create (sql.md 8.7), patch (8.5), and
 // clone (8.4b), with the validations of contracts 4.5 Events at their paths,
 // and the snapshot the patch frame rebuilds. A141: the map named on create
-// and clone, and the box taken from it.
+// and clone, and the box taken from it. A142: the event's tracker start view,
+// inside its box, cleared when the box leaves it, and carried in the snapshot.
 public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private const string ValleyBox = """{"west":-114.75,"south":46.35,"east":-113.30,"north":47.25}""";
@@ -23,6 +24,10 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
     private const string FarBox = """{"west":-110,"south":40,"east":-109,"north":41}""";
     private const string FarInnerBox = """{"west":-109.8,"south":40.2,"east":-109.2,"north":40.8}""";
     private const string WideBox = """{"west":-115,"south":46,"east":-113,"north":48}""";
+    // Inside InnerBox (and so the valley).
+    private const string InnerView = """{"center":{"lat":46.9,"lng":-114.0},"zoom":11}""";
+    // Inside the valley box, outside InnerBox.
+    private const string ValleyOnlyView = """{"center":{"lat":46.5,"lng":-114.5},"zoom":9}""";
 
     private readonly PostgresFixture _fixture;
     private A9Host? _host;
@@ -480,6 +485,205 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
         }
     }
 
+    // ---------- the start view (A142) ----------
+
+    [Fact]
+    public async Task Create_with_a_start_view_inside_the_box_stores_and_answers_it()
+    {
+        using var dto = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox + ",\"trackerStartView\":" + InnerView);
+        AssertBox(InnerView, dto.RootElement.GetProperty("trackerStartView"));
+        AssertBox(InnerView, JsonDocument.Parse(await StoredStartViewAsync(Id(dto)) ?? "null").RootElement);
+
+        var read = await SendAsync(HttpMethod.Get, $"/admin/events/{Id(dto)}", "");
+        using var got = await ReadJsonAsync(read);
+        AssertBox(InnerView, got.RootElement.GetProperty("trackerStartView"));
+
+        // Without one, and with null, the event has none.
+        using var none = await CreateAsync(2027);
+        Assert.Equal(JsonValueKind.Null, none.RootElement.GetProperty("trackerStartView").ValueKind);
+        Assert.Null(await StoredStartViewAsync(Id(none)));
+        using var nulled = await CreateAsync(2028, "\"trackerStartView\":null");
+        Assert.Equal(JsonValueKind.Null, nulled.RootElement.GetProperty("trackerStartView").ValueKind);
+    }
+
+    [Fact]
+    public async Task Create_with_a_start_view_outside_the_box_or_a_bad_shape_is_400_at_trackerStartView()
+    {
+        var outside = await SendAsync(HttpMethod.Post, "/admin/events",
+            """{"year":2026,"name":"Outside","trackerBbox":""" + InnerBox + ""","trackerStartView":""" + ValleyOnlyView + "}");
+        await AssertValidationAsync(outside, "trackerStartView");
+        Assert.Contains("must lie inside trackerBbox", await outside.Content.ReadAsStringAsync());
+
+        // With a map named and no box, the box is the map's area.
+        var valley = await ValleyMapIdAsync();
+        var far = await SendAsync(HttpMethod.Post, "/admin/events",
+            $$$"""{"year":2026,"name":"Far","trackerMapId":{{{valley}}},"trackerStartView":{"center":{"lat":40.5,"lng":-109.5},"zoom":10}}""");
+        await AssertValidationAsync(far, "trackerStartView");
+
+        foreach (var bad in new[]
+        {
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":2}""",
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":19}""",
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":11.5}""",
+            """{"center":{"lat":46.9,"lng":-114.0}}""",
+            """{"center":{"lat":46.9},"zoom":11}""",
+            """{"zoom":11}""",
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":11,"bearing":0}""",
+            """{"center":{"lat":"46.9","lng":-114.0},"zoom":11}""",
+            "[46.9,-114.0,11]",
+        })
+        {
+            var response = await SendAsync(HttpMethod.Post, "/admin/events",
+                """{"year":2026,"name":"Bad","trackerStartView":""" + bad + "}");
+            await AssertValidationAsync(response, "trackerStartView");
+        }
+        Assert.Equal(0L, await CountAsync("select count(*) from event where year = $1;", 2026));
+    }
+
+    [Fact]
+    public async Task Patch_trackerStartView_sets_inside_the_box_refuses_outside_and_null_clears()
+    {
+        using var ev = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox);
+        var id = Id(ev);
+
+        await AssertValidationAsync(await PatchAsync(id, new JsonObject { ["trackerStartView"] = JsonNode.Parse(ValleyOnlyView) }),
+            "trackerStartView");
+        await AssertValidationAsync(await PatchAsync(id, new JsonObject { ["trackerStartView"] = JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":19}""") }),
+            "trackerStartView");
+
+        var set = await PatchAsync(id, new JsonObject { ["trackerStartView"] = JsonNode.Parse(InnerView) });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        using (var doc = await ReadJsonAsync(set))
+            AssertBox(InnerView, doc.RootElement.GetProperty("trackerStartView"));
+
+        // A patch that names neither the view nor the box leaves it alone.
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, new JsonObject { ["name"] = "Renamed" })).StatusCode);
+        AssertBox(InnerView, JsonDocument.Parse(await StoredStartViewAsync(id) ?? "null").RootElement);
+
+        var cleared = await PatchAsync(id, new JsonObject { ["trackerStartView"] = null });
+        Assert.Equal(HttpStatusCode.OK, cleared.StatusCode);
+        using (var doc = await ReadJsonAsync(cleared))
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("trackerStartView").ValueKind);
+        Assert.Null(await StoredStartViewAsync(id));
+    }
+
+    [Fact]
+    public async Task Patch_of_the_box_that_leaves_the_view_outside_clears_it_and_one_that_keeps_it_keeps_it()
+    {
+        using var ev = await CreateAsync(2026, "\"trackerStartView\":" + ValleyOnlyView);
+        var id = Id(ev);
+        AssertBox(ValleyBox, ev.RootElement.GetProperty("trackerBbox"));
+        AssertBox(ValleyOnlyView, ev.RootElement.GetProperty("trackerStartView"));
+
+        // A smaller box that still contains the centre keeps the view.
+        const string StillInside = """{"west":-114.7,"south":46.4,"east":-113.4,"north":47.2}""";
+        var kept = await PatchAsync(id, new JsonObject { ["trackerBbox"] = JsonNode.Parse(StillInside) });
+        Assert.Equal(HttpStatusCode.OK, kept.StatusCode);
+        using (var doc = await ReadJsonAsync(kept))
+            AssertBox(ValleyOnlyView, doc.RootElement.GetProperty("trackerStartView"));
+
+        // A box that leaves the centre outside clears the view in the same write.
+        var moved = await PatchAsync(id, new JsonObject { ["trackerBbox"] = JsonNode.Parse(InnerBox) });
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        using (var doc = await ReadJsonAsync(moved))
+        {
+            AssertBox(InnerBox, doc.RootElement.GetProperty("trackerBbox"));
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("trackerStartView").ValueKind);
+        }
+        Assert.Null(await StoredStartViewAsync(id));
+    }
+
+    [Fact]
+    public async Task Patch_of_box_and_view_together_validates_the_view_against_the_new_box()
+    {
+        using var ev = await CreateAsync(2026, "\"trackerStartView\":" + ValleyOnlyView);
+        var id = Id(ev);
+
+        // Inside the old box, outside the new one.
+        var refused = await PatchAsync(id, new JsonObject
+        {
+            ["trackerBbox"] = JsonNode.Parse(InnerBox),
+            ["trackerStartView"] = JsonNode.Parse(ValleyOnlyView),
+        });
+        await AssertValidationAsync(refused, "trackerStartView");
+        using (var unchanged = await ReadJsonAsync(await SendAsync(HttpMethod.Get, $"/admin/events/{id}", "")))
+        {
+            AssertBox(ValleyBox, unchanged.RootElement.GetProperty("trackerBbox"));
+            AssertBox(ValleyOnlyView, unchanged.RootElement.GetProperty("trackerStartView"));
+        }
+
+        var accepted = await PatchAsync(id, new JsonObject
+        {
+            ["trackerBbox"] = JsonNode.Parse(InnerBox),
+            ["trackerStartView"] = JsonNode.Parse(InnerView),
+        });
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        using (var doc = await ReadJsonAsync(accepted))
+        {
+            AssertBox(InnerBox, doc.RootElement.GetProperty("trackerBbox"));
+            AssertBox(InnerView, doc.RootElement.GetProperty("trackerStartView"));
+        }
+    }
+
+    [Fact]
+    public async Task The_snapshot_carries_the_current_events_start_view_and_null_when_there_is_none()
+    {
+        using var ev = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox + ",\"trackerStartView\":" + InnerView);
+        var id = Id(ev);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, $"/admin/events/{id}/current", "")).StatusCode);
+
+        using (var snap = await ReadSnapshotAsync())
+        {
+            var snapEvent = snap.RootElement.GetProperty("event");
+            AssertBox(InnerView, snapEvent.GetProperty("trackerStartView"));
+            var keys = snapEvent.EnumerateObject().Select(p => p.Name).ToList();
+            Assert.Equal(keys.IndexOf("trackerBbox") + 1, keys.IndexOf("trackerStartView"));
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(id, new JsonObject { ["trackerStartView"] = null })).StatusCode);
+        using (var cleared = await ReadSnapshotAsync())
+            Assert.Equal(JsonValueKind.Null, cleared.RootElement.GetProperty("event").GetProperty("trackerStartView").ValueKind);
+    }
+
+    [Fact]
+    public async Task Clone_copies_the_start_view_and_clears_it_when_the_named_maps_box_excludes_it()
+    {
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        var wide = await InsertMapAsync("a94-wide", WideBox, "ready");
+        using var source = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox + ",\"trackerStartView\":" + InnerView);
+        var sourceId = Id(source);
+
+        async Task<JsonDocument> CloneAsync(string body)
+        {
+            var response = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone", body);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            return await ReadJsonAsync(response);
+        }
+
+        using (var plain = await CloneAsync("""{"year":2027,"name":"Plain"}"""))
+            AssertBox(InnerView, plain.RootElement.GetProperty("trackerStartView"));
+
+        // A named map whose area keeps the source's box keeps the view too.
+        using (var toWide = await CloneAsync($$"""{"year":2028,"name":"Wide","trackerMapId":{{wide}}}"""))
+            AssertBox(InnerView, toWide.RootElement.GetProperty("trackerStartView"));
+
+        // The far map's area becomes the box, and the view outside it is cleared.
+        using (var toFar = await CloneAsync($$"""{"year":2029,"name":"Far","trackerMapId":{{far}}}"""))
+        {
+            AssertBox(FarBox, toFar.RootElement.GetProperty("trackerBbox"));
+            Assert.Equal(JsonValueKind.Null, toFar.RootElement.GetProperty("trackerStartView").ValueKind);
+        }
+
+        // A named view wins; null clears; one outside the clone's box is refused.
+        const string FarView = """{"center":{"lat":40.5,"lng":-109.5},"zoom":12}""";
+        using (var named = await CloneAsync($$"""{"year":2030,"name":"Named","trackerMapId":{{far}},"trackerStartView":{{FarView}}}"""))
+            AssertBox(FarView, named.RootElement.GetProperty("trackerStartView"));
+        using (var nulled = await CloneAsync("""{"year":2031,"name":"Nulled","trackerStartView":null}"""))
+            Assert.Equal(JsonValueKind.Null, nulled.RootElement.GetProperty("trackerStartView").ValueKind);
+        await AssertValidationAsync(await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2032,"name":"Outside","trackerStartView":{{FarView}}}"""), "trackerStartView");
+    }
+
     // ---------- helpers ----------
 
     private async Task<JsonDocument> CreateAsync(int year, string? extra = null)
@@ -549,6 +753,15 @@ returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = bbox });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = state });
         return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    private async Task<string?> StoredStartViewAsync(long id)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select tracker_start_view::text from event where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
+        return await cmd.ExecuteScalarAsync() as string;
     }
 
     private async Task<long> ValleyMapIdAsync() =>

@@ -76,7 +76,8 @@ public static class AdminEventEndpoints
     // absent and must lie inside it when given. A null trackerMapId is no map
     // with the box given or the published default. An absent trackerMapId takes
     // the map from the event with the greatest year. The theme set always comes
-    // from the event with the greatest year.
+    // from the event with the greatest year. A given trackerStartView must lie
+    // inside the box.
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events",
@@ -93,6 +94,7 @@ public static class AdminEventEndpoints
                     ? null
                     : EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
                 var mapChoice = EventTrackerRules.ReadMapId(body.TrackerMapId, v);
+                var startViewChoice = EventTrackerRules.ReadStartView(body.TrackerStartView, validator, v);
                 v.ThrowIfInvalid();
 
                 var email = AdminHelpers.RequireAdminEmail(ctx);
@@ -111,13 +113,14 @@ public static class AdminEventEndpoints
                     {
                         trackerBbox = givenBbox ?? await EventTrackerRules.DefaultBboxAsync(conn, tx, token);
                     }
+                    var startView = EventTrackerRules.SettleStartView(startViewChoice, null, trackerBbox);
                     var inherited = await EventTrackerRules.InheritAsync(conn, tx, trackerBbox, token);
                     if (mapChoice.Set) inherited = inherited with { MapId = mapChoice.Id };
 
                     long newId;
                     await using (var insert = new NpgsqlCommand(@"
-insert into event (year, name, status_id, scheduled_at, funds_percent, created_by, schedule_time_zone, updated_at, tracker_bbox, tracker_map_id)
-values ($1, $2, 1, $3, $4, $5, $6, now(), $7, $8)
+insert into event (year, name, status_id, scheduled_at, funds_percent, created_by, schedule_time_zone, updated_at, tracker_bbox, tracker_map_id, tracker_start_view)
+values ($1, $2, 1, $3, $4, $5, $6, now(), $7, $8, $9)
 returning id;", conn, tx))
                     {
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
@@ -128,6 +131,7 @@ returning id;", conn, tx))
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)body.ScheduleTimeZone ?? DBNull.Value });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(trackerBbox) });
                         insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)inherited.MapId ?? DBNull.Value });
+                        insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = startView is null ? DBNull.Value : EventTrackerRules.Serialize(startView) });
                         newId = (long)(await insert.ExecuteScalarAsync(token) ?? 0L);
                     }
                     await EventTrackerRules.CopyThemesAsync(conn, tx, newId, inherited.ThemesFromEventId, inherited.AllThemes, token);
@@ -173,7 +177,10 @@ returning id;", conn, tx))
     // wentLiveAt, endedAt, fundsPercent, scheduleTimeZone (an IANA id sets it,
     // null clears it), trackerBbox (a Bbox sets it; null is 400),
     // trackerMapId (a ready map containing the box sets it, null clears it),
-    // trackerThemeIds (replaces the enabled set whole).
+    // trackerStartView (a view whose centre lies inside the box after this
+    // write sets it, null clears it; a new box that leaves the stored view's
+    // centre outside clears it), trackerThemeIds (replaces the enabled set
+    // whole).
     // scheduled_at cannot be null while status_id = 2 (409 scheduled_at_required),
     // and a scheduledAt at or before now is 409 scheduled_at_past while
     // status_id = 2; in every other status a past time is accepted.
@@ -256,6 +263,7 @@ returning id;", conn, tx))
                         v.Field("trackerMapId", "must be a map id or null");
                         break;
                 }
+                var startViewChoice = EventTrackerRules.ReadStartView(body.TrackerStartView, validator, v);
                 long[]? trackerThemeIds = null;
                 switch (body.TrackerThemeIds.ValueKind)
                 {
@@ -291,8 +299,9 @@ returning id;", conn, tx))
                     DateTimeOffset? currentScheduled = null;
                     Bbox currentBbox;
                     long? currentMapId;
+                    TrackerStartView? currentStartView;
                     await using (var read = new NpgsqlCommand(
-                        "select status_id, scheduled_at, tracker_bbox::text, tracker_map_id from event where id = $1 for update;", conn, tx))
+                        "select status_id, scheduled_at, tracker_bbox::text, tracker_map_id, tracker_start_view::text from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(token);
@@ -301,6 +310,7 @@ returning id;", conn, tx))
                         currentScheduled = reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1);
                         currentBbox = EventTrackerRules.ParseStored(reader.GetString(2));
                         currentMapId = reader.IsDBNull(3) ? null : reader.GetInt64(3);
+                        currentStartView = EventTrackerRules.ParseStoredStartView(reader.IsDBNull(4) ? null : reader.GetString(4));
                     }
                     var before = await ReadEventByIdAsync(conn, tx, id, token);
                     if (before is null) throw NotFound();
@@ -319,6 +329,11 @@ returning id;", conn, tx))
                         if (package is not null && !EventTrackerRules.Contains(package, trackerBbox))
                             RequestValidation.Throw("trackerBbox", EventTrackerRules.InsideMapMessage);
                     }
+                    // The start view after this write: a named one must lie
+                    // inside the box after it; a stored one the new box leaves
+                    // behind is cleared.
+                    var startView = EventTrackerRules.SettleStartView(startViewChoice, currentStartView, effectiveBbox);
+                    var setStartView = startViewChoice.Set || (currentStartView is not null && startView is null);
                     if (trackerThemeIds is not null)
                     {
                         await EventTrackerRules.ReplaceThemesAsync(conn, tx, id, trackerThemeIds, token);
@@ -354,6 +369,8 @@ returning id;", conn, tx))
                         Set($"tracker_bbox = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(trackerBbox) });
                     if (setTrackerMap)
                         Set($"tracker_map_id = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)trackerMapId ?? DBNull.Value });
+                    if (setStartView)
+                        Set($"tracker_start_view = ${next++}", new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = startView is null ? DBNull.Value : EventTrackerRules.Serialize(startView) });
 
                     sets.Add("updated_at = now()");
                     var setClause = string.Join(", ", sets);
@@ -1015,7 +1032,9 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     // copies the source's map and theme set. What copy.tracker does not copy
     // follows the create rule of sql.md 8.7. A given trackerBbox must lie inside
     // the clone's map; an absent one is the source's box, or the named map's
-    // area when the source's box leaves it. `copy` lists only `sponsors` and
+    // area when the source's box leaves it. The source's trackerStartView
+    // copies with the box unless the body names one, and is dropped when the
+    // clone's box does not contain it. `copy` lists only `sponsors` and
     // `tracker`; any other key is 400. The snapshot is rebuilt because with no
     // current event the clone can be the newest event, which routeView and
     // trackerThemes follow.
@@ -1033,6 +1052,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                     ? null
                     : EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
                 var mapChoice = EventTrackerRules.ReadMapId(body.TrackerMapId, v);
+                var startViewChoice = EventTrackerRules.ReadStartView(body.TrackerStartView, validator, v);
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -1044,8 +1064,9 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                     int sourceYear;
                     Bbox sourceBbox;
                     long? sourceMapId;
+                    TrackerStartView? sourceStartView;
                     await using (var read = new NpgsqlCommand(
-                        "select year, tracker_bbox::text, tracker_map_id from event where id = $1 for update;", conn, tx))
+                        "select year, tracker_bbox::text, tracker_map_id, tracker_start_view::text from event where id = $1 for update;", conn, tx))
                     {
                         read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
                         await using var reader = await read.ExecuteReaderAsync(token);
@@ -1053,6 +1074,7 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         sourceYear = reader.GetInt32(0);
                         sourceBbox = EventTrackerRules.ParseStored(reader.GetString(1));
                         sourceMapId = reader.IsDBNull(2) ? null : reader.GetInt64(2);
+                        sourceStartView = EventTrackerRules.ParseStoredStartView(reader.IsDBNull(3) ? null : reader.GetString(3));
                     }
 
                     Bbox cloneBbox;
@@ -1095,17 +1117,22 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         }
                     }
 
+                    // The source's start view comes along with the box unless the
+                    // body names one, and only while the clone's box contains it.
+                    var cloneStartView = EventTrackerRules.SettleStartView(startViewChoice, sourceStartView, cloneBbox);
+
                     long newId;
                     try
                     {
                         await using var ins = new NpgsqlCommand(@"
-insert into event (year, name, status_id, is_current, funds_percent, created_by, updated_at, tracker_bbox, tracker_map_id)
-values ($1, $2, 1, false, 0, $3, now(), $4, $5) returning id;", conn, tx);
+insert into event (year, name, status_id, is_current, funds_percent, created_by, updated_at, tracker_bbox, tracker_map_id, tracker_start_view)
+values ($1, $2, 1, false, 0, $3, now(), $4, $5, $6) returning id;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(cloneBbox) });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)tracker.MapId ?? DBNull.Value });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = cloneStartView is null ? DBNull.Value : EventTrackerRules.Serialize(cloneStartView) });
                         newId = (long)(await ins.ExecuteScalarAsync(token) ?? 0L);
                     }
                     catch (PostgresException ex) when (ex.SqlState == "23505" && ex.ConstraintName == ConstraintErrorMapping.EventYearKey)
@@ -1811,7 +1838,8 @@ select e.id, e.year, e.name, e.status_id, e.is_current, e.scheduled_at, e.went_l
        e.status_notified_at, a.action, a.actor, a.at, e.schedule_time_zone,
        e.tracker_bbox::text, e.tracker_map_id,
        array(select et.theme_id from event_tracker_theme et join tracker_theme t on t.id = et.theme_id
-             where et.event_id = e.id order by t.sort_order, t.id)
+             where et.event_id = e.id order by t.sort_order, t.id),
+       e.tracker_start_view::text
 from event e
 left join lateral (
   select action, actor, at from audit_log
@@ -1856,6 +1884,7 @@ left join lateral (
             TrackerBbox = EventTrackerRules.ParseStored(reader.GetString(17)),
             TrackerMapId = reader.IsDBNull(18) ? null : reader.GetInt64(18),
             TrackerThemeIds = reader.GetFieldValue<long[]>(19).ToList(),
+            TrackerStartView = EventTrackerRules.ParseStoredStartView(reader.IsDBNull(20) ? null : reader.GetString(20)),
         };
         if (!reader.IsDBNull(13))
         {

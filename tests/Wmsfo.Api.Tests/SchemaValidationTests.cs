@@ -63,7 +63,7 @@ public class SchemaValidationTests
         // Each tracker key, the alerts, the cookie limit, and the two switches are required.
         foreach (var (parent, key) in new[]
         {
-            ("event", "trackerBbox"), ("event", "trackerMap"), ("", "trackerThemes"),
+            ("event", "trackerBbox"), ("event", "trackerStartView"), ("event", "trackerMap"), ("", "trackerThemes"),
             ("event", "alerts"), ("", "cookieLimitPerPerson"), ("", "signUpsOpen"), ("", "subscriptionsOpen"),
         })
         {
@@ -71,6 +71,53 @@ public class SchemaValidationTests
             (parent == "" ? without.AsObject() : without[parent]!.AsObject()).Remove(key);
             using var missing = System.Text.Json.JsonDocument.Parse(without.ToJsonString());
             Assert.False(schema.Evaluate(missing.RootElement).IsValid, $"snapshot schema accepted a snapshot without {key}");
+        }
+    }
+
+    // A142: the snapshot's event.trackerStartView is a TrackerStartView or
+    // null; the fixture's centre lies inside the fixture's box.
+    [Fact]
+    public void Snapshot_tracker_start_view_is_nullable_bounded_and_inside_the_fixture_box()
+    {
+        var schema = JsonSchema.FromText(File.ReadAllText(Path.Combine(ContractsPaths.SchemaDir, "snapshot.schema.json")));
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
+        var box = fixture["event"]!["trackerBbox"]!;
+        var center = fixture["event"]!["trackerStartView"]!["center"]!;
+        var lat = center["lat"]!.GetValue<double>();
+        var lng = center["lng"]!.GetValue<double>();
+        Assert.InRange(lng, box["west"]!.GetValue<double>(), box["east"]!.GetValue<double>());
+        Assert.InRange(lat, box["south"]!.GetValue<double>(), box["north"]!.GetValue<double>());
+
+        bool Valid(JsonNode? view)
+        {
+            var copy = fixture.DeepClone();
+            copy["event"]!["trackerStartView"] = view;
+            using var doc = System.Text.Json.JsonDocument.Parse(copy.ToJsonString());
+            return schema.Evaluate(doc.RootElement).IsValid;
+        }
+        Assert.True(Valid(null));
+        Assert.True(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":3}""")));
+        Assert.True(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":18}""")));
+        Assert.False(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":2}""")));
+        Assert.False(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":19}""")));
+        Assert.False(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0}}""")));
+        Assert.False(Valid(JsonNode.Parse("""{"center":{"lat":46.9},"zoom":11}""")));
+        Assert.False(Valid(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":11,"pitch":0}""")));
+
+        // `$defs/TrackerStartView`, the shape the event writes are checked against.
+        var validator = ContentSchemasTests.Validator;
+        Assert.Empty(validator.ValidateTrackerStartView(JsonNode.Parse("""{"center":{"lat":46.9,"lng":-114.0},"zoom":11}""")));
+        foreach (var bad in new[]
+        {
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":2}""",
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":19}""",
+            """{"center":{"lat":46.9,"lng":-114.0},"zoom":11.5}""",
+            """{"center":{"lat":46.9,"lng":-114.0}}""",
+            """{"center":{"lng":-114.0},"zoom":11}""",
+            """{"center":{"lat":46.9,"lng":-114.0,"alt":0},"zoom":11}""",
+        })
+        {
+            Assert.NotEmpty(validator.ValidateTrackerStartView(JsonNode.Parse(bad)));
         }
     }
 

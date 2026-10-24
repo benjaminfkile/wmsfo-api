@@ -146,6 +146,23 @@
       "required": ["west", "south", "east", "north"],
       "additionalProperties": false
     },
+    "TrackerStartView": {
+      "type": "object",
+      "properties": {
+        "center": {
+          "type": "object",
+          "properties": {
+            "lat": { "type": "number" },
+            "lng": { "type": "number" }
+          },
+          "required": ["lat", "lng"],
+          "additionalProperties": false
+        },
+        "zoom": { "type": "integer", "minimum": 3, "maximum": 18 }
+      },
+      "required": ["center", "zoom"],
+      "additionalProperties": false
+    },
     "Landmark": {
       "type": "object",
       "properties": {

@@ -37,6 +37,7 @@ public sealed class SchemaValidator
     private readonly JsonSchema _routeMapConfig;
     private readonly JsonSchema _icon;
     private readonly JsonSchema _bbox;
+    private readonly JsonSchema _trackerStartView;
 
     public SchemaValidator(KindRegistry registry)
     {
@@ -80,6 +81,7 @@ public sealed class SchemaValidator
         _routeMapConfig = ExtractDef(registry.PrimitivesNode, "RouteMapConfig", isDraft: false);
         _icon = ExtractDef(registry.PrimitivesNode, "Icon", isDraft: false);
         _bbox = ExtractDef(registry.PrimitivesNode, "Bbox", isDraft: false);
+        _trackerStartView = ExtractDef(registry.PrimitivesNode, "TrackerStartView", isDraft: false);
     }
 
     public IReadOnlyList<ProblemDto> ValidateSectionData(string kind, JsonNode? data, ValidationLevel level)
@@ -144,6 +146,11 @@ public sealed class SchemaValidator
             return new[] { new ProblemDto { Path = "", Message = message } };
         return problems;
     }
+
+    // An event's tracker start view (`$defs/TrackerStartView`) on its own;
+    // the box rule is the caller's.
+    public IReadOnlyList<ProblemDto> ValidateTrackerStartView(JsonNode? data) =>
+        Evaluate(_trackerStartView, data);
 
     public IReadOnlyList<ProblemDto> ValidateDocument(JsonNode? data, ValidationLevel level)
     {

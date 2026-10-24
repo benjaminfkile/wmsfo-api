@@ -832,6 +832,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnName("tracker_map_id")
                         .HasComment("The tile package the tracker renders with MapLibre. Null means Google Maps for every viewer. Write rule: the package bbox contains tracker_bbox (400 validation_failed at trackerMapId); shrinking or moving the box later must keep it inside the package or the write is refused the same way at trackerBbox.");
 
+                    b.Property<JsonDocument>("TrackerStartView")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("tracker_start_view")
+                        .HasComment("Where the tracker map opens: { center: { lat, lng }, zoom }, zoom an integer 3 to 18, no other key. Rule: center lies inside tracker_bbox (west <= lng <= east, south <= lat <= north); a write that names a view outside the box is 400 validation_failed at trackerStartView, and a write that moves the box away from a stored view clears it in the same update. Null means the tracker fits the whole box.");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamptz")

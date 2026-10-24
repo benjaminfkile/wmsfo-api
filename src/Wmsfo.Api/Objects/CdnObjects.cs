@@ -111,9 +111,12 @@ public sealed class SnapshotEvent
     [JsonPropertyOrder(10), JsonRequired] public IList<SnapshotAlert> Alerts { get; set; } = new List<SnapshotAlert>();
     // The event's bounding box (contracts 1.3); both tracker renderers lock to it.
     [JsonPropertyOrder(11), JsonRequired] public Bbox TrackerBbox { get; set; } = new();
+    // Where the tracker opens (contracts 1.3), its centre inside trackerBbox;
+    // null when the event has none, and the site then fits the whole box.
+    [JsonPropertyOrder(12), JsonRequired] public TrackerStartView? TrackerStartView { get; set; }
     // The event's ready tile package (contracts 1.3); null when the event has
     // no map. The last key of `event`.
-    [JsonPropertyOrder(12), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
+    [JsonPropertyOrder(13), JsonRequired] public SnapshotTrackerMap? TrackerMap { get; set; }
 }
 
 // event.trackerMap (contracts 1.3): the tile package with its absolute CDN URLs.
