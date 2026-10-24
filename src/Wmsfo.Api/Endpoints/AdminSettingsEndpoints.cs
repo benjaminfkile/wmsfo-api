@@ -28,8 +28,9 @@ public static class AdminSettingsEndpoints
     }
 
     // The keys with their JSON defaults and numeric ranges (contracts 6). The
-    // JSON type is `int` for every key except `location_min_distance_m`, which
-    // is `number` because sub-metre values are meaningful, and the three
+    // JSON type is `int` for every key except `location_min_distance_m` and
+    // `heading_min_distance_m`, which are `number` because sub-metre values are
+    // meaningful, and the three
     // switches, which are `bool` (default 1 is true); the validator switches on
     // `IsBoolean` and `IsInteger`.
     public sealed record SettingKind(string Key, double DefaultValue, double Min, double Max, bool IsInteger = true, bool IsBoolean = false);
@@ -44,6 +45,7 @@ public static class AdminSettingsEndpoints
         new("flight_history_max_points",   2000,  100,  50000),
         new("location_min_interval_ms",     250,    0,  60000),
         new("location_min_distance_m",        0,    0,  10000, IsInteger: false),
+        new("heading_min_distance_m",        15,    1,   1000, IsInteger: false),
         new("hub_enabled",                    1,    0,      1, IsBoolean: true),
         new(RouteMapSettings.SimplifyToleranceKey, RouteMapSettings.DefaultSimplifyToleranceM,     1,   500),
         new(RouteMapSettings.MaxPointsKey,         RouteMapSettings.DefaultMaxPoints,            100, 10000),

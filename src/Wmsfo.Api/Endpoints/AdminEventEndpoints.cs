@@ -1422,7 +1422,7 @@ group by cookie_type_id;", conn, tx))
     // GET /admin/events/{id}/locations?cursor=&limit=&beaconId=&publishedOnly=false
     // Ordered by seq asc; keyset paging on seq; with Accept: text/csv streams
     // every matching row (paging ignored). Header:
-    //   seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM
+    //   seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,headingSource,accuracyM
     private static void MapLocations(IEndpointRouteBuilder app)
     {
         app.MapGet("/admin/events/{id:long}/locations",
@@ -1490,7 +1490,8 @@ group by cookie_type_id;", conn, tx))
                         SpeedSource = reader.IsDBNull(8) ? null : reader.GetString(8),
                         AltitudeM = reader.IsDBNull(9) ? null : reader.GetDouble(9),
                         HeadingDeg = reader.IsDBNull(10) ? null : reader.GetDouble(10),
-                        AccuracyM = reader.IsDBNull(11) ? null : reader.GetDouble(11),
+                        HeadingSource = reader.IsDBNull(11) ? null : reader.GetString(11),
+                        AccuracyM = reader.IsDBNull(12) ? null : reader.GetDouble(12),
                     });
                 }
                 string? nextCursor = null;
@@ -1638,7 +1639,7 @@ group by cookie_type_id;", conn, tx))
             conditions.Add("published");
         var limitIdx = next;
         return @"
-select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m
+select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, heading_source, accuracy_m
 from location
 where " + string.Join(" and ", conditions) + @"
 order by seq
@@ -1675,7 +1676,7 @@ limit $" + limitIdx + ";";
             var ct = httpContext.RequestAborted;
 
             await httpContext.Response.WriteAsync(
-                "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM\n", ct);
+                "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,headingSource,accuracyM\n", ct);
 
             await using var conn = new NpgsqlConnection(_connections.App);
             await conn.OpenAsync(ct);
@@ -1691,7 +1692,7 @@ limit $" + limitIdx + ";";
                 if (_publishedOnly) conditions.Add("published");
                 var limitIdx = next;
                 var sql = @"
-select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m
+select seq, beacon_id, published, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, heading_source, accuracy_m
 from location
 where " + string.Join(" and ", conditions) + @"
 order by seq
@@ -1718,8 +1719,9 @@ limit $" + limitIdx + ";";
                         string? speedSource = reader.IsDBNull(8) ? null : reader.GetString(8);
                         double? altitudeM = reader.IsDBNull(9) ? null : reader.GetDouble(9);
                         double? headingDeg = reader.IsDBNull(10) ? null : reader.GetDouble(10);
-                        double? accuracyM = reader.IsDBNull(11) ? null : reader.GetDouble(11);
-                        var line = string.Create(CultureInfo.InvariantCulture, $"{seq},{beaconId},{(published ? "true" : "false")},{FormatTs(recordedAt)},{FormatTs(receivedAt)},{Fmt(lat)},{Fmt(lng)},{FmtOpt(speedMps)},{speedSource ?? ""},{FmtOpt(altitudeM)},{FmtOpt(headingDeg)},{FmtOpt(accuracyM)}\n");
+                        string? headingSource = reader.IsDBNull(11) ? null : reader.GetString(11);
+                        double? accuracyM = reader.IsDBNull(12) ? null : reader.GetDouble(12);
+                        var line = string.Create(CultureInfo.InvariantCulture, $"{seq},{beaconId},{(published ? "true" : "false")},{FormatTs(recordedAt)},{FormatTs(receivedAt)},{Fmt(lat)},{Fmt(lng)},{FmtOpt(speedMps)},{speedSource ?? ""},{FmtOpt(altitudeM)},{FmtOpt(headingDeg)},{headingSource ?? ""},{FmtOpt(accuracyM)}\n");
                         await httpContext.Response.WriteAsync(line, ct);
                         lastSeq = seq;
                         rowsInBatch++;

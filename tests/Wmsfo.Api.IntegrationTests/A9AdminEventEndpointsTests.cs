@@ -1240,7 +1240,7 @@ order by id desc limit 1;", conn);
         var text = await response.Content.ReadAsStringAsync();
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM",
+            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,headingSource,accuracyM",
             lines[0]);
         Assert.Equal(6, lines.Length); // 1 header + 5 rows
     }

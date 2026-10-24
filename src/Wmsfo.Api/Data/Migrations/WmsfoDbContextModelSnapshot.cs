@@ -1238,6 +1238,11 @@ namespace Wmsfo.Api.Data.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("heading_deg");
 
+                    b.Property<string>("HeadingSource")
+                        .HasColumnType("text")
+                        .HasColumnName("heading_source")
+                        .HasComment("'beacon' when the body carried headingDeg, 'derived' when the API computed it, null otherwise (contracts 7.2).");
+
                     b.Property<double>("Lat")
                         .HasColumnType("double precision")
                         .HasColumnName("lat");

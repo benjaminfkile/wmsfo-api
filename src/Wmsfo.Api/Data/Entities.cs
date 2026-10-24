@@ -138,6 +138,7 @@ public sealed class Location
     public string? SpeedSource { get; set; }
     public double? AltitudeM { get; set; }
     public double? HeadingDeg { get; set; }
+    public string? HeadingSource { get; set; }
     public double? AccuracyM { get; set; }
     public bool Published { get; set; }
 }

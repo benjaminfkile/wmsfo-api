@@ -330,6 +330,8 @@ public sealed class WmsfoDbContext : DbContext
                 .HasComment("'beacon' when the body carried speedMps, 'derived' when the API computed it from the previous stored fix, null otherwise (contracts 7.2).");
             e.Property(x => x.AltitudeM).HasColumnType("double precision");
             e.Property(x => x.HeadingDeg).HasColumnType("double precision");
+            e.Property(x => x.HeadingSource).HasColumnType("text").HasColumnName("heading_source")
+                .HasComment("'beacon' when the body carried headingDeg, 'derived' when the API computed it, null otherwise (contracts 7.2).");
             e.Property(x => x.AccuracyM).HasColumnType("double precision");
             e.Property(x => x.Published).HasColumnType("boolean").IsRequired()
                 .HasComment("beacon.is_active at the moment of the insert. Only published rows reach the live object.");

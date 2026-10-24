@@ -6765,6 +6765,12 @@
             ],
             "format": "double"
           },
+          "headingSource": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "accuracyM": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [

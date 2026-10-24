@@ -377,6 +377,7 @@ public sealed record NodeSettings(
     int BeaconStaleAfterS,
     int LocationMinIntervalMs,
     double LocationMinDistanceM,
+    double HeadingMinDistanceM,
     bool HubEnabled)
 {
     public static NodeSettings Defaults { get; } = new(
@@ -387,6 +388,7 @@ public sealed record NodeSettings(
         BeaconStaleAfterS: 45,
         LocationMinIntervalMs: 250,
         LocationMinDistanceM: 0,
+        HeadingMinDistanceM: 15,
         HubEnabled: true);
 
     public static NodeSettings FromMap(IReadOnlyDictionary<string, JsonElement> map)
@@ -421,6 +423,7 @@ public sealed record NodeSettings(
             BeaconStaleAfterS: ReadInt("beacon_stale_after_s", d.BeaconStaleAfterS),
             LocationMinIntervalMs: ReadInt("location_min_interval_ms", d.LocationMinIntervalMs),
             LocationMinDistanceM: ReadDouble("location_min_distance_m", d.LocationMinDistanceM),
+            HeadingMinDistanceM: ReadDouble("heading_min_distance_m", d.HeadingMinDistanceM),
             HubEnabled: ReadBool("hub_enabled", d.HubEnabled));
     }
 }
