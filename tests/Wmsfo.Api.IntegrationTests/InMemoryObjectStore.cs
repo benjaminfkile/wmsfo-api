@@ -4,7 +4,7 @@ using Wmsfo.Api.Objects;
 namespace Wmsfo.Api.IntegrationTests;
 
 // A tiny IObjectStore used by the A16 orphan-collector tests, the theme
-// style boot step, and the theme and map endpoints. It records tag calls and every PUT (bytes and headers,
+// style boot step, and the theme and map endpoints. It records tag calls, every HEAD key, and every PUT (bytes and headers,
 // which HEAD and GET answer from), and can be configured to throw so the "S3
 // call fails" case is covered without hitting a real bucket. Multipart
 // uploads live in memory; a test writes a part through UploadPart with the
@@ -16,6 +16,7 @@ public sealed class InMemoryObjectStore : IObjectStore
     private readonly ConcurrentDictionary<string, string?> _tags = new(StringComparer.Ordinal);
     public ConcurrentDictionary<string, StoredObject> Objects { get; } = new(StringComparer.Ordinal);
     public List<string> PutKeys { get; } = new();
+    public List<string> HeadKeys { get; } = new();
     public List<(string Key, string Tag)> TagCalls { get; } = new();
     public List<string> UntagCalls { get; } = new();
 
@@ -69,10 +70,13 @@ public sealed class InMemoryObjectStore : IObjectStore
         return Task.FromResult(t);
     }
 
-    public Task<ObjectHead?> HeadObjectAsync(string key, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Objects.TryGetValue(key, out var o)
+    public Task<ObjectHead?> HeadObjectAsync(string key, CancellationToken cancellationToken = default)
+    {
+        lock (HeadKeys) HeadKeys.Add(key);
+        return Task.FromResult(Objects.TryGetValue(key, out var o)
             ? new ObjectHead(o.Bytes.Length, o.ContentType, o.CacheControl)
             : null);
+    }
 
     public Task<ObjectContent?> GetObjectAsync(string key, CancellationToken cancellationToken = default)
     {

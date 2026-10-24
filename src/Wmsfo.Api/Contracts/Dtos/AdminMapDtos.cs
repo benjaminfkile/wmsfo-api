@@ -15,10 +15,14 @@ public sealed class TrackerMapDto
     public Bbox Bbox { get; set; } = new();
     public int MinZoom { get; set; }
     public int MaxZoom { get; set; }
-    // Null: the package has no terrain archive.
+    // Null: the package has no terrain archive; this, not terrainBytes, says
+    // whether the map has terrain.
     public int? TerrainMaxZoom { get; set; }
-    // The archives' lengths, recorded at confirm; null while pending.
+    // The archive's length as last measured (at confirm, at leader start, or
+    // by the nightly measure); null until measured.
     public long? TilesBytes { get; set; }
+    // The archive's length as last measured (at confirm, at leader start, or
+    // by the nightly measure); null until measured.
     public long? TerrainBytes { get; set; }
     // The basemap build date the vector tiles came from, YYYY-MM-DD.
     public string? SourceBuild { get; set; }

@@ -755,6 +755,19 @@ select id, prefix from tracker_map where state = 'pending' and created_at < now(
     public const string PendingMapSweepDelete = @"
 delete from tracker_map where id = @id and state = 'pending';";
 
+    // 9.7 Map size measure: every ready row, then one update per row whose
+    // measured lengths differ from the stored ones. A null parameter is an
+    // archive not measured this run and keeps the stored value.
+    public const string MapSizeMeasureRows = @"
+select id, prefix, terrain_max_zoom, tiles_bytes, terrain_bytes from tracker_map where state = 'ready' order by id;";
+
+    public const string MapSizeMeasureUpdate = @"
+update tracker_map
+set tiles_bytes = coalesce(@tiles, tiles_bytes), terrain_bytes = coalesce(@terrain, terrain_bytes)
+where id = @id and state = 'ready'
+  and (tiles_bytes is distinct from coalesce(@tiles, tiles_bytes)
+    or terrain_bytes is distinct from coalesce(@terrain, terrain_bytes));";
+
     // 9.6 Media orphan collection.
     public const string MediaOrphanRefs = @"
 with refs as (

@@ -172,6 +172,7 @@ builder.Services.AddSingleton<StaleBeaconFlagger>();
 builder.Services.AddSingleton<MediaOrphanCollector>();
 builder.Services.AddSingleton<NightlyCleanup>();
 builder.Services.AddSingleton<PendingMapSweeper>();
+builder.Services.AddSingleton<MapSizeMeasurer>();
 builder.Services.AddSingleton<ContactInboxImporter>();
 builder.Services.AddSingleton<SignUpsSwitch>();
 builder.Services.AddHostedService<ChoreHost>();

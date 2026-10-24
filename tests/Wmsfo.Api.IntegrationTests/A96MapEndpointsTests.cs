@@ -4,14 +4,18 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
+using Wmsfo.Api.Config;
 using Wmsfo.Api.Chores;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Data;
 using Wmsfo.Api.Endpoints;
+using Wmsfo.Api.Node;
 using Wmsfo.Api.Objects;
 using Wmsfo.Api.Themes;
 
@@ -20,7 +24,8 @@ namespace Wmsfo.Api.IntegrationTests;
 // The map endpoints of contracts 4.5 Maps and api.md 11.6: create with the
 // package key and pending reuse, signed parts, complete, the 127 byte header
 // confirm with manifest.json, patch, impact, delete with an optional
-// replacement, the pending map sweep, the audit rows, and the capability.
+// replacement, the pending map sweep, the map size measure, the audit rows,
+// and the capability.
 public sealed class A96MapEndpointsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private const string Cdn = "https://cdn.example";
@@ -494,6 +499,159 @@ public sealed class A96MapEndpointsTests : IClassFixture<PostgresFixture>, IAsyn
         Assert.Equal(0, await sweeper.RunOnceAsync(CancellationToken.None));
     }
 
+    // ---------- the size measure ----------
+
+    [Fact]
+    public async Task The_measure_fills_null_sizes_of_a_ready_map_from_both_objects_and_changes_nothing_else()
+    {
+        var (id, prefix) = await CreateReadyMapAsync("Measured", Box, 12);
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 1000);
+        await PutArchiveAsync(prefix + "/terrain.pmtiles", 600);
+        var before = await RowAsync(id);
+        Assert.Null(before.Tiles);
+        Assert.Null(before.Terrain);
+        var puts = _host!.Store.PutKeys.Count;
+
+        var (measurer, _) = Measurer();
+        Assert.Equal(1, await measurer.RunOnceAsync(CancellationToken.None));
+
+        var after = await RowAsync(id);
+        Assert.Equal(1000, after.Tiles);
+        Assert.Equal(600, after.Terrain);
+        Assert.Equal("ready", after.State);
+        Assert.Equal(12, after.TerrainMaxZoom);
+        Assert.Equal(before.UpdatedAt, after.UpdatedAt);
+        Assert.Equal(before.UpdatedBy, after.UpdatedBy);
+        Assert.Equal(puts, _host.Store.PutKeys.Count);
+
+        // Nothing differs on the next run.
+        Assert.Equal(0, await measurer.RunOnceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task A_missing_terrain_object_keeps_the_stored_size_and_logs_a_warning_while_tiles_are_written()
+    {
+        var (id, prefix) = await CreateReadyMapAsync("No terrain object", Box, 12);
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 800);
+
+        var (measurer, logs) = Measurer();
+        await measurer.RunOnceAsync(CancellationToken.None);
+
+        var row = await RowAsync(id);
+        Assert.Equal(800, row.Tiles);
+        Assert.Null(row.Terrain);
+        Assert.Equal(12, row.TerrainMaxZoom);
+        Assert.Single(logs.Entries, e => e.Level == LogLevel.Warning
+            && e.Message.Contains($"mapId={id} ", StringComparison.Ordinal)
+            && e.Message.Contains("file=terrain.pmtiles", StringComparison.Ordinal));
+
+        // A size on record is never cleared by a missing object.
+        await ExecAsync($"update tracker_map set terrain_bytes = 321 where id = {id}");
+        _host!.Store.Objects.TryRemove(prefix + "/tiles.pmtiles", out _);
+        Assert.Equal(0, await measurer.RunOnceAsync(CancellationToken.None));
+        row = await RowAsync(id);
+        Assert.Equal(800, row.Tiles);
+        Assert.Equal(321, row.Terrain);
+    }
+
+    [Fact]
+    public async Task A_changed_tiles_length_is_rewritten()
+    {
+        var id = await CreateReadyAsync("Changed tiles", Box);
+        var prefix = await ScalarAsync<string>($"select prefix from tracker_map where id = {id}");
+        await ExecAsync($"update tracker_map set tiles_bytes = 5 where id = {id}");
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 900);
+
+        var (measurer, _) = Measurer();
+        Assert.Equal(1, await measurer.RunOnceAsync(CancellationToken.None));
+        Assert.Equal(900, (await RowAsync(id)).Tiles);
+    }
+
+    [Fact]
+    public async Task The_measure_never_touches_a_pending_map()
+    {
+        var id = await CreateAsync("Pending measured", Box, 0, 14, 12);
+        var prefix = await ScalarAsync<string>($"select prefix from tracker_map where id = {id}");
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 700);
+        await PutArchiveAsync(prefix + "/terrain.pmtiles", 400);
+
+        var (measurer, _) = Measurer();
+        await measurer.RunOnceAsync(CancellationToken.None);
+
+        var row = await RowAsync(id);
+        Assert.Equal("pending", row.State);
+        Assert.Null(row.Tiles);
+        Assert.Null(row.Terrain);
+        Assert.DoesNotContain(_host!.Store.HeadKeys, k => k.StartsWith(prefix + "/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_map_without_terrain_never_heads_a_terrain_object()
+    {
+        var id = await CreateReadyAsync("Tiles only", Box);
+        var prefix = await ScalarAsync<string>($"select prefix from tracker_map where id = {id}");
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 650);
+        await PutArchiveAsync(prefix + "/terrain.pmtiles", 300);
+
+        var (measurer, _) = Measurer();
+        await measurer.RunOnceAsync(CancellationToken.None);
+
+        var row = await RowAsync(id);
+        Assert.Equal(650, row.Tiles);
+        Assert.Null(row.Terrain);
+        Assert.Null(row.TerrainMaxZoom);
+        Assert.Contains(prefix + "/tiles.pmtiles", _host!.Store.HeadKeys);
+        Assert.DoesNotContain(prefix + "/terrain.pmtiles", _host.Store.HeadKeys);
+    }
+
+    [Fact]
+    public async Task The_measure_runs_in_the_nightly_sequence_after_the_sweep()
+    {
+        var (id, prefix) = await CreateReadyMapAsync("Nightly measured", Box, 12);
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 1200);
+        await PutArchiveAsync(prefix + "/terrain.pmtiles", 500);
+        var old = await CreateAsync("Old pending nightly", new Bbox { West = -100, South = 40, East = -99, North = 41 }, 0, 14, null);
+        await ExecAsync($"update tracker_map set created_at = now() - interval '2 days' where id = {old}");
+
+        var (host, _) = Chores();
+        Assert.True(await host.RunNightlySequenceAsync(CancellationToken.None));
+
+        Assert.Equal(0, await CountAsync("select count(*)::int from tracker_map where id = $1", old));
+        var row = await RowAsync(id);
+        Assert.Equal(1200, row.Tiles);
+        Assert.Equal(500, row.Terrain);
+    }
+
+    [Fact]
+    public async Task The_measure_runs_once_at_leader_start()
+    {
+        var (id, prefix) = await CreateReadyMapAsync("Leader start measured", Box, 12);
+        await PutArchiveAsync(prefix + "/tiles.pmtiles", 1100);
+        await PutArchiveAsync(prefix + "/terrain.pmtiles", 450);
+
+        var (host, state) = Chores();
+        state.SetLeader(new LeaderStatus(true, ChoreClockStart, "node-test"));
+        await host.StartAsync(CancellationToken.None);
+        try
+        {
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+            while ((await RowAsync(id)).Tiles is null && DateTime.UtcNow < deadline)
+                await Task.Delay(100);
+            var row = await RowAsync(id);
+            Assert.Equal(1100, row.Tiles);
+            Assert.Equal(450, row.Terrain);
+
+            // Once: a later change waits for the nightly run.
+            await PutArchiveAsync(prefix + "/tiles.pmtiles", 1300);
+            await Task.Delay(ChoreHost.OutboxCadence * 3);
+            Assert.Equal(1100, (await RowAsync(id)).Tiles);
+        }
+        finally
+        {
+            await host.StopAsync(CancellationToken.None);
+        }
+    }
+
     // ---------- capability ----------
 
     [Fact]
@@ -637,6 +795,90 @@ returning id;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = JsonSerializer.Serialize(box, CanonicalJson.Options) });
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)mapId ?? DBNull.Value });
         return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    // ---------- size measure helpers ----------
+
+    private static readonly DateTimeOffset ChoreClockStart = new(2027, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    private sealed record MapRow(long? Tiles, long? Terrain, string State, int? TerrainMaxZoom, DateTime UpdatedAt, string UpdatedBy);
+
+    private (MapSizeMeasurer Measurer, ListLogger<MapSizeMeasurer> Logs) Measurer()
+    {
+        var logs = new ListLogger<MapSizeMeasurer>();
+        return (new MapSizeMeasurer(TestConnections.For(_fixture.ConnectionString), _host!.Store, logs), logs);
+    }
+
+    // A ChoreHost over this database and the host's store, with a fixed
+    // chore clock, the fake SES sender, and no Cognito client.
+    private (ChoreHost Host, NodeStateService State) Chores()
+    {
+        var connections = TestConnections.For(_fixture.ConnectionString);
+        var options = _host!.Options;
+        var store = _host.Store;
+        var sender = new FakeSesSender();
+        var state = new NodeStateService(connections, NullLogger<NodeStateService>.Instance);
+        var readiness = new WmsfoReadinessGate();
+        readiness.MarkReady();
+        var host = new ChoreHost(
+            state,
+            readiness,
+            new OutboxPublisher(connections, options, sender, NullLogger<OutboxPublisher>.Instance, null),
+            new AlertSender(connections, options, sender, NullLogger<AlertSender>.Instance, null),
+            new StaleBeaconFlagger(connections, state, NullLogger<StaleBeaconFlagger>.Instance),
+            new MediaOrphanCollector(connections, store, NullLogger<MediaOrphanCollector>.Instance),
+            new NightlyCleanup(connections, NullLogger<NightlyCleanup>.Instance),
+            new PendingMapSweeper(connections, store, NullLogger<PendingMapSweeper>.Instance),
+            new MapSizeMeasurer(connections, store, NullLogger<MapSizeMeasurer>.Instance),
+            new ContactInboxImporter(connections, store, NullLogger<ContactInboxImporter>.Instance),
+            new SignUpsSwitch(new ServiceCollection().BuildServiceProvider(), options, connections,
+                NullLogger<SignUpsSwitch>.Instance),
+            new FakeChoreClock(ChoreClockStart),
+            NullLogger<ChoreHost>.Instance);
+        return (host, state);
+    }
+
+    // A ready map that declares terrain to `terrainMaxZoom`, with null sizes.
+    private async Task<(long Id, string Prefix)> CreateReadyMapAsync(string name, Bbox bbox, int terrainMaxZoom)
+    {
+        var id = await CreateAsync(name, bbox, 0, 14, terrainMaxZoom);
+        await ExecAsync($"update tracker_map set state = 'ready', built_at = now() where id = {id}");
+        return (id, await ScalarAsync<string>($"select prefix from tracker_map where id = {id}"));
+    }
+
+    private Task PutArchiveAsync(string key, int length) =>
+        _host!.Store.PutObjectAsync(key, Archive(0, 14, ArchiveBounds, length), "application/octet-stream", Immutable);
+
+    private async Task<MapRow> RowAsync(long id)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select tiles_bytes, terrain_bytes, state, terrain_max_zoom::int, updated_at, updated_by from tracker_map where id = $1", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { Value = id });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return new MapRow(
+            reader.IsDBNull(0) ? null : reader.GetInt64(0),
+            reader.IsDBNull(1) ? null : reader.GetInt64(1),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetInt32(3),
+            reader.GetDateTime(4),
+            reader.GetString(5));
+    }
+
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            lock (Entries) Entries.Add((logLevel, formatter(state, exception)));
+        }
     }
 
     private Task<long> SnapshotVersionAsync() => ScalarAsync<long>("select version from snapshot where id = 1");
