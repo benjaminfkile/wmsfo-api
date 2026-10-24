@@ -26,7 +26,8 @@ using Wmsfo.Api.Security;
 
 namespace Wmsfo.Api.IntegrationTests;
 
-// A37 acceptance: the decision table, derived speed, counters, the message
+// A37 acceptance: the decision table, derived speed, derived heading (A139),
+// counters, the message
 // path outcomes, CSV headers, PATCH minIntervalMs validation, clear recording
 // (204, per-beacon form, 409 event_live, 404, audit row, impact preview counts
 // and the live block).
@@ -66,7 +67,8 @@ public sealed class A37LocationIngestTests : IClassFixture<PostgresFixture>, IAs
         await using (var upd = new NpgsqlCommand(@"
 insert into app_setting (key, value, updated_by) values
   ('location_min_interval_ms', '250', 'seed'),
-  ('location_min_distance_m',  '0',   'seed')
+  ('location_min_distance_m',  '0',   'seed'),
+  ('heading_min_distance_m',   '15',  'seed')
 on conflict (key) do update set value = excluded.value, updated_by = 'seed', updated_at = now();", conn))
         {
             await upd.ExecuteNonQueryAsync();
@@ -270,6 +272,139 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
     }
 
     // ------------------------------------------------------------------
+    // Derived heading (A139; contracts 1.2, 7.2)
+    // ------------------------------------------------------------------
+
+    // Degrees of latitude per metre, and of longitude per metre at 46.87 N.
+    private const double LatPerMetre = 1.0 / 111195.0;
+    private static readonly double LngPerMetre = 1.0 / (111195.0 * Math.Cos(46.87 * Math.PI / 180.0));
+
+    private static double AngleOff(double a, double b)
+    {
+        var d = Math.Abs(a - b) % 360.0;
+        return d > 180.0 ? 360.0 - d : d;
+    }
+
+    [Fact]
+    public async Task Beacon_heading_wins_over_a_derived_one()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-beacon", isActive: true, minIntervalMs: 0);
+        _ = await PostFixAsync(key, 46.87, -114.0);
+        // 100 m due north would derive about 0; the body's 200 wins.
+        var (_, d2) = await PostFixAsync(key, 46.87 + 100 * LatPerMetre, -114.0, heading: 200);
+        Assert.Equal("stored", d2.RootElement.GetProperty("outcome").GetString());
+        var (heading, source) = await ReadLatestHeadingAsync(beaconId);
+        Assert.Equal("beacon", source);
+        Assert.Equal(200, heading);
+    }
+
+    [Fact]
+    public async Task Fix_100_metres_north_derives_heading_zero_and_publishes_it()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-north", isActive: true, minIntervalMs: 0);
+        _ = await PostFixAsync(key, 46.87, -114.0);
+        var (_, d2) = await PostFixAsync(key, 46.87 + 100 * LatPerMetre, -114.0);
+        Assert.Equal("stored", d2.RootElement.GetProperty("outcome").GetString());
+        var (heading, source) = await ReadLatestHeadingAsync(beaconId);
+        Assert.Equal("derived", source);
+        Assert.True(AngleOff(heading ?? -1000, 0) <= 1.0, $"heading {heading}");
+
+        var seq = d2.RootElement.GetProperty("seq").GetInt64();
+        var writer = _host!.Writer;
+        for (var i = 0; i < 300 && writer.LastWrittenObject?.Seq != seq; i++)
+            await Task.Delay(10);
+        Assert.Equal(seq, writer.LastWrittenObject!.Seq);
+        Assert.True(AngleOff(writer.LastWrittenObject.HeadingDeg ?? -1000, 0) <= 1.0);
+    }
+
+    [Fact]
+    public async Task Fix_3_metres_away_has_no_heading_but_a_derived_speed()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-short", isActive: true, minIntervalMs: 0);
+        _ = await PostFixAsync(key, 46.87, -114.0, recordedAt: "2026-12-22T01:31:00Z");
+        var (_, d2) = await PostFixAsync(key, 46.87 + 3 * LatPerMetre, -114.0, recordedAt: "2026-12-22T01:31:01Z");
+        Assert.Equal("stored", d2.RootElement.GetProperty("outcome").GetString());
+        var (heading, source) = await ReadLatestHeadingAsync(beaconId);
+        Assert.Null(heading);
+        Assert.Null(source);
+        var (speed, speedSource) = await ReadLatestSpeedAsync(beaconId);
+        Assert.Equal("derived", speedSource);
+        Assert.NotNull(speed);
+    }
+
+    [Fact]
+    public async Task Burst_of_close_fixes_derives_the_heading_from_the_first()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-burst", isActive: true, minIntervalMs: 0);
+        _ = await PostFixAsync(key, 46.87, -114.0);
+        // Ten fixes 2 m apart, zigzagging 2 and 4 m east of a point 8 m north
+        // of the first: each is about 12 m from the final fix, below 15, and a
+        // bearing from any of them would point well west of north.
+        for (var i = 0; i < 10; i++)
+        {
+            var east = i % 2 == 0 ? 2.0 : 4.0;
+            var north = 8.0 + 0.01 * i;
+            var (_, d) = await PostFixAsync(key, 46.87 + north * LatPerMetre, -114.0 + east * LngPerMetre);
+            Assert.Equal("stored", d.RootElement.GetProperty("outcome").GetString());
+        }
+        // 20 m due north of the first: the only stored fix at least 15 m back.
+        var (_, last) = await PostFixAsync(key, 46.87 + 20 * LatPerMetre, -114.0);
+        Assert.Equal("stored", last.RootElement.GetProperty("outcome").GetString());
+        var (heading, source) = await ReadLatestHeadingAsync(beaconId);
+        Assert.Equal("derived", source);
+        Assert.True(AngleOff(heading ?? -1000, 0) <= 1.0, $"heading {heading}");
+    }
+
+    [Fact]
+    public async Task First_fix_of_an_event_has_no_heading()
+    {
+        await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-first", isActive: true, minIntervalMs: 0);
+        var (_, d1) = await PostFixAsync(key, 46.87, -114.0);
+        Assert.Equal("stored", d1.RootElement.GetProperty("outcome").GetString());
+        var (heading, source) = await ReadLatestHeadingAsync(beaconId);
+        Assert.Null(heading);
+        Assert.Null(source);
+    }
+
+    [Fact]
+    public async Task Carried_fix_publishes_a_derived_heading()
+    {
+        await SetSettingAsync("location_min_distance_m", "50");
+        await _host!.RefreshStateAsync();
+
+        var evtId = await SeedEventAsync();
+        var (beaconId, key) = await SeedBeaconAsync("heading-carried", isActive: true, minIntervalMs: 0);
+        _ = await PostFixAsync(key, 46.87, -114.0);
+        // 20 m due east: under the 50 m minimum so carried, past the 15 m
+        // heading distance so a bearing of about 90 is derived.
+        var (_, d2) = await PostFixAsync(key, 46.87, -114.0 + 20 * LngPerMetre);
+        Assert.Equal("carried", d2.RootElement.GetProperty("outcome").GetString());
+        Assert.Equal(1, await CountLocationsAsync(beaconId));
+
+        var seq = d2.RootElement.GetProperty("seq").GetInt64();
+        var writer = _host.Writer;
+        for (var i = 0; i < 300 && writer.LastWrittenObject?.Seq != seq; i++)
+            await Task.Delay(10);
+        Assert.Equal(seq, writer.LastWrittenObject!.Seq);
+        Assert.True(AngleOff(writer.LastWrittenObject.HeadingDeg ?? -1000, 90) <= 1.0,
+            $"heading {writer.LastWrittenObject.HeadingDeg}");
+
+        // event.latest_fix carries the same heading.
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand("select latest_fix->>'headingDeg' from event where id = $1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = evtId });
+        var text = (string?)await cmd.ExecuteScalarAsync();
+        Assert.NotNull(text);
+        Assert.True(AngleOff(double.Parse(text!, System.Globalization.CultureInfo.InvariantCulture), 90) <= 1.0);
+    }
+
+    // ------------------------------------------------------------------
     // Carried fix produces a live object (contracts 1.8, 7.2)
     // ------------------------------------------------------------------
 
@@ -330,7 +465,7 @@ values ($1, $2, 1, now(), now() - interval '31 seconds', 46.87, -114.0, true);",
         var text = await response.Content.ReadAsStringAsync();
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,accuracyM",
+            "seq,beaconId,published,recordedAt,receivedAt,lat,lng,speedMps,speedSource,altitudeM,headingDeg,headingSource,accuracyM",
             lines[0]);
     }
 
@@ -542,14 +677,15 @@ values ($1, $2, $3, $4, $5, 'seed', now()) returning id;", conn);
     }
 
     private async Task<(HttpStatusCode status, JsonDocument doc)> PostFixAsync(
-        string key, double lat, double lng, string? recordedAt = null, double? speed = null)
+        string key, double lat, double lng, string? recordedAt = null, double? speed = null, double? heading = null)
     {
         var when = recordedAt ?? "2026-12-22T01:31:07Z";
         var speedField = speed is null ? "" : $",\"speedMps\":{speed.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        var headingField = heading is null ? "" : $",\"headingDeg\":{heading.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
         using var req = new HttpRequestMessage(HttpMethod.Post, "/locations")
         {
             Content = new StringContent(
-                $"{{\"lat\":{lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"lng\":{lng.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"recordedAt\":\"{when}\"{speedField}}}",
+                $"{{\"lat\":{lat.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"lng\":{lng.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"recordedAt\":\"{when}\"{speedField}{headingField}}}",
                 Encoding.UTF8, "application/json"),
         };
         req.Headers.Add(BeaconAuthenticationHandler.HeaderName, key);
@@ -640,6 +776,20 @@ on conflict (key) do update set value = excluded.value, updated_by = 'seed', upd
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(
             "select speed_mps, speed_source from location where beacon_id = $1 order by seq desc limit 1;", conn);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        return (
+            reader.IsDBNull(0) ? null : reader.GetDouble(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1));
+    }
+
+    private async Task<(double? heading, string? source)> ReadLatestHeadingAsync(long beaconId)
+    {
+        await using var conn = new NpgsqlConnection(_fixture.ConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(
+            "select heading_deg, heading_source from location where beacon_id = $1 order by seq desc limit 1;", conn);
         cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
         await using var reader = await cmd.ExecuteReaderAsync();
         await reader.ReadAsync();

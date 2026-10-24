@@ -16,7 +16,9 @@ namespace Wmsfo.Api.Endpoints;
 // per-beacon min interval rate limit (in-memory, per node), the optional min
 // distance carry (in the transaction against the beacon's last stored fix on
 // the event), and the unique (event_id, lat, lng) index (A38) that carries a
-// repeat of any position already stored anywhere in the event. Both doors and
+// repeat of any position already stored anywhere in the event. The same read
+// of the beacon's newest stored fixes on the event drives the derived speed
+// and the derived heading (A139). Both doors and
 // the rate limiter's drop record open connections from the beacon pool
 // (sql.md 13).
 public sealed class LocationIngest
@@ -99,6 +101,8 @@ public sealed class LocationIngest
         string outcome;                       // 'stored' or 'carried'
         double? bodySpeed = body.SpeedMps;
         double? derivedSpeed = null;
+        double? bodyHeading = body.HeadingDeg;
+        double? derivedHeading = null;
 
         await using (var tx = await conn.BeginTransactionAsync(ct).ConfigureAwait(false))
         {
@@ -159,24 +163,43 @@ public sealed class LocationIngest
             published = isActive;
             _rateLimiter.RecordBeaconMinInterval(beaconId, beaconMinIntervalMs);
 
-            // Read the beacon's last stored fix on this event: it drives the
-            // min-distance decision and the derived speed.
+            // Read the beacon's newest stored fixes on this event, newest
+            // first. The first row is the previous fix: it drives the
+            // min-distance decision and the derived speed. The derived
+            // heading is the bearing to the new fix from the newest row at
+            // least heading_min_distance_m away, so GPS noise between close
+            // fixes does not swing the compass (A139).
             double? prevLat = null, prevLng = null;
             DateTimeOffset? prevRecordedAt = null;
+            var headingMinDistance = settings.HeadingMinDistanceM;
             await using (var prev = new NpgsqlCommand(
                 @"select seq, lat, lng, recorded_at
-from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;", conn, tx))
+from location where event_id = $1 and beacon_id = $2 order by seq desc limit 25;", conn, tx))
             {
                 prev.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = eventId });
                 prev.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = beaconId });
                 await using var reader = await prev.ExecuteReaderAsync(ct).ConfigureAwait(false);
-                if (await reader.ReadAsync(ct).ConfigureAwait(false))
+                var first = true;
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
-                    prevLat = reader.GetDouble(1);
-                    prevLng = reader.GetDouble(2);
-                    prevRecordedAt = reader.GetFieldValue<DateTimeOffset>(3);
+                    var rowLat = reader.GetDouble(1);
+                    var rowLng = reader.GetDouble(2);
+                    if (first)
+                    {
+                        prevLat = rowLat;
+                        prevLng = rowLng;
+                        prevRecordedAt = reader.GetFieldValue<DateTimeOffset>(3);
+                        first = false;
+                    }
+                    if (bodyHeading is not null) break;
+                    if (HaversineMetres(rowLat, rowLng, body.Lat, body.Lng) >= headingMinDistance)
+                    {
+                        derivedHeading = InitialBearingDegrees(rowLat, rowLng, body.Lat, body.Lng);
+                        break;
+                    }
                 }
             }
+            double? effectiveHeading = bodyHeading ?? derivedHeading;
 
             var minDistance = settings.LocationMinDistanceM;
 
@@ -231,6 +254,12 @@ from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;"
 
                 double? storedSpeed = bodySpeed ?? derivedSpeed;
 
+                // A139: the beacon's heading always wins; otherwise the
+                // bearing from the lookback above, or none.
+                string? headingSource = bodyHeading is double ? "beacon"
+                    : derivedHeading is double ? "derived"
+                    : null;
+
                 // A38: unique (event_id, lat, lng). A repeat of any position
                 // already stored in the event goes to the carried outcome; the
                 // insert uses `on conflict do nothing` and returning yields no
@@ -238,8 +267,8 @@ from location where event_id = $1 and beacon_id = $2 order by seq desc limit 1;"
                 long? insertedSeq = null;
                 DateTimeOffset? insertedReceivedAt = null;
                 await using (var insert = new NpgsqlCommand(@"
-insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, accuracy_m, published)
-values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12)
+insert into location (event_id, beacon_id, seq, recorded_at, received_at, lat, lng, speed_mps, speed_source, altitude_m, heading_deg, heading_source, accuracy_m, published)
+values ($1, $2, $3, $4, now(), $5, $6, $7, $8, $9, $10, $11, $12, $13)
 on conflict (event_id, lat, lng) do nothing
 returning seq, received_at;", conn, tx))
                 {
@@ -252,7 +281,8 @@ returning seq, received_at;", conn, tx))
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)storedSpeed ?? DBNull.Value });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)speedSource ?? DBNull.Value });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AltitudeM ?? DBNull.Value });
-                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.HeadingDeg ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)effectiveHeading ?? DBNull.Value });
+                    insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = (object?)headingSource ?? DBNull.Value });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Double, Value = (object?)body.AccuracyM ?? DBNull.Value });
                     insert.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Boolean, Value = published });
                     await using var reader = await insert.ExecuteReaderAsync(ct).ConfigureAwait(false);
@@ -298,7 +328,7 @@ returning seq, received_at;", conn, tx))
                     lng: body.Lng,
                     speedMps: effectiveSpeedForFix,
                     altitudeM: body.AltitudeM,
-                    headingDeg: body.HeadingDeg,
+                    headingDeg: effectiveHeading,
                     accuracyM: body.AccuracyM,
                     recordedAt: body.RecordedAt.ToUniversalTime(),
                     receivedAt: receivedAt.ToUniversalTime());
@@ -395,7 +425,7 @@ where id = $1;", conn, tx);
                 Lng: body.Lng,
                 SpeedMps: effectiveSpeed,
                 AltitudeM: body.AltitudeM,
-                HeadingDeg: body.HeadingDeg,
+                HeadingDeg: bodyHeading ?? derivedHeading,
                 AccuracyM: body.AccuracyM,
                 RecordedAt: body.RecordedAt.ToUniversalTime(),
                 ReceivedAt: receivedAt);
@@ -481,6 +511,21 @@ where id = $1;", conn, tx);
               * Math.Sin(dLng / 2) * Math.Sin(dLng / 2);
         var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
         return R * c;
+    }
+
+    // Initial great-circle bearing from the first point to the second, in
+    // degrees clockwise from true north, normalised to [0, 360).
+    public static double InitialBearingDegrees(double lat1, double lng1, double lat2, double lng2)
+    {
+        var toRad = Math.PI / 180.0;
+        var phi1 = lat1 * toRad;
+        var phi2 = lat2 * toRad;
+        var dLng = (lng2 - lng1) * toRad;
+        var y = Math.Sin(dLng) * Math.Cos(phi2);
+        var x = Math.Cos(phi1) * Math.Sin(phi2) - Math.Sin(phi1) * Math.Cos(phi2) * Math.Cos(dLng);
+        var deg = Math.Atan2(y, x) * 180.0 / Math.PI;
+        deg = (deg + 360.0) % 360.0;
+        return deg;
     }
 }
 

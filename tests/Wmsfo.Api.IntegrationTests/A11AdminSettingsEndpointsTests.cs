@@ -78,6 +78,7 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         Assert.Equal(2000, items["flight_history_max_points"]);
         Assert.Equal(250, items["location_min_interval_ms"]);
         Assert.Equal(0, items["location_min_distance_m"]);
+        Assert.Equal(15, items["heading_min_distance_m"]);
         Assert.False(items.ContainsKey("location_max_gap_s"));
     }
 
@@ -100,6 +101,32 @@ public sealed class A11AdminSettingsEndpointsTests : IClassFixture<PostgresFixtu
         // Restore the seed value so tests that check defaults are not order-dependent.
         var restore = await SendAdminAsync(HttpMethod.Put, "/admin/settings/flight_history_max_points",
             "{\"value\":2000}");
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+    }
+
+    [Fact]
+    public async Task Put_heading_min_distance_m_validates_range()
+    {
+        // heading_min_distance_m range: 1..1000, decimals allowed (A139)
+        var lo = await SendAdminAsync(HttpMethod.Put, "/admin/settings/heading_min_distance_m",
+            "{\"value\":0}");
+        Assert.Equal(HttpStatusCode.BadRequest, lo.StatusCode);
+
+        var hi = await SendAdminAsync(HttpMethod.Put, "/admin/settings/heading_min_distance_m",
+            "{\"value\":1001}");
+        Assert.Equal(HttpStatusCode.BadRequest, hi.StatusCode);
+
+        var min = await SendAdminAsync(HttpMethod.Put, "/admin/settings/heading_min_distance_m",
+            "{\"value\":1}");
+        Assert.Equal(HttpStatusCode.OK, min.StatusCode);
+
+        var max = await SendAdminAsync(HttpMethod.Put, "/admin/settings/heading_min_distance_m",
+            "{\"value\":1000}");
+        Assert.Equal(HttpStatusCode.OK, max.StatusCode);
+
+        // Restore the seed value so tests that check defaults are not order-dependent.
+        var restore = await SendAdminAsync(HttpMethod.Put, "/admin/settings/heading_min_distance_m",
+            "{\"value\":15}");
         Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
     }
 

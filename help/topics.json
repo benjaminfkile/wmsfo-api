@@ -55,7 +55,7 @@
     "page": "Dashboard",
     "label": "Live object card",
     "title": "The live object field by field",
-    "body": "This card shows the live object exactly as the CDN serves it to visitors: the event id and status, the sequence number, the latest position with speed, altitude, heading, and accuracy, when the fix was recorded and received, when the object was published and how old that is, the poll interval, and a link to the snapshot the site should load.\n\nThe cookie tally lists how many cookies of each type visitors have left, with names filled in from Cookie types. This is the only place the panel shows cookie counts.\n\nWhen the fetch returns nothing the card reads CDN object unavailable. Below the field grid sit two raw JSON views, described under the next topic. Everything here is read only.",
+    "body": "This card shows the live object exactly as the CDN serves it to visitors: the event id and status, the sequence number, the latest position with speed, altitude, heading, and accuracy (speed and heading may be the beacon's own values or derived by the API from earlier fixes), when the fix was recorded and received, when the object was published and how old that is, the poll interval, and a link to the snapshot the site should load.\n\nThe cookie tally lists how many cookies of each type visitors have left, with names filled in from Cookie types. This is the only place the panel shows cookie counts.\n\nWhen the fetch returns nothing the card reads CDN object unavailable. Below the field grid sit two raw JSON views, described under the next topic. Everything here is read only.",
     "links": [
       { "label": "Cookie types", "to": "/cookie-types" }
     ]
@@ -199,7 +199,7 @@
     "page": "Events",
     "label": "Locations card",
     "title": "The raw fixes beacons sent",
-    "body": "Every position a beacon posts during this event is stored as a row. This card previews them in a table: sequence, beacon, whether it was published, the time it was recorded, and the latitude and longitude. It shows one page of 100 rows and keeps a table even on a phone, scrolling sideways when needed.\n\nTwo filters narrow it: a beacon select, Any beacon by default, and a Published only switch. Download CSV saves every row that matches the filters as a file named after the event year, for analysis elsewhere.\n\nClear recording, beside the download, deletes rows and has its own topic. Build from event on the Flight recordings page turns these rows into a flight recording, so clear them only once you have what you need.",
+    "body": "Every position a beacon posts during this event is stored as a row. This card previews them in a table: sequence, beacon, whether it was published, the time it was recorded, the latitude and longitude, the speed with its source, and the heading with its source. A source of derived means the API worked the value out from earlier fixes because the beacon did not send it; beacon means the beacon sent it. It shows one page of 100 rows and keeps a table even on a phone, scrolling sideways when needed.\n\nTwo filters narrow it: a beacon select, Any beacon by default, and a Published only switch. Download CSV saves every row that matches the filters as a file named after the event year, for analysis elsewhere.\n\nClear recording, beside the download, deletes rows and has its own topic. Build from event on the Flight recordings page turns these rows into a flight recording, so clear them only once you have what you need.",
     "links": [
       { "label": "Beacons", "to": "/beacons" },
       { "label": "Flight recordings", "to": "/routes" }
@@ -1103,7 +1103,17 @@
     "page": "Settings",
     "label": "Minimum fix distance",
     "title": "Which fixes get recorded",
-    "body": "location_min_distance_m decides which accepted fixes are stored as location rows. A fix that moved less than this many metres from the beacon's last recorded fix on the event is still published live to the tracker but is not recorded, and is counted as Carried on the beacon. The range is 0 to 10000, decimals allowed, and the default is 0.\n\nAt 0 every new position is recorded, but a position already recorded for the event, an exact repeat of latitude and longitude, is never recorded twice. A few metres keeps a parked sleigh from filling the event's Locations with identical rows.\n\nOnly recorded rows appear in the Locations card, the CSV, and a recording built from the event, so set this before the flight, not after.",
+    "body": "location_min_distance_m decides which accepted fixes are stored as location rows. A fix that moved less than this many metres from the beacon's last recorded fix on the event is still published live to the tracker but is not recorded, and is counted as Carried on the beacon. The range is 0 to 10000, decimals allowed, and the default is 0.\n\nAt 0 every new position is recorded, but a position already recorded for the event, an exact repeat of latitude and longitude, is never recorded twice. A few metres keeps a parked sleigh from filling the event's Locations with identical rows.\n\nOnly recorded rows appear in the Locations card, the CSV, and a recording built from the event, so set this before the flight, not after. A derived heading looks back through the recorded rows, so a large minimum distance also delays derived headings.",
+    "links": [
+      { "label": "Events", "to": "/events" }
+    ]
+  },
+  {
+    "key": "settings.heading-min-distance-m",
+    "page": "Settings",
+    "label": "Minimum heading distance",
+    "title": "How far back a derived heading looks",
+    "body": "heading_min_distance_m only matters when a beacon sends a fix without a heading. The API then works the heading out itself: the compass bearing to the new fix from the beacon's newest recorded fix on the event that is at least this many metres away, looking back through up to 25 recorded fixes. The range is 1 to 1000, decimals allowed, and the default is 15.\n\nA smaller value reacts sooner to a turn but wobbles more, because GPS noise between close fixes swings the bearing. A larger value is steadier but lags behind turns. When no recorded fix is far enough away, such as at the first fix of an event or while the sleigh is parked, the heading stays empty.\n\nA heading the beacon sends always wins over a derived one. The Locations card and the CSV show which source each heading came from.",
     "links": [
       { "label": "Events", "to": "/events" }
     ]
