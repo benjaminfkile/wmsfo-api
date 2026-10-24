@@ -40,6 +40,10 @@
             "terrain",
             "roadmap"
           ]
+        },
+        "theme": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,39}$"
         }
       },
       "additionalProperties": false
