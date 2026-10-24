@@ -92,7 +92,7 @@
     "page": "Events",
     "label": "New event dialog",
     "title": "Creating an event",
-    "body": "New event asks for the year, which defaults to this year, a name, an optional scheduled time, and the funds percent, which starts at zero.\n\nThere is no route choice. The site draws one route for every event, the site route chosen under Site settings, so a new event shows it as soon as it is current.\n\nCreate saves the event as Planned and opens its page. The new event is not current until you set it, so the public site does not change.",
+    "body": "New event asks for the year, which defaults to this year, a name, an optional scheduled time, the funds percent, which starts at zero, and the map the tracker draws on.\n\nPick a ready map, such as the Missoula valley, and the event's area becomes that map's area. You can shrink or move the area inside the map, never past its edge, so viewers never see a place without tiles or terrain. Choose No map and viewers get Google Maps on an area you draw yourself. A new event with a map shows it to viewers right away. The themes come from the newest event, by year.\n\nThere is no route choice. The site draws one route for every event, the site route chosen under Site settings, so a new event shows it as soon as it is current.\n\nCreate saves the event as Planned and opens its page. The new event is not current until you set it, so the public site does not change.",
     "links": [
       { "label": "Site settings", "to": "/site-settings" }
     ]
@@ -102,7 +102,7 @@
     "page": "Events",
     "label": "Clone event",
     "title": "Copying last year's event",
-    "body": "Clone, in the row menu, makes a new event from an existing one. The year defaults to the source year plus one and the name to the source name with the year replaced; both can be edited.\n\nTwo checkboxes choose what comes along. Sponsors for the year copies the source year's sponsor rows to the new year. Tracker map copies the source event's map and themes; it has its own topic. The route is not copied because it is not an event setting: every event shows the site route chosen under Site settings.\n\nClone creates the event as Planned and opens its page. If an event with that year already exists the year field shows the error and nothing is created. The new event is not current; messages, status history, and recorded locations are never copied.",
+    "body": "Clone, in the row menu, makes a new event from an existing one. The year defaults to the source year plus one and the name to the source name with the year replaced; both can be edited.\n\nThe dialog offers the same map choice as New event. Pick a map and the copy draws on it: it keeps the source event's area when that fits inside the map, and otherwise takes the map's area. No map gives Google Maps on the source event's area.\n\nTwo checkboxes choose what else comes along. Sponsors for the year copies the source year's sponsor rows to the new year. Tracker map copies the source event's themes; it has its own topic. The route is not copied because it is not an event setting: every event shows the site route chosen under Site settings.\n\nClone creates the event as Planned and opens its page. If an event with that year already exists the year field shows the error and nothing is created. The new event is not current; messages, status history, and recorded locations are never copied.",
     "links": [
       { "label": "Sponsors", "to": "/sponsors" },
       { "label": "Site settings", "to": "/site-settings" }
@@ -241,7 +241,7 @@
     "page": "Events",
     "label": "Tracker map choice",
     "title": "Which map the event draws on",
-    "body": "The list offers only ready maps whose area covers this event's box. Pick one and viewers draw the event on MapLibre with that map's tiles; their browser falls back to Google Maps when it cannot run MapLibre.\n\nChoose No map and every viewer gets Google Maps, still locked to the event's area.\n\nIf you widen or move the box so the chosen map no longer covers it, the save is refused. Either pick a map that covers the new box, build one with the tile builder, or keep the box inside the current map.",
+    "body": "This is the same map choice as the New event dialog. Pick a ready map and viewers draw the event on MapLibre with that map's tiles; their browser falls back to Google Maps when it cannot run MapLibre. Changing the map resets the event's area to the new map's area, which you can then shrink or move inside it.\n\nChoose No map and every viewer gets Google Maps, still locked to the event's area, which you draw yourself.\n\nThe area never goes past the chosen map's edge: a box outside it is refused with \"must lie inside the map's area\". Pick a bigger map, build one with the tile builder, or keep the box inside the current map.",
     "links": [
       { "label": "Maps", "to": "/maps" }
     ]
@@ -261,7 +261,7 @@
     "page": "Events",
     "label": "New event area",
     "title": "The area a new event starts with",
-    "body": "The new event dialog fills the area from the default area in Site settings. Keep it, or draw or type another box with each side between 0.05 and 20 degrees.\n\nThe map and the themes are not chosen here. The new event copies them from the newest event, by year: its checked themes, and its map when that map covers the new box. Otherwise the new event has no map and shows Google Maps until you pick one.\n\nYou can change the area, map, and themes afterwards on the event page's Tracker map card.",
+    "body": "The area follows the map chosen in the dialog. Picking a map fills the area with that map's area; you can shrink or move it by hand, each side at least 0.05 degrees, but never past the map's edge, so there is never a place without tiles or terrain. Switching to another map resets the area to the new map's.\n\nWith No map the dialog fills the area from the default area in Site settings, and you keep it or draw or type another box with each side between 0.05 and 20 degrees. Viewers then get Google Maps.\n\nThe themes are copied from the newest event, by year. You can change the area, map, and themes afterwards on the event page's Tracker map card.",
     "links": [
       { "label": "Site settings", "to": "/site-settings" }
     ]
@@ -271,7 +271,7 @@
     "page": "Events",
     "label": "Clone tracker option",
     "title": "Copying the tracker map and themes",
-    "body": "With the Tracker map box on, the copy takes the source event's map and its checked themes.\n\nWith it off, the copy takes them the way a new event does: from the newest event, the map only when it covers the area.\n\nThe area itself always copies from the source event, whichever way the box is set, because every event has one.",
+    "body": "With the Tracker map box on, the copy takes the source event's checked themes. It takes the source event's map too, but only when no map is chosen in the dialog; a map chosen in the dialog always wins.\n\nWith it off, the copy takes the themes the way a new event does: from the newest event, by year. With no map chosen in the dialog the map comes the same way, only when it covers the area.\n\nThe area copies from the source event unless the chosen map does not cover it; then the copy takes the map's area.",
     "links": []
   },
   {

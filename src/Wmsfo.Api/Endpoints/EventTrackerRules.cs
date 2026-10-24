@@ -142,6 +142,45 @@ from content_version order by id desc limit 1;", conn, tx);
             RequestValidation.Throw("trackerMapId", "the map's package must contain the event's trackerBbox");
     }
 
+    // The one sentence every write answers at trackerBbox when the box leaves
+    // the event's map.
+    public const string InsideMapMessage = "must lie inside the map's area";
+
+    // A written trackerMapId on create or clone: absent (Set false), null
+    // (Set true, no id), or a map id; any other value is a problem at
+    // trackerMapId.
+    public static (bool Set, long? Id) ReadMapId(JsonElement value, RequestValidation v)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Undefined:
+                return (false, null);
+            case JsonValueKind.Null:
+                return (true, null);
+            case JsonValueKind.Number when value.TryGetInt64(out var id):
+                return (true, id);
+            default:
+                v.Field("trackerMapId", "must be a map id or null");
+                return (false, null);
+        }
+    }
+
+    // The area of a map a create or clone names: known (404 otherwise) and
+    // ready (400 validation_failed at trackerMapId otherwise).
+    public static async Task<Bbox> ReadyMapBboxAsync(
+        NpgsqlConnection conn, NpgsqlTransaction tx, long mapId, CancellationToken ct)
+    {
+        await using var cmd = new NpgsqlCommand(
+            "select state, bbox::text from tracker_map where id = $1 for share;", conn, tx);
+        cmd.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = mapId });
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        if (!await reader.ReadAsync(ct).ConfigureAwait(false))
+            throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "map not found");
+        if (reader.GetString(0) != "ready")
+            RequestValidation.Throw("trackerMapId", "must name a ready map");
+        return ParseStored(reader.GetString(1));
+    }
+
     // The package box of a map, or null when the row is gone.
     public static async Task<Bbox?> MapBboxAsync(
         NpgsqlConnection conn, NpgsqlTransaction tx, long mapId, CancellationToken ct)

@@ -14,12 +14,15 @@ namespace Wmsfo.Api.IntegrationTests;
 
 // A94: the event's tracker fields on create (sql.md 8.7), patch (8.5), and
 // clone (8.4b), with the validations of contracts 4.5 Events at their paths,
-// and the snapshot the patch frame rebuilds.
+// and the snapshot the patch frame rebuilds. A141: the map named on create
+// and clone, and the box taken from it.
 public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>, IAsyncLifetime
 {
     private const string ValleyBox = """{"west":-114.75,"south":46.35,"east":-113.30,"north":47.25}""";
     private const string InnerBox = """{"west":-114.3,"south":46.75,"east":-113.8,"north":47.05}""";
     private const string FarBox = """{"west":-110,"south":40,"east":-109,"north":41}""";
+    private const string FarInnerBox = """{"west":-109.8,"south":40.2,"east":-109.2,"north":40.8}""";
+    private const string WideBox = """{"west":-115,"south":46,"east":-113,"north":48}""";
 
     private readonly PostgresFixture _fixture;
     private A9Host? _host;
@@ -138,6 +141,90 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
         using var fresh = await CreateAsync(2027);
         Assert.Equal(await ValleyMapIdAsync(), fresh.RootElement.GetProperty("trackerMapId").GetInt64());
         Assert.Equal(await AllThemeIdsAsync(), ThemeIds(fresh.RootElement));
+    }
+
+    // ---------- create with trackerMapId ----------
+
+    [Fact]
+    public async Task Create_with_a_ready_map_and_no_box_takes_the_map_and_its_area()
+    {
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        using var dto = await CreateAsync(2026, $"\"trackerMapId\":{far}");
+        AssertBox(FarBox, dto.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(far, dto.RootElement.GetProperty("trackerMapId").GetInt64());
+        // With no event before it every theme is enabled, as without the field.
+        Assert.Equal(await AllThemeIdsAsync(), ThemeIds(dto.RootElement));
+
+        // A null box is the same as an absent one.
+        using var withNull = await CreateAsync(2027, $"\"trackerMapId\":{far},\"trackerBbox\":null");
+        AssertBox(FarBox, withNull.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(far, withNull.RootElement.GetProperty("trackerMapId").GetInt64());
+    }
+
+    [Fact]
+    public async Task Create_with_a_ready_map_and_a_box_inside_keeps_the_box_and_inherits_the_themes()
+    {
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        using var first = await CreateAsync(2026);
+        var subset = new[] { await ThemeIdAsync("night"), await ThemeIdAsync("standard") };
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(Id(first), new JsonObject { ["trackerThemeIds"] = Ids(subset) })).StatusCode);
+
+        using var dto = await CreateAsync(2027, $"\"trackerMapId\":{far},\"trackerBbox\":{FarInnerBox}");
+        AssertBox(FarInnerBox, dto.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(far, dto.RootElement.GetProperty("trackerMapId").GetInt64());
+        Assert.Equal(await OrderedAsync(subset), ThemeIds(dto.RootElement));
+
+        // The current event's snapshot shows the map without a patch.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Post, $"/admin/events/{Id(dto)}/current", "")).StatusCode);
+        using var snap = await ReadSnapshotAsync();
+        Assert.Equal(far, snap.RootElement.GetProperty("event").GetProperty("trackerMap").GetProperty("id").GetInt64());
+    }
+
+    [Fact]
+    public async Task Create_with_a_map_refuses_a_box_outside_it_a_pending_map_an_unknown_map_and_a_wrong_type()
+    {
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        var pending = await InsertMapAsync("a94-pending", ValleyBox, "pending");
+
+        var outside = await SendAsync(HttpMethod.Post, "/admin/events",
+            $$"""{"year":2026,"name":"Outside","trackerMapId":{{far}},"trackerBbox":{{InnerBox}}}""");
+        await AssertValidationAsync(outside, "trackerBbox");
+        using (var doc = await ReadJsonAsync(outside))
+            Assert.Equal("must lie inside the map's area",
+                doc.RootElement.GetProperty("details").GetProperty("fields").GetProperty("trackerBbox").GetString());
+
+        await AssertValidationAsync(await SendAsync(HttpMethod.Post, "/admin/events",
+            $$"""{"year":2026,"name":"Pending","trackerMapId":{{pending}}}"""), "trackerMapId");
+
+        var unknown = await SendAsync(HttpMethod.Post, "/admin/events",
+            """{"year":2026,"name":"Unknown","trackerMapId":99999999}""");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Equal(ApiErrorCodes.NotFound, await ReadCodeAsync(unknown));
+
+        await AssertValidationAsync(await SendAsync(HttpMethod.Post, "/admin/events",
+            """{"year":2026,"name":"Text","trackerMapId":"one"}"""), "trackerMapId");
+
+        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from event;"));
+    }
+
+    [Fact]
+    public async Task Create_with_a_null_map_has_no_map_the_site_default_box_and_the_inherited_themes()
+    {
+        await PublishTrackerBoxAsync(InnerBox);
+        using var first = await CreateAsync(2026);
+        Assert.Equal(await ValleyMapIdAsync(), first.RootElement.GetProperty("trackerMapId").GetInt64());
+        var subset = new[] { await ThemeIdAsync("charcoal") };
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(Id(first), new JsonObject { ["trackerThemeIds"] = Ids(subset) })).StatusCode);
+
+        using var dto = await CreateAsync(2027, "\"trackerMapId\":null");
+        AssertBox(InnerBox, dto.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("trackerMapId").ValueKind);
+        Assert.Equal(subset, ThemeIds(dto.RootElement));
+
+        // A given box with no map may lie anywhere the box rules allow.
+        using var far = await CreateAsync(2028, $"\"trackerMapId\":null,\"trackerBbox\":{FarBox}");
+        AssertBox(FarBox, far.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(JsonValueKind.Null, far.RootElement.GetProperty("trackerMapId").ValueKind);
     }
 
     // ---------- patch trackerMapId ----------
@@ -302,6 +389,94 @@ public sealed class A94EventTrackerFieldsTests : IClassFixture<PostgresFixture>,
             Assert.Equal(sourceThemes, ThemeIds(doc.RootElement));
             Assert.Equal(sourceThemes.Length,
                 await CountAsync("select count(*) from event_tracker_theme where event_id = $1;", Id(doc)));
+        }
+    }
+
+    [Fact]
+    public async Task Clone_with_a_named_map_takes_its_area_unless_the_source_box_fits_inside()
+    {
+        var valley = await ValleyMapIdAsync();
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        var wide = await InsertMapAsync("a94-wide", WideBox, "ready");
+        using var source = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox);
+        var sourceId = Id(source);
+        Assert.Equal(valley, source.RootElement.GetProperty("trackerMapId").GetInt64());
+
+        // The source box lies outside the far map: the clone takes the map's area.
+        var toFar = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2027,"name":"To far","trackerMapId":{{far}}}""");
+        Assert.Equal(HttpStatusCode.Created, toFar.StatusCode);
+        using (var doc = await ReadJsonAsync(toFar))
+        {
+            AssertBox(FarBox, doc.RootElement.GetProperty("trackerBbox"));
+            Assert.Equal(far, doc.RootElement.GetProperty("trackerMapId").GetInt64());
+        }
+
+        // The source box lies inside the wide map: the clone keeps it.
+        var toWide = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2028,"name":"To wide","trackerMapId":{{wide}}}""");
+        Assert.Equal(HttpStatusCode.Created, toWide.StatusCode);
+        using (var doc = await ReadJsonAsync(toWide))
+        {
+            AssertBox(InnerBox, doc.RootElement.GetProperty("trackerBbox"));
+            Assert.Equal(wide, doc.RootElement.GetProperty("trackerMapId").GetInt64());
+        }
+
+        // A given box inside the named map is kept; one outside it is refused.
+        var given = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2029,"name":"Given","trackerMapId":{{far}},"trackerBbox":{{FarInnerBox}}}""");
+        Assert.Equal(HttpStatusCode.Created, given.StatusCode);
+        using (var doc = await ReadJsonAsync(given))
+            AssertBox(FarInnerBox, doc.RootElement.GetProperty("trackerBbox"));
+        await AssertValidationAsync(await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2030,"name":"Outside","trackerMapId":{{far}},"trackerBbox":{{InnerBox}}}"""), "trackerBbox");
+    }
+
+    [Fact]
+    public async Task Clone_with_a_null_map_has_no_map_and_the_source_box()
+    {
+        using var source = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox);
+        var response = await SendAsync(HttpMethod.Post, $"/admin/events/{Id(source)}/clone",
+            """{"year":2027,"name":"No map","copy":{"tracker":true},"trackerMapId":null}""");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var doc = await ReadJsonAsync(response);
+        AssertBox(InnerBox, doc.RootElement.GetProperty("trackerBbox"));
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("trackerMapId").ValueKind);
+    }
+
+    [Fact]
+    public async Task Clone_with_copy_tracker_and_a_named_map_copies_the_themes_and_takes_the_named_map()
+    {
+        var far = await InsertMapAsync("a94-far", FarBox, "ready");
+        using var source = await CreateAsync(2026, "\"trackerBbox\":" + InnerBox);
+        var sourceId = Id(source);
+        var sourceThemes = new[] { await ThemeIdAsync("night"), await ThemeIdAsync("standard") };
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(sourceId, new JsonObject { ["trackerThemeIds"] = Ids(sourceThemes) })).StatusCode);
+
+        // The newest event by year carries a different theme set.
+        using var newest = await CreateAsync(2027);
+        var charcoal = await ThemeIdAsync("charcoal");
+        Assert.Equal(HttpStatusCode.OK, (await PatchAsync(Id(newest),
+            new JsonObject { ["trackerThemeIds"] = Ids(new[] { charcoal }) })).StatusCode);
+
+        // Without copy.tracker the themes come from the newest event, by year.
+        var inherited = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2028,"name":"Inherited","trackerMapId":{{far}}}""");
+        Assert.Equal(HttpStatusCode.Created, inherited.StatusCode);
+        using (var doc = await ReadJsonAsync(inherited))
+        {
+            Assert.Equal(far, doc.RootElement.GetProperty("trackerMapId").GetInt64());
+            Assert.Equal(new[] { charcoal }, ThemeIds(doc.RootElement));
+        }
+
+        var copied = await SendAsync(HttpMethod.Post, $"/admin/events/{sourceId}/clone",
+            $$"""{"year":2029,"name":"Copied","copy":{"tracker":true},"trackerMapId":{{far}}}""");
+        Assert.Equal(HttpStatusCode.Created, copied.StatusCode);
+        using (var doc = await ReadJsonAsync(copied))
+        {
+            Assert.Equal(far, doc.RootElement.GetProperty("trackerMapId").GetInt64());
+            AssertBox(FarBox, doc.RootElement.GetProperty("trackerBbox"));
+            Assert.Equal(await OrderedAsync(sourceThemes), ThemeIds(doc.RootElement));
         }
     }
 
