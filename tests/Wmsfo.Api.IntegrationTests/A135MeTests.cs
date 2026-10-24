@@ -167,6 +167,65 @@ public sealed class A135MeTests : IClassFixture<PostgresFixture>, IAsyncLifetime
         Assert.True(await ScalarAsync<bool>("select preferences is null from person where id = $1;", personId));
     }
 
+    // ---------- tracker.theme (A137) ----------
+
+    private const string ThemedPreferences =
+        "{\"theme\":\"dark\",\"tracker\":{\"flightHistory\":true,\"timeLabels\":false,\"landmarks\":true," +
+        "\"flightDock\":false,\"cookieTally\":true,\"snow\":false,\"mapType\":\"roadmap\",\"theme\":\"expedition\"}}";
+
+    [Fact]
+    public async Task Tracker_theme_is_stored_read_back_and_dropped_by_a_put_without_it()
+    {
+        var personId = await EnsurePersonAsync();
+        using (var r = await PutAsync("/me/preferences", ThemedPreferences))
+            Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+
+        using (var me = await SendAsync(HttpMethod.Get, "/me", DevStaticTokens.PersonToken))
+        {
+            using var doc = await ReadJsonAsync(me);
+            AssertJsonEqual(ThemedPreferences, doc.RootElement.GetProperty("preferences"));
+        }
+
+        using (var r = await PutAsync("/me/preferences", FullPreferences))
+            Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+
+        using (var me = await SendAsync(HttpMethod.Get, "/me", DevStaticTokens.PersonToken))
+        {
+            using var doc = await ReadJsonAsync(me);
+            var prefs = doc.RootElement.GetProperty("preferences");
+            AssertJsonEqual(FullPreferences, prefs);
+            Assert.False(prefs.GetProperty("tracker").TryGetProperty("theme", out _));
+        }
+        var stored = await ScalarAsync<string>("select preferences::text from person where id = $1;", personId);
+        AssertJsonEqual(FullPreferences, JsonDocument.Parse(stored).RootElement);
+    }
+
+    [Fact]
+    public async Task Tracker_theme_of_forty_characters_is_accepted()
+    {
+        await EnsurePersonAsync();
+        var body = "{\"theme\":null,\"tracker\":{\"theme\":\"a" + new string('b', 39) + "\"}}";
+        using (var r = await PutAsync("/me/preferences", body))
+            Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
+
+        using var me = await SendAsync(HttpMethod.Get, "/me", DevStaticTokens.PersonToken);
+        using var doc = await ReadJsonAsync(me);
+        AssertJsonEqual(body, doc.RootElement.GetProperty("preferences"));
+    }
+
+    [Theory]
+    [InlineData("7")]
+    [InlineData("\"\"")]
+    [InlineData("\"Expedition\"")]
+    [InlineData("\"1dark\"")]
+    [InlineData("\"-x\"")]
+    [InlineData("\"a" + "bbbbbbbbbb" + "bbbbbbbbbb" + "bbbbbbbbbb" + "bbbbbbbbbb" + "\"")]
+    public async Task Tracker_theme_outside_the_slug_rule_names_the_field(string value)
+    {
+        await Preferences_refuse_an_invalid_body_naming_the_field(
+            "{\"theme\":\"dark\",\"tracker\":{\"theme\":" + value + "}}", "tracker.theme");
+    }
+
     // ---------- PUT /me/seen ----------
 
     [Fact]

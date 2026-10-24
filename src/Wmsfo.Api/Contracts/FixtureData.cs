@@ -655,6 +655,7 @@ public static class FixtureData
                 TimeLabels = false,
                 Snow = true,
                 MapType = "terrain",
+                Theme = "expedition",
             },
         };
     }

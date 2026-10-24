@@ -10890,6 +10890,12 @@
               "null",
               "string"
             ]
+          },
+          "theme": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

@@ -87,6 +87,7 @@ public sealed class TrackerPreferencesDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? CookieTally { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Snow { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MapType { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Theme { get; set; }
 }
 
 // PUT /me/seen request (contracts 4.4), also taken by the

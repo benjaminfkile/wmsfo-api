@@ -101,7 +101,8 @@ public static class SchemaExport
                 }
                 // contracts 4.4: the preferences shape. theme is one of two
                 // values or null and required with tracker; the tracker's keys
-                // are optional and never null, mapType one of two values.
+                // are optional and never null, mapType one of two values, theme
+                // a tracker_theme.key slug.
                 if (context.PropertyInfo?.DeclaringType == typeof(PreferencesDto)
                     && context.PropertyInfo.Name == "theme")
                 {
@@ -113,9 +114,12 @@ public static class SchemaExport
                 }
                 if (context.PropertyInfo?.DeclaringType == typeof(TrackerPreferencesDto))
                 {
-                    return context.PropertyInfo.Name == "mapType"
-                        ? new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("terrain", "roadmap") }
-                        : new JsonObject { ["type"] = "boolean" };
+                    return context.PropertyInfo.Name switch
+                    {
+                        "mapType" => new JsonObject { ["type"] = "string", ["enum"] = new JsonArray("terrain", "roadmap") },
+                        "theme" => new JsonObject { ["type"] = "string", ["pattern"] = "^[a-z][a-z0-9-]{1,39}$" },
+                        _ => new JsonObject { ["type"] = "boolean" },
+                    };
                 }
                 if (t == typeof(PreferencesDto) && schema is JsonObject prefs)
                 {

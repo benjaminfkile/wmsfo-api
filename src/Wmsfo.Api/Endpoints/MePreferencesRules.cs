@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Wmsfo.Api.Contracts.Dtos;
 using Wmsfo.Api.Http;
 
@@ -8,15 +9,26 @@ namespace Wmsfo.Api.Endpoints;
 // with exactly two keys, both required: `theme`, "light", "dark", or null; and
 // `tracker`, an object whose keys are all optional: the six toggles
 // (`flightHistory`, `timeLabels`, `landmarks`, `flightDock`, `cookieTally`,
-// `snow`), each a boolean, and `mapType`, "terrain" or "roadmap". Any other key
+// `snow`), each a boolean; `mapType`, "terrain" or "roadmap"; and `theme`, the
+// chosen tracker theme's key (`tracker_theme.key`, sql.md 3.34), checked for
+// shape only against ^[a-z][a-z0-9-]{1,39}$ and never looked up, so a
+// preferences write does not depend on the event's theme list. Any other key
 // at either level, a repeated key, or a value outside these is
 // `400 validation_failed` with the field path (`theme`, `tracker.snow`,
 // `tracker.<key>`). The answer is the validated object, which the endpoint
 // re-serializes, so no unknown key is ever stored.
-public static class MePreferencesRules
+public static partial class MePreferencesRules
 {
     public static readonly string[] Themes = ["light", "dark"];
     public static readonly string[] MapTypes = ["terrain", "roadmap"];
+
+    // The tracker_theme.key slug rule. \z, not $, so a trailing newline does
+    // not pass.
+    [GeneratedRegex(@"^[a-z][a-z0-9-]{1,39}\z")]
+    private static partial Regex TrackerThemeKeyPattern();
+
+    public static bool IsTrackerThemeKey(string? value) =>
+        value is not null && TrackerThemeKeyPattern().IsMatch(value);
 
     public static PreferencesDto Parse(JsonElement root)
     {
@@ -109,6 +121,16 @@ public static class MePreferencesRules
                     else
                     {
                         v.Field(field, "must be \"terrain\" or \"roadmap\"");
+                    }
+                    break;
+                case "theme":
+                    if (prop.Value.ValueKind == JsonValueKind.String && IsTrackerThemeKey(prop.Value.GetString()))
+                    {
+                        dto.Theme = prop.Value.GetString();
+                    }
+                    else
+                    {
+                        v.Field(field, "must be a theme key matching ^[a-z][a-z0-9-]{1,39}$");
                     }
                     break;
                 default:
