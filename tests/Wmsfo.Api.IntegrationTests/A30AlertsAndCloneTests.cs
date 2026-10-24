@@ -286,6 +286,29 @@ order by id desc limit 1;", conn);
         Assert.Equal(1, pinnedA);
     }
 
+    // A141: the clone's trackerMapId is a map id or null; an unknown id is
+    // 404 and any other value 400 at trackerMapId, and null clears the map.
+    [Fact]
+    public async Task Clone_checks_trackerMapId_and_null_means_no_map()
+    {
+        var srcId = await CreateEventAsync(year: 2062);
+
+        var unknown = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2063,\"name\":\"n\",\"trackerMapId\":99999999}");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+
+        var wrongType = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2063,\"name\":\"n\",\"trackerMapId\":true}");
+        Assert.Equal(HttpStatusCode.BadRequest, wrongType.StatusCode);
+        Assert.Equal(0L, await CountAsync("select count(*) from event where year = 2063;"));
+
+        var response = await SendAdminAsync(HttpMethod.Post, $"/admin/events/{srcId}/clone",
+            "{\"year\":2063,\"name\":\"n\",\"trackerMapId\":null}");
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var dto = await ReadJsonAsync(response);
+        Assert.Equal(JsonValueKind.Null, dto.RootElement.GetProperty("trackerMapId").ValueKind);
+    }
+
     [Fact]
     public async Task Clone_conflicting_year_is_409_year_taken()
     {

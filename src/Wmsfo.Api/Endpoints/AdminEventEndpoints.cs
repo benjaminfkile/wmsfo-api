@@ -71,9 +71,12 @@ public static class AdminEventEndpoints
     }
 
     // POST /admin/events [snapshot]. year unique, name 1..200, fundsPercent 0..100. The tracker fields follow
-    // sql.md 8.7: a given trackerBbox is checked like settings.tracker.defaultBbox,
-    // an absent or null one is the published default; the map and the theme set
-    // come from the event with the greatest year.
+    // sql.md 8.7: a given trackerBbox is checked like settings.tracker.defaultBbox.
+    // A trackerMapId number names a ready map: the box is the map's area when
+    // absent and must lie inside it when given. A null trackerMapId is no map
+    // with the box given or the published default. An absent trackerMapId takes
+    // the map from the event with the greatest year. The theme set always comes
+    // from the event with the greatest year.
     private static void MapCreate(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events",
@@ -89,14 +92,27 @@ public static class AdminEventEndpoints
                 var givenBbox = body.TrackerBbox.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
                     ? null
                     : EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
+                var mapChoice = EventTrackerRules.ReadMapId(body.TrackerMapId, v);
                 v.ThrowIfInvalid();
 
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
                 var (dto, _) = await snap.RunAsync<EventDto>(async (conn, tx, token) =>
                 {
-                    var trackerBbox = givenBbox ?? await EventTrackerRules.DefaultBboxAsync(conn, tx, token);
+                    Bbox trackerBbox;
+                    if (mapChoice.Id is long chosenMap)
+                    {
+                        var mapBbox = await EventTrackerRules.ReadyMapBboxAsync(conn, tx, chosenMap, token);
+                        if (givenBbox is not null && !EventTrackerRules.Contains(mapBbox, givenBbox))
+                            RequestValidation.Throw("trackerBbox", EventTrackerRules.InsideMapMessage);
+                        trackerBbox = givenBbox ?? mapBbox;
+                    }
+                    else
+                    {
+                        trackerBbox = givenBbox ?? await EventTrackerRules.DefaultBboxAsync(conn, tx, token);
+                    }
                     var inherited = await EventTrackerRules.InheritAsync(conn, tx, trackerBbox, token);
+                    if (mapChoice.Set) inherited = inherited with { MapId = mapChoice.Id };
 
                     long newId;
                     await using (var insert = new NpgsqlCommand(@"
@@ -301,7 +317,7 @@ returning id;", conn, tx))
                     {
                         var package = await EventTrackerRules.MapBboxAsync(conn, tx, keptMap, token);
                         if (package is not null && !EventTrackerRules.Contains(package, trackerBbox))
-                            RequestValidation.Throw("trackerBbox", "must lie inside the event's map package");
+                            RequestValidation.Throw("trackerBbox", EventTrackerRules.InsideMapMessage);
                     }
                     if (trackerThemeIds is not null)
                     {
@@ -993,22 +1009,30 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
     // POST /admin/events/{id}/clone [snapshot] per contracts 4.5 and sql.md 8.4b.
     // Creates a new event in status 1, not current, funds 0, no scheduled time;
     // copy.sponsors copies year's sponsor_year rows (with pinned/linger) to the
-    // new year (skipping sponsors that already have it); the box always
-    // copies, and copy.tracker copies the source's map and theme set, which
-    // otherwise follow the create rule of sql.md 8.7. `copy` lists only these
-    // two keys; any other key is 400. The snapshot is rebuilt because with no
+    // new year (skipping sponsors that already have it). A trackerMapId in the
+    // body (a ready map or null) is the clone's map, and copy.tracker then
+    // copies the source's theme set only; without trackerMapId, copy.tracker
+    // copies the source's map and theme set. What copy.tracker does not copy
+    // follows the create rule of sql.md 8.7. A given trackerBbox must lie inside
+    // the clone's map; an absent one is the source's box, or the named map's
+    // area when the source's box leaves it. `copy` lists only `sponsors` and
+    // `tracker`; any other key is 400. The snapshot is rebuilt because with no
     // current event the clone can be the newest event, which routeView and
     // trackerThemes follow.
     private static void MapClone(IEndpointRouteBuilder app)
     {
         app.MapPost("/admin/events/{id:long}/clone",
             async (long id, CloneEventRequest body, HttpContext ctx, AdminSnapshotTransaction snap,
-                   AuditRecorder audit, CancellationToken ct) =>
+                   AuditRecorder audit, SchemaValidator validator, CancellationToken ct) =>
             {
                 var v = new RequestValidation();
                 if (body.Year < 2000 || body.Year > 2100) v.Field("year", "must be between 2000 and 2100");
                 if (string.IsNullOrWhiteSpace(body.Name) || body.Name.Length > 200)
                     v.Field("name", "must be 1 to 200 characters");
+                var givenBbox = body.TrackerBbox.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null
+                    ? null
+                    : EventTrackerRules.ReadBbox(body.TrackerBbox, "trackerBbox", validator, v);
+                var mapChoice = EventTrackerRules.ReadMapId(body.TrackerMapId, v);
                 v.ThrowIfInvalid();
                 var email = AdminHelpers.RequireAdminEmail(ctx);
 
@@ -1031,9 +1055,45 @@ update event set status_notified_at = now(), updated_at = now() where id = $1;",
                         sourceMapId = reader.IsDBNull(2) ? null : reader.GetInt64(2);
                     }
 
-                    var tracker = copyTracker
-                        ? new EventTrackerRules.Inherited(sourceMapId, id, AllThemes: false)
-                        : await EventTrackerRules.InheritAsync(conn, tx, sourceBbox, token);
+                    Bbox cloneBbox;
+                    EventTrackerRules.Inherited tracker;
+                    if (mapChoice.Set)
+                    {
+                        if (mapChoice.Id is long chosenMap)
+                        {
+                            var mapBbox = await EventTrackerRules.ReadyMapBboxAsync(conn, tx, chosenMap, token);
+                            if (givenBbox is not null && !EventTrackerRules.Contains(mapBbox, givenBbox))
+                                RequestValidation.Throw("trackerBbox", EventTrackerRules.InsideMapMessage);
+                            cloneBbox = givenBbox
+                                ?? (EventTrackerRules.Contains(mapBbox, sourceBbox) ? sourceBbox : mapBbox);
+                        }
+                        else
+                        {
+                            cloneBbox = givenBbox ?? sourceBbox;
+                        }
+                        tracker = copyTracker
+                            ? new EventTrackerRules.Inherited(mapChoice.Id, id, AllThemes: false)
+                            : (await EventTrackerRules.InheritAsync(conn, tx, cloneBbox, token)) with { MapId = mapChoice.Id };
+                    }
+                    else
+                    {
+                        cloneBbox = givenBbox ?? sourceBbox;
+                        if (copyTracker)
+                        {
+                            // The source's map stays only around a box inside its area.
+                            if (givenBbox is not null && sourceMapId is long keptMap)
+                            {
+                                var package = await EventTrackerRules.MapBboxAsync(conn, tx, keptMap, token);
+                                if (package is not null && !EventTrackerRules.Contains(package, givenBbox))
+                                    RequestValidation.Throw("trackerBbox", EventTrackerRules.InsideMapMessage);
+                            }
+                            tracker = new EventTrackerRules.Inherited(sourceMapId, id, AllThemes: false);
+                        }
+                        else
+                        {
+                            tracker = await EventTrackerRules.InheritAsync(conn, tx, cloneBbox, token);
+                        }
+                    }
 
                     long newId;
                     try
@@ -1044,7 +1104,7 @@ values ($1, $2, 1, false, 0, $3, now(), $4, $5) returning id;", conn, tx);
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Integer, Value = body.Year });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = body.Name.Trim() });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Text, Value = email });
-                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(sourceBbox) });
+                        ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Jsonb, Value = EventTrackerRules.Serialize(cloneBbox) });
                         ins.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = (object?)tracker.MapId ?? DBNull.Value });
                         newId = (long)(await ins.ExecuteScalarAsync(token) ?? 0L);
                     }

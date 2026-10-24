@@ -4723,6 +4723,12 @@
                 "$ref": "#/components/schemas/CloneEventCopy"
               }
             ]
+          },
+          "trackerMapId": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerBbox": {
+            "$ref": "#/components/schemas/JsonElement"
           }
         }
       },
@@ -5227,6 +5233,9 @@
             ]
           },
           "trackerBbox": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "trackerMapId": {
             "$ref": "#/components/schemas/JsonElement"
           }
         },

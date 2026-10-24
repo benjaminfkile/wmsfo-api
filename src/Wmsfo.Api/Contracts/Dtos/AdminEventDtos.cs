@@ -17,8 +17,12 @@ public sealed class CreateEventRequest
     public string? ScheduleTimeZone { get; set; }
     // A Bbox sets the event's box; null or absent takes the published
     // settings.tracker.defaultBbox (or the Missoula valley box). A bare
-    // JsonElement so the shape is checked against `$defs/Bbox`.
+    // JsonElement so the shape is checked against `$defs/Bbox`. With a map
+    // named, absent takes the map's area and a given box must lie inside it.
     public JsonElement TrackerBbox { get; set; }
+    // A map id names a ready map for the event, null means no map (Google
+    // only), absent takes the map of the event with the greatest year.
+    public JsonElement TrackerMapId { get; set; }
 }
 
 // PATCH /admin/events/{id} - any of the listed fields; any other field is
@@ -72,6 +76,12 @@ public sealed class CloneEventRequest
     public int Year { get; set; }
     public string Name { get; set; } = "";
     public CloneEventCopy? Copy { get; set; }
+    // A map id names a ready map for the clone, null means no map; absent
+    // leaves the map to copy.tracker or the create rule.
+    public JsonElement TrackerMapId { get; set; }
+    // A Bbox inside the clone's map; absent takes the source's box, or the
+    // named map's area when the source's box leaves it.
+    public JsonElement TrackerBbox { get; set; }
 }
 
 // `copy` lists `sponsors` and `tracker`; any other key is 400
@@ -80,8 +90,8 @@ public sealed class CloneEventRequest
 public sealed class CloneEventCopy
 {
     public bool Sponsors { get; set; }
-    // The source's map and enabled theme set; without it they follow the
-    // create rule. The box always copies.
+    // The source's enabled theme set, and its map when the body names no
+    // trackerMapId; without it they follow the create rule.
     public bool Tracker { get; set; }
 }
 

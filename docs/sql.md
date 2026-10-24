@@ -1475,13 +1475,18 @@ It runs in the snapshot-affecting frame (8.5) with or without a message: the new
 begin;
 select * from snapshot where id = 1 for update;                              -- snapshot-affecting (below)
 select * from event where id = $source for update;                          -- none: 404
+-- $tracker_map_id in the body (a number): select state, bbox from tracker_map where id = $tracker_map_id for share
+--   none: 404; not 'ready': 400 at trackerMapId; a given $tracker_bbox outside bbox: 400 at trackerBbox
+-- the box: $tracker_bbox when given; else the source's box when no map is named or the named map's bbox contains it; else the named map's bbox
+-- with no $tracker_map_id, copy.tracker, and a given $tracker_bbox: the box must lie inside the source map's bbox (400 at trackerBbox)
 insert into event (year, name, status_id, is_current, funds_percent, tracker_bbox, tracker_map_id, created_by)
 values ($year, $name, 1, false, 0,
-        $source_tracker_bbox,                                                 -- the box always copies (required)
-        case when $copy_tracker then $source_tracker_map_id else $inherited_tracker_map_id end,   -- else: the create rule of 8.7
+        $clone_tracker_bbox,                                                  -- the box above (required)
+        case when $map_named then $tracker_map_id                            -- the body's trackerMapId wins (a number or null)
+             when $copy_tracker then $source_tracker_map_id else $inherited_tracker_map_id end,   -- else: the create rule of 8.7
         $admin_email)
 returning id into $new;                                                       -- 23505 on year: 409 year_taken
--- copy.tracker: the source's enabled themes; otherwise the create rule's set (8.7)
+-- copy.tracker: the source's enabled themes, whether or not trackerMapId is named; otherwise the create rule's set (8.7)
 insert into event_tracker_theme (event_id, theme_id)
 select $new, theme_id from event_tracker_theme where event_id = case when $copy_tracker then $source else $inherited_from end
 on conflict do nothing;
@@ -1564,7 +1569,12 @@ update event set is_current = true,  updated_at = now() where id = $event;
 begin;
 select * from snapshot where id = 1 for update;
 -- no route: the event carries none (the site route is settings.route, contracts 1.3a)
--- trackerBbox absent or null: the published settings.tracker.defaultBbox (the newest content_version's document), else the Missoula valley constant
+-- trackerMapId a number: select state, bbox from tracker_map where id = $tracker_map_id for share
+--   none: 404; not 'ready': 400 at trackerMapId; the map is $tracker_map_id
+--   trackerBbox absent or null: the box is the map's bbox; given: it must lie inside the map's bbox (400 at trackerBbox)
+-- trackerMapId null: no map; the box as below
+-- trackerBbox absent or null (and no map named): the published settings.tracker.defaultBbox (the newest content_version's document), else the Missoula valley constant
+-- trackerMapId absent: the map comes from the inherit rule below; the themes come from it in every case
 -- the map and the themes come from the most recent event by year (the map only when its package contains $tracker_bbox):
 --   select id, tracker_map_id from event order by year desc limit 1
 --   select bbox from tracker_map where id = $inherited_map and state = 'ready'      -- contains the box, else null
