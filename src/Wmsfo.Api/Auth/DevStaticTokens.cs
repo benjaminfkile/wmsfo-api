@@ -122,9 +122,9 @@ public sealed class InMemoryPersonUpsert : IPersonUpsert
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _ids = new(StringComparer.Ordinal);
     private long _next;
 
-    public Task<long?> EnsureAsync(string sub, string email, CancellationToken ct)
+    public Task<PersonUpsertResult> EnsureAsync(string sub, string email, CancellationToken ct)
     {
         var id = _ids.GetOrAdd(sub, _ => System.Threading.Interlocked.Increment(ref _next));
-        return Task.FromResult<long?>(id);
+        return Task.FromResult<PersonUpsertResult>(new PersonUpsertResult.Found(id));
     }
 }

@@ -525,6 +525,7 @@ Four user pools, created once each: the people pools `wmsfo-dev` and `wmsfo-prod
 | MFA | Optional, TOTP only, SMS off. Members of `admin` and `editor` enrol TOTP; the API refuses panel requests from users without TOTP (`403 mfa_required`, api.md 6.3) |
 | Account recovery | Email only |
 | Deletion protection | On (prod) |
+| Feature plan | Essentials on every pool; Lite is not in use. Cost in section 15 |
 | Advanced security | Off (no plus tier features are used) |
 | Hosted UI domain | One prefix per pool under `auth.<region>.amazoncognito.com`, each the pool's name plus a short suffix that makes it unique in the region (`wmsfo-dev-<suffix>`, `wmsfo-admin-dev-<suffix>`, and the prod pair); `<cognito-prefix>` stands for whichever pool is meant |
 | Hosted UI version | Managed login (domain `ManagedLoginVersion = 2`) with a managed login style assigned to each app client, Cognito-provided values. Its pages carry labelled inputs and a "Change password" first-login step; the classic hosted UI is not used |
@@ -601,14 +602,15 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
       "Condition": { "ForAllValues:StringLike": { "ses:Recipients": ["<the allow list entries>"] } } },
     { "Effect": "Allow", "Action": "ses:GetAccount", "Resource": "*" },
     { "Effect": "Allow", "Action": "cognito-idp:AdminGetUser",
-      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>"] },
+      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<admin-pool-id>",
+                   "arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] },
     { "Effect": "Allow", "Action": ["cognito-idp:DescribeUserPool", "cognito-idp:UpdateUserPool"],
       "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] }
   ]
 }
 ```
 
-The first two statements are the SES grant of section 5, written by the dev gate Lambda (6.2b) and not edited by hand: it reads the list in `<allowlist-secret>`, rewrites exactly these two statements, and leaves every other statement and their order alone. Before its first run the policy holds the earlier single statement with no Sid (the two actions on the identity and both configuration sets); the first run replaces it with the pair in its place, and later runs find the pair by Sid. The `cognito-idp:AdminGetUser` statement is required and lists the admin pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool. The last lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
+The first two statements are the SES grant of section 5, written by the dev gate Lambda (6.2b) and not edited by hand: it reads the list in `<allowlist-secret>`, rewrites exactly these two statements, and leaves every other statement and their order alone. Before its first run the policy holds the earlier single statement with no Sid (the two actions on the identity and both configuration sets); the first run replaces it with the pair in its place, and later runs find the pair by Sid. The `cognito-idp:AdminGetUser` statement is required and lists the admin pool ARN and the people pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool, and the person upsert calls it on the people pool (`WMSFO_COGNITO_USER_POOL_ID`) the first time it sees a `sub` with no row (contracts 3.1). Without the people pool grant every new person's first request answers `500 internal_error` and no row is written; people who already have a row are unaffected, because the hot path never calls Cognito. The last lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
 
 ### 6.2 CI role
 
@@ -897,7 +899,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 | S3 requests and storage | under $5 |
 | Tracker tiles on event night, 100k viewers on MapLibre | about $40 to $60 of CloudFront range requests (300 to 500 GB), against about $700 for the same viewers on Google dynamic map loads at $7 per thousand; the viewers who fall back to Google still cost that rate for their share |
 | Map package storage | under 1 cent a month for the valley package; 10 to 20 cents a month for a corridor package with terrain, at about 2 cents per GB-month |
-| Cognito | free under 50,000 monthly active users |
+| Cognito | Essentials tier: free to 10,000 monthly active users, then about $0.015 per user per month; an event month with 20,000 active people is about $150. Lite is not in use. The person upsert's `AdminGetUser` (once per new `sub`) is an API call, not a billed user |
 | SES | about $6 for 60,000 messages |
 | Fleet scale-up, 10 large instances for a day | tens of dollars |
 | RDS | already paid; the databases add nothing |
@@ -916,7 +918,9 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - The migration tool imports legacy logos as media assets rather than keeping legacy keys; the legacy bucket is retired.
 - Price class North America and Europe.
 - Cognito pool mail through Cognito's default sender; SES is used only by the API. A Custom Message Lambda gives the account emails the layout of the API's emails; a failure there falls back to Cognito's default message rather than blocking sign-up or sign-in (2026-09-27).
-- One inline IAM policy `wmsfo-api` on the instance role for SES, `AdminGetUser`, and the people pool's `DescribeUserPool` and `UpdateUserPool` (the sign-ups switch); the existing broad S3 grant is left as is.
+- One inline IAM policy `wmsfo-api` on the instance role for SES, `AdminGetUser` on the admin pool and the people pool, and the people pool's `DescribeUserPool` and `UpdateUserPool` (the sign-ups switch); the existing broad S3 grant is left as is.
+- One email address is one person (2026-10-25): the API calls `AdminGetUser` on the people pool only for a `sub` it has no row for, so the cost and the rate limit of that call scale with new sign-ups, not with requests; a deleted user's token answers `401 unknown_user` and never recreates the row (contracts 3.1).
+- The pools run on the Essentials tier (2026-10-25); Lite is not in use.
 - CI pushes through an OIDC role; no access keys in GitHub.
 - A second Vercel project per frontend with `dev` as its production branch, rather than relying on pull request previews (which are refused by every allow list).
 - Alarms in both environments, the dev copies under the dev prefix; both have metric filters for the dashboard.

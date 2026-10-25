@@ -1659,7 +1659,7 @@ namespace Wmsfo.Api.Data.Migrations
 
                     b.ToTable("person", null, t =>
                         {
-                            t.HasComment("A registered person. Upserted on every authenticated request from the ID token (sub, email).");
+                            t.HasComment("A registered person, one per email address (person_email_lower_key on lower(email)). Every person request updates it by the ID token's sub; a sub with no row is checked against the people pool and gets a fresh row after any stale row holding the address is deleted with its cascade.");
                         });
                 });
 

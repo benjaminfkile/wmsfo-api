@@ -169,7 +169,7 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `WMSFO_TRUSTED_PROXY_HOPS` | int | 0 to 5, default 2 |
 | `WMSFO_COGNITO_ISSUER` | https url | the people pool's issuer |
 | `WMSFO_COGNITO_CLIENT_IDS` | list | one or more, the people pool's clients |
-| `WMSFO_COGNITO_USER_POOL_ID` | string | the people pool id |
+| `WMSFO_COGNITO_USER_POOL_ID` | string | the people pool id; the person upsert's first-sight `AdminGetUser` (section 6.2) |
 | `WMSFO_COGNITO_ADMIN_ISSUER` | https url | the admin pool's issuer; empty means the people pool also carries the admins (refused when `WMSFO_ENV` is `prod`) |
 | `WMSFO_COGNITO_ADMIN_CLIENT_IDS` | list | the admin pool's clients; required with the admin issuer |
 | `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | string | the admin pool id for `AdminGetUser`; required with the admin issuer |
@@ -190,6 +190,8 @@ Every key in contracts 8.1 binds to `WmsfoOptions`. Validation happens once at b
 | `WMSFO_SES_DRY_RUN` | bool | local only: logs the rendered message instead of sending (section 20); refused when `WMSFO_ENV` is `prod` |
 
 `WMSFO_COGNITO_ISSUER` also names the pool the sign-ups switch updates (section 6.5): the pool id is the issuer's last path segment, and the instance role holds `cognito-idp:DescribeUserPool` and `cognito-idp:UpdateUserPool` on that pool (platform.md 6.1), a grant created outside the repository.
+
+`WMSFO_COGNITO_USER_POOL_ID` names the pool the person upsert asks on first sight of a `sub` (section 6.2): the instance role holds `cognito-idp:AdminGetUser` on that pool as well as on the admin pool (platform.md 6.1).
 
 `WMSFO_DB_MIGRATION_CONNECTION` follows `sql.md` 12 and 13 (two roles).
 
@@ -260,7 +262,7 @@ options.TokenValidationParameters = new()
 options.Events.OnTokenValidated = ctx => RequireTokenUse(ctx, "id") then stamp wmsfo_pool = "admin" | "people";
 ```
 
-After validation an endpoint filter upserts the person (contracts 3.1 SQL) and attaches `person_id` to the request. Policies: `Person` (any valid token from either pool), `Editor` (`wmsfo_pool` is `admin` and `cognito:groups` contains `WMSFO_EDITOR_GROUP` or `WMSFO_ADMIN_GROUP`), `Admin` (`wmsfo_pool` is `admin` and the groups contain `WMSFO_ADMIN_GROUP`); a policy miss is `403 forbidden`. `Person` authenticates with `CognitoJwt` alone, so a `wak_` bearer on a person route (every `/me*` route, `GET /me`, `PUT /me/seen`, `PUT /me/preferences`, and the two aliases included, and `POST /cookies`) is no principal there and answers `401 unauthenticated`; the person upsert runs before every one of those handlers, so each call moves `last_seen_at`. Under `WMSFO_DEV_STATIC_TOKENS` the static handler registers as `CognitoJwt` itself and stamps the admin and editor tokens with the admin pool. Every `/admin/*` route names `Editor` or `Admin` per the contracts' group headings (4.5); the audit email is the `email` claim.
+After validation an endpoint filter (`CognitoAuth.PersonUpsertFilter`) ensures the person row (contracts 3.1, sql.md 8.1) through `IPersonUpsert`, whose answer is `Found(id)` or `UnknownUser`: `Found` attaches `person_id` to the request; `UnknownUser` answers `401 unknown_user` with the contracts 0.3 error body and the handler never runs. `DbPersonUpsert` runs the hot-path update by `sub` (one statement, no Cognito call); when it returns no row, or raises the unique violation on `person_email_lower_key`, it asks `IPersonDirectory.ExistsAsync(sub)` once. `CognitoPersonDirectory` calls `AdminGetUser` on `WMSFO_COGNITO_USER_POOL_ID` with `Username = sub` through the shared `IAmazonCognitoIdentityProvider` and answers true, false on `UserNotFoundException`, and throws on any other failure (a `500 internal_error`, nothing written). False is `UnknownUser` with nothing written; true runs the first-sight transaction (the stale row's delete, then the insert) and logs `person superseded` with the old and new ids, never the address, for each stale row it removed. Under `WMSFO_DEV_STATIC_TOKENS` there is no Cognito client: the pipeline registers `AlwaysKnownPersonDirectory`, which answers true, as it registers `AlwaysEnabledAdminTotpChecker`, and `InMemoryPersonUpsert` stands in for the database; test hosts may register their own directory. Policies: `Person` (any valid token from either pool), `Editor` (`wmsfo_pool` is `admin` and `cognito:groups` contains `WMSFO_EDITOR_GROUP` or `WMSFO_ADMIN_GROUP`), `Admin` (`wmsfo_pool` is `admin` and the groups contain `WMSFO_ADMIN_GROUP`); a policy miss is `403 forbidden`. `Person` authenticates with `CognitoJwt` alone, so a `wak_` bearer on a person route (every `/me*` route, `GET /me`, `PUT /me/seen`, `PUT /me/preferences`, and the two aliases included, and `POST /cookies`) is no principal there and answers `401 unauthenticated`; the person upsert runs before every one of those handlers, so each call moves `last_seen_at`. Under `WMSFO_DEV_STATIC_TOKENS` the static handler registers as `CognitoJwt` itself and stamps the admin and editor tokens with the admin pool. Every `/admin/*` route names `Editor` or `Admin` per the contracts' group headings (4.5); the audit email is the `email` claim.
 
 ### 6.3 Admin TOTP gate
 

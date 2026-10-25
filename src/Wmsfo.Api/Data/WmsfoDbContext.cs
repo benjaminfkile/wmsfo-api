@@ -502,7 +502,7 @@ public sealed class WmsfoDbContext : DbContext
         mb.Entity<Person>(e =>
         {
             e.ToTable("person", t =>
-                t.HasComment("A registered person. Upserted on every authenticated request from the ID token (sub, email)."));
+                t.HasComment("A registered person, one per email address (person_email_lower_key on lower(email)). Every person request updates it by the ID token's sub; a sub with no row is checked against the people pool and gets a fresh row after any stale row holding the address is deleted with its cascade."));
             e.HasKey(x => x.Id).HasName("person_pkey");
             e.Property(x => x.Id).UseIdentityAlwaysColumn();
             e.Property(x => x.CognitoSub).HasColumnType("uuid").IsRequired();
@@ -514,6 +514,9 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Preferences).HasColumnType("jsonb")
                 .HasComment("The person's site preferences (theme and tracker menu choices) as the site last saved them; null when never saved.");
             e.HasAlternateKey(x => x.CognitoSub).HasName("person_cognito_sub_key");
+            // person_email_lower_key is a functional unique index on
+            // lower(email); the migration installs it as raw SQL since EF Core
+            // cannot describe expression indexes here.
         });
 
         // 3.13 subscriber
