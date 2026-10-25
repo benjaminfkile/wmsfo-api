@@ -7,8 +7,23 @@ namespace Wmsfo.Api.Data.Sql;
 
 public static class TransactionRecipes
 {
-    // 8.1 Person upsert.
-    public const string PersonUpsert = @"
+    // 8.1 Person upsert, the hot path: one statement, no Cognito call.
+    public const string PersonTouch = @"
+update person set last_seen_at = now(), email = @email
+where cognito_sub = @sub
+returning id;";
+
+    // 8.1 Person upsert, first sight (after the people pool confirmed the
+    // user), one transaction: the stale row holding the address goes with its
+    // cascade, then the row for the sub is written. The insert's `on conflict`
+    // covers the email change onto a stale row's address, where the sub's own
+    // row already exists.
+    public const string PersonSupersede = @"
+delete from person
+where lower(email) = lower(@email) and cognito_sub <> @sub
+returning id;";
+
+    public const string PersonInsert = @"
 insert into person (cognito_sub, email) values (@sub, @email)
 on conflict (cognito_sub) do update
   set email = excluded.email,

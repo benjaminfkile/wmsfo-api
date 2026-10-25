@@ -95,13 +95,16 @@ else
         new S3ObjectStore(sp.GetRequiredService<IAmazonS3>(), options.S3Bucket));
 }
 
-// api.md 6.3: the admin TOTP gate's checker asks Cognito; the dev static token
-// mode takes the pipeline's always-enrolled checker instead (no pool to ask).
+// api.md 6.3: the admin TOTP gate's checker asks Cognito, and so does the
+// person upsert on first sight of a sub (api.md 6.2); the dev static token
+// mode takes the pipeline's always-enrolled checker and always-known directory
+// instead (no pool to ask).
 if (!options.DevStaticTokens)
 {
     builder.Services.AddSingleton<Amazon.CognitoIdentityProvider.IAmazonCognitoIdentityProvider>(_ =>
         new Amazon.CognitoIdentityProvider.AmazonCognitoIdentityProviderClient(RegionEndpoint.GetBySystemName(options.AwsRegion)));
     builder.Services.AddSingleton<IAdminTotpChecker, CognitoAdminTotpChecker>();
+    builder.Services.AddSingleton<IPersonDirectory, CognitoPersonDirectory>();
 }
 
 // api.md 3 step 3: icon library, node state, gateway internal client, snapshot

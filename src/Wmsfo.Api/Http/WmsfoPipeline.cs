@@ -122,6 +122,14 @@ public static class WmsfoPipeline
                 services.AddSingleton<IAdminTotpChecker, AlwaysFailAdminTotpChecker>();
             }
         }
+        // Contracts 3.1: the person upsert asks the people pool on first sight.
+        // The composition root registers CognitoPersonDirectory; the dev static
+        // token mode has no pool to ask and knows every sub; test hosts may
+        // register their own.
+        if (options.DevStaticTokens && !services.Any(s => s.ServiceType == typeof(IPersonDirectory)))
+        {
+            services.AddSingleton<IPersonDirectory, AlwaysKnownPersonDirectory>();
+        }
         if (!services.Any(s => s.ServiceType == typeof(IPersonUpsert)))
         {
             if (options.DevStaticTokens)

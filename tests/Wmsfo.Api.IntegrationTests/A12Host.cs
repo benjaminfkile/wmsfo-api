@@ -48,7 +48,8 @@ public sealed class A12Host : IAsyncDisposable
         QuotaReader = quotaReader;
     }
 
-    public static async Task<A12Host> StartAsync(string connectionString, RateLimitTable? rateLimits = null)
+    public static async Task<A12Host> StartAsync(string connectionString, RateLimitTable? rateLimits = null,
+        IPersonDirectory? directory = null)
     {
         var options = new WmsfoOptions
         {
@@ -117,6 +118,12 @@ public sealed class A12Host : IAsyncDisposable
         builder.Services.AddSingleton<AuditEndpointFilter>();
         // Real DB person upsert so cookies (with a foreign key to person) actually persist.
         builder.Services.AddSingleton<IPersonUpsert, DbPersonUpsert>();
+        // The people pool the upsert asks on first sight; the pipeline's
+        // always-known directory unless the test passes its own (A143).
+        if (directory is not null)
+        {
+            builder.Services.AddSingleton(directory);
+        }
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);

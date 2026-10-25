@@ -34,6 +34,8 @@ public static class ApiErrorCodes
 {
     public const string ValidationFailed = "validation_failed";
     public const string Unauthenticated = "unauthenticated";
+    // A143: a person route whose token's user the people pool no longer has (contracts 3.1).
+    public const string UnknownUser = "unknown_user";
     public const string Forbidden = "forbidden";
     public const string MfaRequired = "mfa_required";
     public const string NotFound = "not_found";
