@@ -74,6 +74,34 @@ public class SchemaValidationTests
         }
     }
 
+    // A148: every trackerThemes[].overlay carries headingColor, a colour,
+    // last in the key order, and no other key beside the eight.
+    [Fact]
+    public void Snapshot_theme_overlay_requires_a_heading_colour()
+    {
+        var schema = JsonSchema.FromText(File.ReadAllText(Path.Combine(ContractsPaths.SchemaDir, "snapshot.schema.json")));
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(ContractsPaths.FixturesDir, "snapshot.json")))!;
+        foreach (var theme in fixture["trackerThemes"]!.AsArray())
+        {
+            var overlay = theme!["overlay"]!.AsObject();
+            Assert.Equal("headingColor", overlay.Last().Key);
+            Assert.Equal("#ffb300", overlay["headingColor"]!.GetValue<string>());
+        }
+
+        bool Valid(Action<JsonObject> change)
+        {
+            var copy = fixture.DeepClone();
+            change(copy["trackerThemes"]![0]!["overlay"]!.AsObject());
+            using var doc = System.Text.Json.JsonDocument.Parse(copy.ToJsonString());
+            return schema.Evaluate(doc.RootElement).IsValid;
+        }
+        Assert.True(Valid(o => o["headingColor"] = "#69f0aecc"));
+        Assert.False(Valid(o => o.Remove("headingColor")));
+        Assert.False(Valid(o => o["headingColor"] = "amber"));
+        Assert.False(Valid(o => o["headingColor"] = "#ffb30"));
+        Assert.False(Valid(o => o["beamColor"] = "#ffb300"));
+    }
+
     // A142: the snapshot's event.trackerStartView is a TrackerStartView or
     // null; the fixture's centre lies inside the fixture's box.
     [Fact]

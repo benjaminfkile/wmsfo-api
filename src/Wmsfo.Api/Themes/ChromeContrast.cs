@@ -18,7 +18,7 @@ public static partial class ChromeContrast
         ["bg", "fg", "text", "tile", "tileFg", "panel", "accent"];
 
     public static readonly IReadOnlyList<string> OverlayColourKeys =
-        ["routeColor", "arrowColor", "timeLabelBg", "timeLabelFg", "userColor"];
+        ["routeColor", "arrowColor", "timeLabelBg", "timeLabelFg", "userColor", "headingColor"];
 
     public static readonly IReadOnlyList<string> OverlayOpacityKeys =
         ["routeOpacity", "timeLabelOpacity"];
@@ -123,6 +123,7 @@ public static partial class ChromeContrast
         TimeLabelFg = overlay.GetProperty("timeLabelFg").GetString()!,
         TimeLabelOpacity = overlay.GetProperty("timeLabelOpacity").GetDouble(),
         UserColor = overlay.GetProperty("userColor").GetString()!,
+        HeadingColor = overlay.GetProperty("headingColor").GetString()!,
     };
 
     private static void CheckPair(Dictionary<string, string> colours, string fg, string bg, List<(string, string)> failures)

@@ -56,7 +56,7 @@ public class KeyOrderTests
         var expectedChrome = new[] { "bg", "fg", "text", "tile", "tileFg", "panel", "accent" };
         var expectedOverlay = new[]
         {
-            "routeColor", "routeOpacity", "arrowColor", "timeLabelBg", "timeLabelFg", "timeLabelOpacity", "userColor",
+            "routeColor", "routeOpacity", "arrowColor", "timeLabelBg", "timeLabelFg", "timeLabelOpacity", "userColor", "headingColor",
         };
         var expectedFlightHistory = new[] { "routeId", "name", "points" };
         var expectedFlightPoint = new[] { "lat", "lng", "recordedAt" };

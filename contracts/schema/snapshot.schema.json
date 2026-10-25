@@ -772,9 +772,16 @@
               },
               "userColor": {
                 "type": "string"
+              },
+              "headingColor": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "headingColor"
+            ]
           },
           "defaultLightMode": {
             "type": "boolean"

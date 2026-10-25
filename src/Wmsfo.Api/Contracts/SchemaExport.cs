@@ -140,6 +140,17 @@ public static class SchemaExport
                 {
                     prefs["required"] = new JsonArray("theme", "tracker");
                 }
+                // contracts 1.3: the theme overlay's heading beam colour,
+                // required and `#rrggbb` or `#rrggbbaa`.
+                if (context.PropertyInfo?.DeclaringType == typeof(Overlay)
+                    && context.PropertyInfo.Name == "headingColor")
+                {
+                    return new JsonObject { ["type"] = "string", ["pattern"] = "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$" };
+                }
+                if (t == typeof(Overlay) && schema is JsonObject overlay)
+                {
+                    overlay["required"] = new JsonArray("headingColor");
+                }
                 return schema;
             },
         };
