@@ -24,7 +24,7 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
     private const string Chrome =
         """{"bg":"#ffffff","fg":"#5f6368","text":"#202124","tile":"#e8f0fe","tileFg":"#1a56c4","panel":"#ffffffe6","accent":"#1a56c4"}""";
     private const string Overlay =
-        """{"routeColor":"#1a56c4","routeOpacity":0.9,"arrowColor":"#1a56c4","timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828"}""";
+        """{"routeColor":"#1a56c4","routeOpacity":0.9,"arrowColor":"#1a56c4","timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828","headingColor":"#ffb300"}""";
     private const string GoogleStyle =
         """[{"featureType":"road","elementType":"geometry","stylers":[{"color":"#a95a95"}]}]""";
     private const string MapLibreStyle =
@@ -498,6 +498,93 @@ public sealed class A95ThemeEndpointsTests : IClassFixture<PostgresFixture>, IAs
             $"select count(*)::int from event_tracker_theme where event_id = $1 and theme_id = {Id(other)}", ev));
     }
 
+    // ---------- the heading colour (A148) ----------
+
+    [Fact]
+    public async Task A_create_without_a_heading_colour_or_with_a_bad_one_is_400_at_overlay_heading_color()
+    {
+        var missing = Body("google", "a148-heading", GoogleStyle);
+        missing["overlay"]!.AsObject().Remove("headingColor");
+        var reason = await AssertValidationAsync(await SendAsync(HttpMethod.Post, "/admin/themes", missing.ToJsonString()), "overlay.headingColor");
+        Assert.Equal("is required", reason);
+
+        var bad = Body("google", "a148-heading", GoogleStyle);
+        bad["overlay"]!["headingColor"] = "amber";
+        reason = await AssertValidationAsync(await SendAsync(HttpMethod.Post, "/admin/themes", bad.ToJsonString()), "overlay.headingColor");
+        Assert.Equal("must be #rrggbb or #rrggbbaa", reason);
+
+        Assert.Equal(0, await CountAsync("select count(*)::int from tracker_theme where key = $1::text", "a148-heading"));
+    }
+
+    [Fact]
+    public async Task A_heading_colour_is_stored_answered_and_carried_last_in_the_snapshot_overlay()
+    {
+        var body = Body("google", "a148-snap", GoogleStyle);
+        body["overlay"]!["headingColor"] = "#69f0aecc";
+        var response = await SendAsync(HttpMethod.Post, "/admin/themes", body.ToJsonString());
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var created = await ReadJsonAsync(response);
+        var id = Id(created);
+        Assert.Equal("#69f0aecc", created.RootElement.GetProperty("overlay").GetProperty("headingColor").GetString());
+        Assert.Equal("#69f0aecc", await ScalarAsync<string>($"select overlay->>'headingColor' from tracker_theme where id = {id}"));
+        Assert.Equal("#69f0aecc", (await FindInListAsync(id)).GetProperty("overlay").GetProperty("headingColor").GetString());
+
+        var ev = await InsertEventAsync(2026, "Flight 2026", current: true);
+        await EnableAsync(ev, id);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Patch, $"/admin/themes/{id}", """{"name":"Beam"}""")).StatusCode);
+
+        using var snap = await ReadSnapshotAsync();
+        var theme = snap.RootElement.GetProperty("trackerThemes").EnumerateArray()
+            .Single(t => t.GetProperty("id").GetInt64() == id);
+        var keys = theme.GetProperty("overlay").EnumerateObject().Select(p => p.Name).ToArray();
+        Assert.Equal(
+            ["routeColor", "routeOpacity", "arrowColor", "timeLabelBg", "timeLabelFg", "timeLabelOpacity", "userColor", "headingColor"],
+            keys);
+        Assert.Equal("#69f0aecc", theme.GetProperty("overlay").GetProperty("headingColor").GetString());
+    }
+
+    [Fact]
+    public async Task A_patch_of_overlay_must_carry_the_heading_colour()
+    {
+        using var created = await CreateAsync("google", "a148-patch", GoogleStyle);
+        var id = Id(created);
+
+        var without = JsonNode.Parse(Overlay)!.AsObject();
+        without.Remove("headingColor");
+        var refused = await SendAsync(HttpMethod.Patch, $"/admin/themes/{id}", new JsonObject { ["overlay"] = without }.ToJsonString());
+        await AssertValidationAsync(refused, "overlay.headingColor");
+        Assert.Equal("#ffb300", await ScalarAsync<string>($"select overlay->>'headingColor' from tracker_theme where id = {id}"));
+
+        var with = JsonNode.Parse(Overlay)!.AsObject();
+        with["headingColor"] = "#00e5ff";
+        var patched = await SendAsync(HttpMethod.Patch, $"/admin/themes/{id}", new JsonObject { ["overlay"] = with }.ToJsonString());
+        Assert.Equal(HttpStatusCode.OK, patched.StatusCode);
+        using var doc = await ReadJsonAsync(patched);
+        Assert.Equal("#00e5ff", doc.RootElement.GetProperty("overlay").GetProperty("headingColor").GetString());
+        Assert.Equal("#00e5ff", await ScalarAsync<string>($"select overlay->>'headingColor' from tracker_theme where id = {id}"));
+    }
+
+    [Fact]
+    public async Task Every_seeded_theme_carries_its_heading_colour_after_boot()
+    {
+        var expected = new Dictionary<string, string>
+        {
+            ["light"] = "#ffb300", ["dark"] = "#ffb300", ["standard"] = "#ffb300", ["expedition"] = "#ffb300",
+            ["blizzard"] = "#ffb300", ["charcoal"] = "#69f0ae", ["night"] = "#ffb300", ["nebula"] = "#69f0ae",
+        };
+        using var list = await ReadJsonAsync(await SendAsync(HttpMethod.Get, "/admin/themes", null));
+        var seeded = list.RootElement.GetProperty("items").EnumerateArray()
+            .Where(i => expected.ContainsKey(i.GetProperty("key").GetString()!))
+            .ToArray();
+        Assert.Equal(expected.Count, seeded.Length);
+        foreach (var item in seeded)
+        {
+            var overlay = item.GetProperty("overlay");
+            Assert.Equal(expected[item.GetProperty("key").GetString()!], overlay.GetProperty("headingColor").GetString());
+            Assert.NotEqual(overlay.GetProperty("routeColor").GetString(), overlay.GetProperty("headingColor").GetString());
+        }
+    }
+
     // ---------- the [snapshot] rule ----------
 
     [Fact]
@@ -750,6 +837,14 @@ returning id;", conn);
         await conn.OpenAsync();
         await using var cmd = new NpgsqlCommand(sql, conn);
         return (T)(await cmd.ExecuteScalarAsync())!;
+    }
+
+    private async Task<JsonDocument> ReadSnapshotAsync()
+    {
+        var key = await ScalarAsync<string>("select s3_key from snapshot where id = 1;");
+        var content = await _host!.Store.GetObjectAsync(key);
+        Assert.NotNull(content);
+        return JsonDocument.Parse(content!.Bytes);
     }
 
     private static async Task<JsonDocument> ReadJsonAsync(HttpResponseMessage r) =>

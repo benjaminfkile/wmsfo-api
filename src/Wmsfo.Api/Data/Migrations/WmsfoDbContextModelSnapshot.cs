@@ -2749,7 +2749,7 @@ namespace Wmsfo.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("overlay")
-                        .HasComment("{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor }.");
+                        .HasComment("{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor, headingColor }. Every key required; headingColor paints Santa's heading beam on the tracker, apart from the route.");
 
                     b.Property<string>("Renderer")
                         .IsRequired()

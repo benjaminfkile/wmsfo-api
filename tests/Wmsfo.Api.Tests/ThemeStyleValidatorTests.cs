@@ -128,7 +128,35 @@ public class ThemeStyleValidatorTests
         Assert.Contains("chrome.glow", extraPaths);
         Assert.Contains("chrome.accent", extraPaths);
 
-        var overlay = """{"routeColor":"#1a56c4","routeOpacity":1.5,"arrowColor":"#1a56c4","timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828"}""";
+        var overlay = """{"routeColor":"#1a56c4","routeOpacity":1.5,"arrowColor":"#1a56c4","timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828","headingColor":"#ffb300"}""";
         Assert.Equal(["overlay.routeOpacity"], ChromeContrast.ValidateOverlay(Parse(overlay)).Select(f => f.Path).ToArray());
+    }
+
+    // A148: overlay.headingColor is a required colour, and every seeded
+    // theme carries its listed value, apart from its route colour.
+    [Fact]
+    public void The_heading_colour_is_a_required_overlay_colour_and_each_seed_carries_its_value()
+    {
+        const string withHeading = """{"routeColor":"#1a56c4","routeOpacity":0.9,"arrowColor":"#1a56c4","timeLabelBg":"#ffffff","timeLabelFg":"#202124","timeLabelOpacity":1,"userColor":"#c62828","headingColor":"#ffb300cc"}""";
+        Assert.Empty(ChromeContrast.ValidateOverlay(Parse(withHeading)));
+        Assert.Equal("#ffb300cc", ChromeContrast.ToOverlay(Parse(withHeading)).HeadingColor);
+
+        var missing = ChromeContrast.ValidateOverlay(Parse(withHeading.Replace(",\"headingColor\":\"#ffb300cc\"", "")));
+        Assert.Equal([("overlay.headingColor", "is required")], missing);
+        var bad = ChromeContrast.ValidateOverlay(Parse(withHeading.Replace("#ffb300cc", "amber")));
+        Assert.Equal([("overlay.headingColor", "must be #rrggbb or #rrggbbaa")], bad);
+
+        var expected = new Dictionary<string, string>
+        {
+            ["light"] = "#ffb300", ["dark"] = "#ffb300", ["standard"] = "#ffb300", ["expedition"] = "#ffb300",
+            ["blizzard"] = "#ffb300", ["charcoal"] = "#69f0ae", ["night"] = "#ffb300", ["nebula"] = "#69f0ae",
+        };
+        Assert.Equal(expected.Keys.Order(), TrackerThemeSeed.Themes.Select(t => t.Key).Order());
+        foreach (var seed in TrackerThemeSeed.Themes)
+        {
+            var overlay = ChromeContrast.ToOverlay(Parse(seed.Overlay));
+            Assert.Equal(expected[seed.Key], overlay.HeadingColor);
+            Assert.NotEqual(overlay.RouteColor, overlay.HeadingColor);
+        }
     }
 }

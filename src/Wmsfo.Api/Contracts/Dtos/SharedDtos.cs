@@ -698,4 +698,5 @@ public sealed class Overlay
     [JsonPropertyOrder(4)] public string TimeLabelFg { get; set; } = "";
     [JsonPropertyOrder(5)] public double TimeLabelOpacity { get; set; }
     [JsonPropertyOrder(6)] public string UserColor { get; set; } = "";
+    [JsonPropertyOrder(7)] public string HeadingColor { get; set; } = "";
 }

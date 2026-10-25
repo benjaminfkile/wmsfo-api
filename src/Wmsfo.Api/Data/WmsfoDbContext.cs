@@ -1105,7 +1105,7 @@ public sealed class WmsfoDbContext : DbContext
             e.Property(x => x.Chrome).HasColumnType("jsonb").IsRequired()
                 .HasComment("{ bg, fg, text, tile, tileFg, panel, accent } as #rrggbb or #rrggbbaa. Write check: text on bg and tileFg on tile at 4.5:1 or better.");
             e.Property(x => x.Overlay).HasColumnType("jsonb").IsRequired()
-                .HasComment("{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor }.");
+                .HasComment("{ routeColor, routeOpacity, arrowColor, timeLabelBg, timeLabelFg, timeLabelOpacity, userColor, headingColor }. Every key required; headingColor paints Santa's heading beam on the tracker, apart from the route.");
             e.Property(x => x.ThumbnailMediaId).HasColumnType("uuid")
                 .HasComment("A media asset (uuid, like sponsor.logo_media_id). The media orphan chore, media usage, and media impact all count this reference (5.4).");
             e.Property(x => x.DefaultLightMode).HasColumnType("boolean").IsRequired().HasDefaultValue(false);

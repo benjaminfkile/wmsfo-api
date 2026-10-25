@@ -1377,7 +1377,7 @@
     "page": "Tracker themes",
     "label": "Overlay colours",
     "title": "The colours drawn over the map",
-    "body": "Overlay sets what the site draws on top of the map: the route path's colour and opacity, the arrows along it, the time labels' background, text, and opacity, and the colour of the viewer's own location marker.\n\nPick colours that stand out against this theme's map. Opacities run from 0, invisible, to 1, solid.",
+    "body": "Overlay sets what the site draws on top of the map: the route path's colour and opacity, the arrows along it, the time labels' background, text, and opacity, the colour of the viewer's own location marker, and the heading colour.\n\nThe heading colour paints the beam that shows which way Santa is going on the live tracker; pick one that differs from the route colour so the two never blend.\n\nPick colours that stand out against this theme's map. Opacities run from 0, invisible, to 1, solid.",
     "links": []
   },
   {

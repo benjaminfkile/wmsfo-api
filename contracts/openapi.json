@@ -7785,6 +7785,9 @@
           },
           "userColor": {
             "type": "string"
+          },
+          "headingColor": {
+            "type": "string"
           }
         }
       },
