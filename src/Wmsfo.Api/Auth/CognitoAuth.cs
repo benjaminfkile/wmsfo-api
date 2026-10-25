@@ -16,7 +16,8 @@ namespace Wmsfo.Api.Auth;
 // pool and the admin pool, contracts 3.1). Issuer, audiences, token_use=id,
 // 60 s skew; the scheme stamps the wmsfo_pool claim. The person-upsert filter
 // runs after validation and attaches wmsfo_person_id to the request, or answers
-// 401 unknown_user when the people pool no longer has the token's user. Policies
+// 401 unknown_user when the people pool no longer has the token's user and
+// 403 blocked when a signup_block row matches a first-seen address. Policies
 // are added by the pipeline extension.
 public static class CognitoAuth
 {
@@ -97,7 +98,8 @@ public static class CognitoAuth
     }
 
     // Maps the upsert's answer onto the request: Found attaches the person id
-    // claim (once), UnknownUser throws 401 unknown_user (contracts 4.7).
+    // claim (once), UnknownUser throws 401 unknown_user, Blocked throws 403
+    // blocked (contracts 4.7).
     public static void ApplyUpsertResult(PersonUpsertResult result, ClaimsPrincipal user)
     {
         switch (result)
@@ -112,6 +114,9 @@ public static class CognitoAuth
             case PersonUpsertResult.UnknownUser:
                 throw new ApiException(StatusCodes.Status401Unauthorized, ApiErrorCodes.UnknownUser,
                     "the token's user no longer exists; sign in again");
+            case PersonUpsertResult.BlockedUser:
+                throw new ApiException(StatusCodes.Status403Forbidden, ApiErrorCodes.Blocked,
+                    SignupBlocks.BlockedMessage);
             default:
                 throw new InvalidOperationException("unknown person upsert result " + result.GetType().Name);
         }
@@ -156,8 +161,8 @@ public interface IPersonUpsert
     Task<PersonUpsertResult> EnsureAsync(string sub, string email, CancellationToken ct);
 }
 
-// The upsert's answer: the person's row id, or the token's user is not a user
-// of the people pool (and nothing was written).
+// The upsert's answer: the person's row id, the token's user is not a user of
+// the people pool, or the user's address is blocked (both with nothing written).
 public abstract record PersonUpsertResult
 {
     private PersonUpsertResult() { }
@@ -167,12 +172,18 @@ public abstract record PersonUpsertResult
     public sealed record UnknownUser : PersonUpsertResult;
 
     public static readonly UnknownUser Unknown = new();
+
+    public sealed record BlockedUser : PersonUpsertResult;
+
+    public static readonly BlockedUser Blocked = new();
 }
 
 // Contracts 3.1 and sql.md 8.1: one address is one person. The hot path is one
 // update by sub with no Cognito call. No row (first sight of the sub, or an
 // email change that collides with person_email_lower_key) asks the people pool
-// once: a missing user is UnknownUser with nothing written; an existing one gets
+// once: a missing user is UnknownUser with nothing written; an existing user
+// whose address a signup_block pattern matches has its Cognito user removed and
+// is Blocked with nothing written (contracts 3.1); any other existing one gets
 // its row in one transaction after any stale row holding the address is deleted
 // with its cascade.
 public sealed class DbPersonUpsert : IPersonUpsert
@@ -199,6 +210,12 @@ public sealed class DbPersonUpsert : IPersonUpsert
 
         if (!await _directory.ExistsAsync(sub, ct)) return PersonUpsertResult.Unknown;
 
+        if (await IsBlockedAsync(email, ct))
+        {
+            await RemoveBlockedAsync(sub, ct);
+            return PersonUpsertResult.Blocked;
+        }
+
         try
         {
             return new PersonUpsertResult.Found(await FirstSightAsync(cognitoSub, email, ct));
@@ -208,6 +225,32 @@ public sealed class DbPersonUpsert : IPersonUpsert
             // A concurrent first sight wrote the address between the delete and
             // the insert; the second run deletes that row like any stale one.
             return new PersonUpsertResult.Found(await FirstSightAsync(cognitoSub, email, ct));
+        }
+    }
+
+    private async Task<bool> IsBlockedAsync(string email, CancellationToken ct)
+    {
+        await using var conn = new NpgsqlConnection(_connections.App);
+        await conn.OpenAsync(ct);
+        return SignupBlocks.Matches(email, await SignupBlocks.ReadPatternsAsync(conn, null, ct));
+    }
+
+    // The blocked user's sign-in goes (global sign-out, then the Cognito
+    // delete); a failure is logged and the answer stays 403 blocked.
+    private async Task RemoveBlockedAsync(string sub, CancellationToken ct)
+    {
+        try
+        {
+            await _directory.RemoveAsync(sub, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("blocked first sight: the sign-in removal failed ({ExceptionType}: {ExceptionMessage})",
+                ex.GetType().Name, ex.Message);
         }
     }
 

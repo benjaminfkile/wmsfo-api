@@ -36,6 +36,7 @@ public sealed class WmsfoDbContext : DbContext
     public DbSet<SponsorYear> SponsorYear => Set<SponsorYear>();
     public DbSet<Person> Person => Set<Person>();
     public DbSet<ApiKey> ApiKey => Set<ApiKey>();
+    public DbSet<SignupBlock> SignupBlock => Set<SignupBlock>();
     public DbSet<Subscriber> Subscriber => Set<Subscriber>();
     public DbSet<CookieType> CookieType => Set<CookieType>();
     public DbSet<Cookie> Cookie => Set<Cookie>();
@@ -517,6 +518,28 @@ public sealed class WmsfoDbContext : DbContext
             // person_email_lower_key is a functional unique index on
             // lower(email); the migration installs it as raw SQL since EF Core
             // cannot describe expression indexes here.
+        });
+
+        // 3.12a signup_block
+        mb.Entity<SignupBlock>(e =>
+        {
+            e.ToTable("signup_block", t =>
+            {
+                t.HasComment("Addresses and domains that cannot sign up. A person whose address matches a pattern is removed when the block is written, and a first sight of a matching address is refused.");
+                t.HasCheckConstraint("signup_block_pattern_check",
+                    "char_length(pattern) between 3 and 254 and pattern = lower(pattern)");
+                t.HasCheckConstraint("signup_block_note_check", "char_length(note) between 1 and 300");
+            });
+            e.HasKey(x => x.Id).HasName("signup_block_pkey");
+            e.Property(x => x.Id).UseIdentityAlwaysColumn();
+            e.Property(x => x.Pattern).HasColumnType("text").IsRequired()
+                .HasComment("An address (jane@example.com) or a domain (*@example.com), trimmed and lowercased. An address matches by equality; a domain matches the part after the address's last @.");
+            e.Property(x => x.Note).HasColumnType("text").IsRequired()
+                .HasComment("Why the pattern is blocked, as the admin wrote it.");
+            e.Property(x => x.CreatedBy).HasColumnType("text").IsRequired()
+                .HasComment("The audit actor text of the admin who wrote the block (person:<email> or key:<name>).");
+            e.Property(x => x.CreatedAt).HasColumnType("timestamptz").IsRequired().HasDefaultValueSql("now()");
+            e.HasAlternateKey(x => x.Pattern).HasName("signup_block_pattern_key");
         });
 
         // 3.13 subscriber

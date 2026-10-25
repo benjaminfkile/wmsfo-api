@@ -782,6 +782,23 @@ public static class EndpointStubs
         app.MapDelete("/admin/people/{id:long}", NotImplemented)
             .WithTags("AdminInbox")
             .Produces(StatusCodes.Status204NoContent);
+
+        app.MapGet("/admin/people/blocks", NotImplemented)
+            .WithTags("AdminInbox")
+            .Produces<ItemsResponse<SignupBlockDto>>(StatusCodes.Status200OK);
+
+        app.MapGet("/admin/people/blocks/impact", NotImplemented)
+            .WithTags("AdminInbox")
+            .Produces<SignupBlockImpactDto>(StatusCodes.Status200OK);
+
+        app.MapPost("/admin/people/blocks", NotImplemented)
+            .WithTags("AdminInbox")
+            .Accepts<CreateSignupBlockRequest>("application/json")
+            .Produces<SignupBlockDto>(StatusCodes.Status201Created);
+
+        app.MapDelete("/admin/people/blocks/{id:long}", NotImplemented)
+            .WithTags("AdminInbox")
+            .Produces(StatusCodes.Status204NoContent);
     }
 
     private static void MapAdminPosters(IEndpointRouteBuilder app)
