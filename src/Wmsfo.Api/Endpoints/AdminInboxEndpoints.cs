@@ -24,6 +24,8 @@ namespace Wmsfo.Api.Endpoints;
 // - GET /admin/people (with cookieCount across every event)
 // - DELETE row is a hard delete (people cascade to their subscribers and cookies;
 //   PersonRemoval removes the person's Cognito user first)
+// - the blocked addresses and domains under /admin/people/blocks
+//   (AdminSignupBlockEndpoints)
 public static class AdminInboxEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -36,6 +38,7 @@ public static class AdminInboxEndpoints
         MapDeleteSubscriber(app);
         MapListPeople(app);
         MapDeletePerson(app);
+        AdminSignupBlockEndpoints.MapAll(app);
     }
 
     private static void MapListContactMessages(IEndpointRouteBuilder app)

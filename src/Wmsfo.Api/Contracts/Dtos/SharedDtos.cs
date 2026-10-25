@@ -273,6 +273,42 @@ public sealed class PersonWithCookieCountDto
     public AuditStampDto? Audit { get; set; }
 }
 
+// Contracts 4.0 SignupBlock (4.5 People): `kind` is "address" or "domain";
+// `matchingCount` counts the person rows whose address the pattern matches now.
+public sealed class SignupBlockDto
+{
+    public long Id { get; set; }
+    public string Pattern { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string Note { get; set; } = "";
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public int MatchingCount { get; set; }
+}
+
+// Contracts 4.0 SignupBlockImpact: the person rows a pattern matches now, with
+// their subscriber and cookie counts, which a block of the pattern removes.
+public sealed class SignupBlockImpactDto
+{
+    public string Pattern { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public List<SignupBlockPersonDto> People { get; set; } = new();
+    public int Subscriptions { get; set; }
+    public int Cookies { get; set; }
+}
+
+public sealed class SignupBlockPersonDto
+{
+    public long Id { get; set; }
+    public string Email { get; set; } = "";
+}
+
+public sealed class CreateSignupBlockRequest
+{
+    public string? Pattern { get; set; }
+    public string? Note { get; set; }
+}
+
 public sealed class ContactMessageDto
 {
     public long Id { get; set; }

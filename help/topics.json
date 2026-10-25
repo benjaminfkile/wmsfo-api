@@ -1007,11 +1007,31 @@
     "page": "People",
     "label": "People list",
     "title": "Visitors who signed in",
-    "body": "People are visitors who created an account on the public site, which is what lets them leave cookies and subscribe. Each row shows the email, how many cookies they have left, when the account was created, and when they were last seen. The list loads in pages with a Load more button.\n\nThe delete icon opens a dialog that first shows what goes with the person, such as their cookies and subscription, then removes them along with their sign-in: they are signed out on every device and their account is gone, with nothing left to do in AWS. They can create a new account afterwards, which starts empty. The deleted row stays readable on the Audit page.\n\nThere is nothing to edit; accounts are the visitor's own. Subscriptions are listed on the Subscribers page and the cookie tally per type on the Cookie types page.",
+    "body": "People are visitors who created an account on the public site, which is what lets them leave cookies and subscribe. Each row shows the email, how many cookies they have left, when the account was created, and when they were last seen. The list loads in pages with a Load more button.\n\nThe delete icon opens a dialog that first shows what goes with the person, such as their cookies and subscription, then removes them along with their sign-in: they are signed out on every device and their account is gone, with nothing left to do in AWS. They can create a new account afterwards, which starts empty. The deleted row stays readable on the Audit page.\n\nThe Blocked section below the list holds the addresses and domains that cannot sign up, with the note on why, who blocked them, and when. Block opens a dialog for a new one; blocking removes every matching account the way a delete does.\n\nThere is nothing to edit; accounts are the visitor's own. Subscriptions are listed on the Subscribers page and the cookie tally per type on the Cookie types page.",
     "links": [
       { "label": "Subscribers", "to": "/subscribers" },
       { "label": "Cookie types", "to": "/cookie-types" },
       { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "people.blocked",
+    "page": "People",
+    "label": "Blocked addresses and domains",
+    "title": "Addresses and domains that cannot sign up",
+    "body": "A block stops an address, or every address at a domain, from using the site. Each row shows the address or domain, whether it is one address or a whole domain, the note on why, who blocked it and when, and how many accounts it matches right now.\n\nBlocking removes every account that matches, the same way a delete does: the person is signed out on every device, their account is gone, and their cookies and subscriptions go with them. From then on the site's sign-up page refuses the address, and if a matching account ever reaches the site anyway it is removed on its first visit. A blocked address cannot be used for alert subscriptions either.\n\nUnblock removes the row. The address can then sign up again and starts over as a new person with nothing from before. Blocks and unblocks stay readable on the Audit page.",
+    "links": [
+      { "label": "Audit", "to": "/audit" }
+    ]
+  },
+  {
+    "key": "people.block",
+    "page": "People",
+    "label": "Block dialog",
+    "title": "Blocking an address or a domain",
+    "body": "Type one address, such as jane@example.com, to block that person, or a domain written as *@example.com to block everyone whose address ends there. Only the part after the @ counts, so *@example.com does not block mail.example.com. Upper and lower case are the same.\n\nThe note is required: say why, in up to 300 characters, so whoever reads the list later knows. It shows in the Blocked list and on the Audit page.\n\nBefore you confirm, the dialog lists every account that will be removed with their cookie and subscription counts. Confirming blocks the address or domain and removes those accounts in one step; if the sign-in service cannot be reached nothing is blocked or removed, and you can try again.",
+    "links": [
+      { "label": "People", "to": "/people" }
     ]
   },
   {

@@ -185,6 +185,16 @@ public sealed class Person
     public JsonDocument? Preferences { get; set; }
 }
 
+// sql.md 3.12a: an address or a domain (`*@example.com`) that cannot sign up.
+public sealed class SignupBlock
+{
+    public long Id { get; set; }
+    public string Pattern { get; set; } = "";
+    public string Note { get; set; } = "";
+    public string CreatedBy { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
 public sealed class ApiKey
 {
     public long Id { get; set; }

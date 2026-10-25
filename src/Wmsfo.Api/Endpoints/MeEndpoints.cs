@@ -93,6 +93,7 @@ order by id asc;", conn);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await RequireSubscriptionsOpenAsync(conn, ct);
+                await SignupBlocks.RequireSubscriptionAddressAllowedAsync(conn, address, ct);
 
                 SubscriptionDto dto;
                 int status;

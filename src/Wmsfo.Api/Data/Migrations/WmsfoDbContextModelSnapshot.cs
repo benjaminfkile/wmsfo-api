@@ -2230,6 +2230,55 @@ namespace Wmsfo.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Wmsfo.Api.Data.SignupBlock", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by")
+                        .HasComment("The audit actor text of the admin who wrote the block (person:<email> or key:<name>).");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("note")
+                        .HasComment("Why the pattern is blocked, as the admin wrote it.");
+
+                    b.Property<string>("Pattern")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("pattern")
+                        .HasComment("An address (jane@example.com) or a domain (*@example.com), trimmed and lowercased. An address matches by equality; a domain matches the part after the address's last @.");
+
+                    b.HasKey("Id")
+                        .HasName("signup_block_pkey");
+
+                    b.HasAlternateKey("Pattern")
+                        .HasName("signup_block_pattern_key");
+
+                    b.ToTable("signup_block", null, t =>
+                        {
+                            t.HasComment("Addresses and domains that cannot sign up. A person whose address matches a pattern is removed when the block is written, and a first sight of a matching address is refused.");
+
+                            t.HasCheckConstraint("signup_block_note_check", "char_length(note) between 1 and 300");
+
+                            t.HasCheckConstraint("signup_block_pattern_check", "char_length(pattern) between 3 and 254 and pattern = lower(pattern)");
+                        });
+                });
+
             modelBuilder.Entity("Wmsfo.Api.Data.SiteSettingDraft", b =>
                 {
                     b.Property<short>("Id")

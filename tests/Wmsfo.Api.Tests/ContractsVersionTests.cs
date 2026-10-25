@@ -99,6 +99,7 @@ public class ContractsVersionTests
         { 86, "de0c5a46f59c2e0fbd7320394cd77e4d2a6a026537ac4f71ddd91cfec57da2c5" },
         { 87, "de0c5a46f59c2e0fbd7320394cd77e4d2a6a026537ac4f71ddd91cfec57da2c5" },
         { 88, "de0c5a46f59c2e0fbd7320394cd77e4d2a6a026537ac4f71ddd91cfec57da2c5" },
+        { 89, "0fb2d3b79925372a0bf333877bed8de75a2865e97cefd477ea378184f0b6327a" },
     };
 
     [Fact]

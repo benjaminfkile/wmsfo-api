@@ -65,4 +65,11 @@ public static class ApiErrorCodes
     // A121: POST /me/subscriptions and resend-verification while the
     // `subscriptions_open` setting is false (contracts 4.4).
     public const string SubscriptionsClosed = "subscriptions_closed";
+
+    // A145: an address a `signup_block` row matches: `403` on first sight
+    // (contracts 3.1) and `409` on a subscription address (contracts 4.4).
+    public const string Blocked = "blocked";
+
+    // A145: `POST /admin/people/blocks` with a pattern that is already blocked.
+    public const string BlockExists = "block_exists";
 }

@@ -2542,6 +2542,83 @@
         }
       }
     },
+    "/admin/people/blocks": {
+      "get": {
+        "tags": [
+          "AdminInbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsResponseOfSignupBlockDto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AdminInbox"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSignupBlockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupBlockDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/people/blocks/impact": {
+      "get": {
+        "tags": [
+          "AdminInbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignupBlockImpactDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/people/blocks/{id}": {
+      "delete": {
+        "tags": [
+          "AdminInbox"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/admin/api-keys": {
       "get": {
         "tags": [
@@ -5386,6 +5463,23 @@
           }
         }
       },
+      "CreateSignupBlockRequest": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CreateSponsorRequest": {
         "type": "object",
         "properties": {
@@ -6340,6 +6434,17 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SettingDto"
+            }
+          }
+        }
+      },
+      "ItemsResponseOfSignupBlockDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupBlockDto"
             }
           }
         }
@@ -10013,6 +10118,92 @@
         "properties": {
           "value": {
             "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
+      "SignupBlockDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "matchingCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SignupBlockImpactDto": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignupBlockPersonDto"
+            }
+          },
+          "subscriptions": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cookies": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "SignupBlockPersonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "email": {
+            "type": "string"
           }
         }
       },
