@@ -1,0 +1,59 @@
+# docs/platform.md section 9.1c: the sign-up gate Lambda.
+name: signup-gate
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["lambdas/signup-gate/**"]
+  pull_request:
+    paths: ["lambdas/signup-gate/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
+      - run: node --test lambdas/signup-gate
+
+  deploy:
+    needs: test
+    # Pushes to dev update the dev function (environment dev); pushes to main
+    # update the prod function (environment prod).
+    if: github.event_name == 'push' && (github.ref_name == 'dev' || github.ref_name == 'main')
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      # Empty until the function and its secret exist (platform.md 18): the
+      # steps below skip so a push stays green before the sign-up gate
+      # infrastructure is created. The secrets context is not readable in a
+      # job-level if, so the guard sits on the steps.
+      SIGNUP_GATE_FUNCTION: ${{ secrets.SIGNUP_GATE_FUNCTION }}
+    steps:
+      - uses: actions/checkout@v4
+      - if: env.SIGNUP_GATE_FUNCTION != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Package the handler
+        if: env.SIGNUP_GATE_FUNCTION != ''
+        run: |
+          mkdir -p build
+          cp lambdas/signup-gate/index.mjs lambdas/signup-gate/package.json build/
+          (cd build && zip -qr ../signup-gate.zip .)
+      - name: Update the function code
+        if: env.SIGNUP_GATE_FUNCTION != ''
+        run: |
+          aws lambda update-function-code \
+            --function-name "$SIGNUP_GATE_FUNCTION" \
+            --zip-file fileb://signup-gate.zip > /dev/null
+          aws lambda wait function-updated --function-name "$SIGNUP_GATE_FUNCTION"

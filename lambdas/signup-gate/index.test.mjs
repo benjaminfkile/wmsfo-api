@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { REFUSAL, UNAVAILABLE, buildDocument, createHandler, matches, parseList } from "./index.mjs";
+import { BLOCKED, REFUSAL, UNAVAILABLE, buildDocument, createHandler, matches, parseList } from "./index.mjs";
 
 // Placeholder ARNs under the documentation account, built so no line holds a full ARN.
 const ACCOUNT = "123456789012";
@@ -10,6 +10,7 @@ const PROD_SET = `${SES}:configuration-set/example-prod`;
 const DEV_SET = `${SES}:configuration-set/example-dev`;
 
 const ENV = {
+  BLOCKLIST_SECRET_ID: "example-blocklist",
   ALLOWLIST_SECRET_ID: "example-allowlist",
   ALLOWLIST_TTL_SECONDS: "0",
   SES_ROLE_NAME: "example-instance-role",
@@ -19,14 +20,27 @@ const ENV = {
 };
 
 const LIST = ["Owner@Example.com", "*@example.org", "tester+*@example.net"];
+const BLOCKS = ["Spammer@Example.org", "*@example.biz"];
 
-// A secrets client that answers with the given list (or throws) and counts reads.
-function fakeSecrets(list = LIST) {
+// Prod's environment: the block list and no invitation list or SES variables.
+const PROD_ENV = { BLOCKLIST_SECRET_ID: ENV.BLOCKLIST_SECRET_ID, ALLOWLIST_TTL_SECONDS: "0" };
+
+// A secrets client that answers with the given lists (or throws) and counts
+// reads: `reads` of the invitation list, `blockReads` of the block list.
+function fakeSecrets(list = LIST, blocks = BLOCKS) {
   const client = {
     reads: 0,
+    blockReads: 0,
     secretString: JSON.stringify(list),
+    blockString: JSON.stringify(blocks),
     fail: false,
+    blockFail: false,
     async getSecretValue(input) {
+      if (input.SecretId === ENV.BLOCKLIST_SECRET_ID) {
+        client.blockReads++;
+        if (client.blockFail) throw new Error("AccessDeniedException");
+        return { SecretString: client.blockString };
+      }
       client.reads++;
       assert.equal(input.SecretId, ENV.ALLOWLIST_SECRET_ID);
       if (client.fail) throw new Error("AccessDeniedException");
@@ -151,7 +165,7 @@ test("SignUp on the list returns the same event with no auto flags", async () =>
   assert.equal(result.response.autoConfirmUser, false);
   assert.equal(result.response.autoVerifyEmail, false);
   assert.equal(lines.length, 1);
-  assert.deepEqual(JSON.parse(lines[0]), { msg: "dev_gate", triggerSource: "PreSignUp_SignUp", allowed: true });
+  assert.deepEqual(JSON.parse(lines[0]), { msg: "signup_gate", triggerSource: "PreSignUp_SignUp", allowed: true });
   assert.ok(!lines[0].includes("example.com"));
 });
 
@@ -161,7 +175,7 @@ test("SignUp outside the list throws REFUSAL and logs no address", async () => {
   assert.ok(err instanceof Error);
   assert.equal(err.message, REFUSAL);
   assert.equal(lines.length, 1);
-  assert.deepEqual(JSON.parse(lines[0]), { msg: "dev_gate", triggerSource: "PreSignUp_SignUp", allowed: false });
+  assert.deepEqual(JSON.parse(lines[0]), { msg: "signup_gate", triggerSource: "PreSignUp_SignUp", allowed: false, refusedBy: "allowlist" });
   assert.ok(!lines[0].includes("stranger"));
 });
 
@@ -184,6 +198,7 @@ test("AdminCreateUser passes without reading the secret", async () => {
   assert.equal(result, input);
   assert.deepEqual(result, before);
   assert.equal(secrets.reads, 0);
+  assert.equal(secrets.blockReads, 0);
   assert.equal(JSON.parse(lines[0]).allowed, true);
 });
 
@@ -225,6 +240,130 @@ test("a TTL of 0 reads the secret on every call", async () => {
   await captureLog(() => handler(signUp("owner@example.com")));
   await captureLog(() => handler(signUp("owner@example.com")));
   assert.equal(secrets.reads, 2);
+});
+
+// The block list
+
+test("a blocked address is refused with BLOCKED before the allow list is consulted", async () => {
+  const secrets = fakeSecrets();
+  const handler = createHandler({ secrets, env: ENV });
+  // On the allow list through *@example.org, and blocked by address.
+  const [err, lines] = await captureLog(() => handler(signUp("spammer@EXAMPLE.org")));
+  assert.ok(err instanceof Error);
+  assert.equal(err.message, BLOCKED);
+  assert.equal(err.message, "This address cannot sign up here.");
+  assert.equal(secrets.blockReads, 1);
+  assert.equal(secrets.reads, 0);
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    msg: "signup_gate",
+    triggerSource: "PreSignUp_SignUp",
+    allowed: false,
+    refusedBy: "blocks",
+  });
+  assert.ok(!lines[0].includes("spammer"));
+});
+
+test("a blocked domain is refused with BLOCKED, ExternalProvider included", async () => {
+  const secrets = fakeSecrets([...LIST, "*@example.biz", "*@example.bizz"]);
+  const handler = createHandler({ secrets, env: ENV });
+  const [err] = await captureLog(() => handler(signUp("anyone@example.biz")));
+  assert.equal(err.message, BLOCKED);
+  const [err2, lines] = await captureLog(() => handler(signUp("other@example.biz", "PreSignUp_ExternalProvider")));
+  assert.equal(err2.message, BLOCKED);
+  assert.equal(JSON.parse(lines[0]).triggerSource, "PreSignUp_ExternalProvider");
+  assert.equal(secrets.reads, 0);
+  // The domain pattern does not reach a longer domain, which the allow list admits.
+  const [result] = await captureLog(() => handler(signUp("anyone@example.bizz")));
+  assert.equal(result.triggerSource, "PreSignUp_SignUp");
+});
+
+test("an unreadable block secret lets an allow-listed address through and the allow list refuses an outsider", async () => {
+  const secrets = fakeSecrets();
+  secrets.blockFail = true;
+  const handler = createHandler({ secrets, env: ENV });
+  const input = signUp("owner@example.com");
+  const [result, lines] = await captureLog(() => handler(input));
+  assert.equal(result, input);
+  assert.deepEqual(lines.map((l) => JSON.parse(l)), [
+    { msg: "signup_gate", check: "blocks", error: "Error" },
+    { msg: "signup_gate", triggerSource: "PreSignUp_SignUp", allowed: true },
+  ]);
+  assert.ok(!lines.join("\n").includes("owner"));
+  const [err, lines2] = await captureLog(() => handler(signUp("stranger@example.com")));
+  assert.equal(err.message, REFUSAL);
+  assert.equal(JSON.parse(lines2.at(-1)).refusedBy, "allowlist");
+});
+
+test("an unparsable block secret fails open", async () => {
+  const secrets = fakeSecrets();
+  secrets.blockString = JSON.stringify({ entries: BLOCKS });
+  const input = signUp("spammer@example.org");
+  const [result, lines] = await captureLog(() => createHandler({ secrets, env: ENV })(input));
+  assert.equal(result, input);
+  assert.equal(JSON.parse(lines[0]).check, "blocks");
+});
+
+test("the block list and the allow list are cached separately", async () => {
+  const secrets = fakeSecrets();
+  let clock = 1_000_000;
+  const handler = createHandler({ secrets, env: { ...ENV, ALLOWLIST_TTL_SECONDS: undefined }, now: () => clock });
+  await captureLog(() => handler(signUp("owner@example.com")));
+  await captureLog(() => handler(signUp("owner@example.com")));
+  assert.equal(secrets.blockReads, 1);
+  assert.equal(secrets.reads, 1);
+  clock += 60_000;
+  await captureLog(() => handler(signUp("owner@example.com")));
+  assert.equal(secrets.blockReads, 2);
+  assert.equal(secrets.reads, 2);
+});
+
+// Prod: the block list only
+
+test("prod: an unblocked address passes with no allow list and no SES variables", async () => {
+  const secrets = fakeSecrets();
+  const handler = createHandler({ secrets, env: PROD_ENV });
+  const input = signUp("stranger@example.com");
+  const before = structuredClone(input);
+  const [result, lines] = await captureLog(() => handler(input));
+  assert.equal(result, input);
+  assert.deepEqual(result, before);
+  assert.equal(secrets.reads, 0);
+  assert.equal(secrets.blockReads, 1);
+  assert.deepEqual(lines.map((l) => JSON.parse(l)), [
+    { msg: "signup_gate", triggerSource: "PreSignUp_SignUp", allowed: true },
+  ]);
+});
+
+test("prod: a blocked address is refused", async () => {
+  const secrets = fakeSecrets();
+  const handler = createHandler({ secrets, env: PROD_ENV });
+  const [err, lines] = await captureLog(() => handler(signUp("Spammer@example.org")));
+  assert.equal(err.message, BLOCKED);
+  assert.equal(JSON.parse(lines[0]).refusedBy, "blocks");
+  const [err2] = await captureLog(() => handler(signUp("someone@example.biz")));
+  assert.equal(err2.message, BLOCKED);
+  assert.equal(secrets.reads, 0);
+});
+
+test("prod: an unreadable block secret lets the sign-up through", async () => {
+  const secrets = fakeSecrets();
+  secrets.blockFail = true;
+  const handler = createHandler({ secrets, env: PROD_ENV });
+  const input = signUp("spammer@example.org");
+  const [result, lines] = await captureLog(() => handler(input));
+  assert.equal(result, input);
+  assert.deepEqual(JSON.parse(lines[0]), { msg: "signup_gate", check: "blocks", error: "Error" });
+  assert.equal(JSON.parse(lines[1]).allowed, true);
+});
+
+test("prod: a missing block secret id fails open as an unreadable secret does", async () => {
+  const secrets = fakeSecrets();
+  const input = signUp("owner@example.com");
+  const [result, lines] = await captureLog(() => createHandler({ secrets, env: { ALLOWLIST_TTL_SECONDS: "0" } })(input));
+  assert.equal(result, input);
+  assert.equal(secrets.blockReads, 0);
+  assert.equal(JSON.parse(lines[0]).check, "blocks");
 });
 
 test("an unknown event shape throws", async () => {
