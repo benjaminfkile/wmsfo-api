@@ -239,16 +239,28 @@ values ($1, 0, true, now()) returning id;", conn))
     }
 }
 
-// The people pool as the upsert sees it: answers Exists for every sub and
-// records each sub it was asked about.
+// The people pool as the upsert and the person delete see it: answers Exists
+// for every sub and records each sub it was asked about; answers Removal for
+// every removal, or throws RemoveFailure when set, and records each username.
 public sealed class RecordingPersonDirectory : IPersonDirectory
 {
     public bool Exists { get; set; } = true;
     public ConcurrentQueue<string> Calls { get; } = new();
 
+    public SignInRemoval Removal { get; set; } = SignInRemoval.Removed;
+    public Exception? RemoveFailure { get; set; }
+    public ConcurrentQueue<string> Removals { get; } = new();
+
     public Task<bool> ExistsAsync(string sub, CancellationToken ct)
     {
         Calls.Enqueue(sub);
         return Task.FromResult(Exists);
+    }
+
+    public Task<SignInRemoval> RemoveAsync(string username, CancellationToken ct)
+    {
+        Removals.Enqueue(username);
+        if (RemoveFailure is not null) throw RemoveFailure;
+        return Task.FromResult(Removal);
     }
 }

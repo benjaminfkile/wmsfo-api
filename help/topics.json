@@ -1007,7 +1007,7 @@
     "page": "People",
     "label": "People list",
     "title": "Visitors who signed in",
-    "body": "People are visitors who created an account on the public site, which is what lets them leave cookies and subscribe. Each row shows the email, how many cookies they have left, when the account was created, and when they were last seen. The list loads in pages with a Load more button.\n\nThe delete icon opens a dialog that first shows what goes with the person, such as their cookies and subscription, then removes them. The deleted row stays readable on the Audit page.\n\nThere is nothing to edit; accounts are the visitor's own. Subscriptions are listed on the Subscribers page and the cookie tally per type on the Cookie types page.",
+    "body": "People are visitors who created an account on the public site, which is what lets them leave cookies and subscribe. Each row shows the email, how many cookies they have left, when the account was created, and when they were last seen. The list loads in pages with a Load more button.\n\nThe delete icon opens a dialog that first shows what goes with the person, such as their cookies and subscription, then removes them along with their sign-in: they are signed out on every device and their account is gone, with nothing left to do in AWS. They can create a new account afterwards, which starts empty. The deleted row stays readable on the Audit page.\n\nThere is nothing to edit; accounts are the visitor's own. Subscriptions are listed on the Subscribers page and the cookie tally per type on the Cookie types page.",
     "links": [
       { "label": "Subscribers", "to": "/subscribers" },
       { "label": "Cookie types", "to": "/cookie-types" },
