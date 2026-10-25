@@ -1,5 +1,5 @@
 {
-  "name": "dev-gate",
+  "name": "signup-gate",
   "private": true,
   "type": "module",
   "main": "index.test.mjs",

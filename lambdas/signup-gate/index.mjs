@@ -1,10 +1,14 @@
-// The dev gate: the dev people pool's Pre sign-up trigger and the scheduled
-// SES sync, both driven by one allow list held in Secrets Manager.
-// Pre sign-up refuses every address outside the list and fails closed when the
-// list cannot be read. The sync keeps the instance role's SES statements equal
-// to the list, so dev mail reaches only listed addresses. The AWS SDK clients
-// come from the Lambda runtime and are loaded on first use; tests inject them.
+// The sign-up gate: the Pre sign-up trigger of both people pools, and on dev
+// the scheduled SES sync. Pre sign-up first refuses an address on the block
+// list (BLOCKLIST_SECRET_ID, written by the API) and lets the sign-up through
+// when that list cannot be read; then, only where ALLOWLIST_SECRET_ID is set
+// (dev), it refuses every address outside the invitation list and fails closed
+// when that list cannot be read. The sync keeps the instance role's SES
+// statements equal to the invitation list, so dev mail reaches only listed
+// addresses. The AWS SDK clients come from the Lambda runtime and are loaded on
+// first use; tests inject them.
 
+export const BLOCKED = "This address cannot sign up here.";
 export const REFUSAL = "This site is by invitation. Ask the operator to add your address.";
 export const UNAVAILABLE = "Sign-up is unavailable right now. Try again later.";
 
@@ -38,10 +42,10 @@ export function matches(address, entries) {
 // Parses the secret string: a JSON array of non-empty strings. Anything else throws.
 export function parseList(secretString) {
   const list = JSON.parse(secretString);
-  if (!Array.isArray(list)) throw new Error("the allow list is not a JSON array");
+  if (!Array.isArray(list)) throw new Error("the list is not a JSON array");
   for (const entry of list) {
     if (typeof entry !== "string" || entry.trim() === "") {
-      throw new Error("the allow list has an entry that is not a non-empty string");
+      throw new Error("the list has an entry that is not a non-empty string");
     }
   }
   return list;
@@ -108,7 +112,7 @@ async function defaultIam() {
 // Returns the handler. `secrets` needs getSecretValue and `iam` needs
 // getRolePolicy and putRolePolicy, in the shape of the SDK v3 clients.
 export function createHandler({ secrets, iam, env = process.env, now = () => Date.now() } = {}) {
-  let cache = null;
+  const cache = new Map();
   let secretsClient = secrets;
   let iamClient = iam;
 
@@ -118,44 +122,66 @@ export function createHandler({ secrets, iam, env = process.env, now = () => Dat
     return (Number.isFinite(seconds) && seconds >= 0 ? seconds : DEFAULT_TTL_SECONDS) * 1000;
   };
 
-  // The parsed list, read through the secrets client and kept for the TTL.
-  async function loadList() {
-    if (cache && now() - cache.at < ttlMs()) return cache.entries;
-    const secretId = env.ALLOWLIST_SECRET_ID;
-    if (!secretId) throw new Error("ALLOWLIST_SECRET_ID is not set");
+  // The parsed list named by the env variable, read through the secrets client
+  // and kept for the TTL, one cache entry per variable.
+  async function loadList(variable) {
+    const hit = cache.get(variable);
+    if (hit && now() - hit.at < ttlMs()) return hit.entries;
+    const secretId = env[variable];
+    if (!secretId) throw new Error(`${variable} is not set`);
     secretsClient ??= await defaultSecrets();
     const out = await secretsClient.getSecretValue({ SecretId: secretId });
-    if (typeof out?.SecretString !== "string") throw new Error("the allow list secret has no string");
+    if (typeof out?.SecretString !== "string") throw new Error("the secret has no string");
     const entries = parseList(out.SecretString);
-    cache = { at: now(), entries };
+    cache.set(variable, { at: now(), entries });
     return entries;
   }
 
   async function preSignUp(event) {
     const triggerSource = event.triggerSource;
     if (triggerSource === "PreSignUp_AdminCreateUser") {
-      log({ msg: "dev_gate", triggerSource, allowed: true });
+      log({ msg: "signup_gate", triggerSource, allowed: true });
       return event;
     }
     if (triggerSource !== "PreSignUp_SignUp" && triggerSource !== "PreSignUp_ExternalProvider") {
       throw new Error(`unknown trigger source ${triggerSource}`);
     }
-    let allowed;
+    const email = event.request?.userAttributes?.email;
+
+    // The block list fails open: the API's first-sight check refuses a blocked
+    // address that slips through while the secret cannot be read.
+    let blocks = [];
     try {
-      const email = event.request?.userAttributes?.email;
-      if (typeof email !== "string" || email.trim() === "") throw new Error("the event has no email");
-      allowed = matches(email, await loadList());
+      blocks = await loadList("BLOCKLIST_SECRET_ID");
     } catch (err) {
-      log({ msg: "dev_gate", triggerSource, allowed: false, error: err?.name ?? "Error" });
-      throw new Error(UNAVAILABLE);
+      log({ msg: "signup_gate", check: "blocks", error: err?.name ?? "Error" });
     }
-    log({ msg: "dev_gate", triggerSource, allowed });
-    if (!allowed) throw new Error(REFUSAL);
+    if (matches(email, blocks)) {
+      log({ msg: "signup_gate", triggerSource, allowed: false, refusedBy: "blocks" });
+      throw new Error(BLOCKED);
+    }
+
+    // The invitation list, on dev only, fails closed.
+    if (env.ALLOWLIST_SECRET_ID) {
+      let allowed;
+      try {
+        if (typeof email !== "string" || email.trim() === "") throw new Error("the event has no email");
+        allowed = matches(email, await loadList("ALLOWLIST_SECRET_ID"));
+      } catch (err) {
+        log({ msg: "signup_gate", triggerSource, allowed: false, refusedBy: "allowlist", error: err?.name ?? "Error" });
+        throw new Error(UNAVAILABLE);
+      }
+      if (!allowed) {
+        log({ msg: "signup_gate", triggerSource, allowed: false, refusedBy: "allowlist" });
+        throw new Error(REFUSAL);
+      }
+    }
+    log({ msg: "signup_gate", triggerSource, allowed: true });
     return event;
   }
 
   async function syncSes() {
-    const entries = await loadList();
+    const entries = await loadList("ALLOWLIST_SECRET_ID");
     const roleName = env.SES_ROLE_NAME;
     const policyName = env.SES_POLICY_NAME;
     if (!roleName) throw new Error("SES_ROLE_NAME is not set");
