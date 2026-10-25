@@ -40,6 +40,9 @@ public sealed class WmsfoOptions
     public string AdminGroup { get; set; } = "admin";
     public string EditorGroup { get; set; } = "editor";
     public string CanvasserGroup { get; set; } = "canvasser";
+    // api.md 4: the Secrets Manager secret (name or ARN) the block list is
+    // published to for the sign-up gate. Empty turns publishing off.
+    public string SignupBlockSecretId { get; set; } = "";
     public string ScanSalt { get; set; } = "";
     public string SesFromAddress { get; set; } = "";
     public string SesConfigurationSet { get; set; } = "";
@@ -80,6 +83,7 @@ public sealed class WmsfoOptions
         public const string AdminGroup = "WMSFO_ADMIN_GROUP";
         public const string EditorGroup = "WMSFO_EDITOR_GROUP";
         public const string CanvasserGroup = "WMSFO_CANVASSER_GROUP";
+        public const string SignupBlockSecretId = "WMSFO_SIGNUP_BLOCK_SECRET_ID";
         public const string ScanSalt = "WMSFO_SCAN_SALT";
         public const string SesFromAddress = "WMSFO_SES_FROM_ADDRESS";
         public const string SesConfigurationSet = "WMSFO_SES_CONFIGURATION_SET";
@@ -165,6 +169,7 @@ public sealed class WmsfoOptions
             AdminGroup = string.IsNullOrEmpty(Get(Keys.AdminGroup)) ? "admin" : Get(Keys.AdminGroup),
             EditorGroup = string.IsNullOrEmpty(Get(Keys.EditorGroup)) ? "editor" : Get(Keys.EditorGroup),
             CanvasserGroup = string.IsNullOrEmpty(Get(Keys.CanvasserGroup)) ? "canvasser" : Get(Keys.CanvasserGroup),
+            SignupBlockSecretId = Get(Keys.SignupBlockSecretId),
             ScanSalt = Get(Keys.ScanSalt),
             SesFromAddress = Get(Keys.SesFromAddress),
             SesConfigurationSet = Get(Keys.SesConfigurationSet),

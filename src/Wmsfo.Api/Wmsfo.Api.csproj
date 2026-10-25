@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="AWSSDK.CognitoIdentityProvider" Version="4.0.105.1" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.102.5" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.21" />
     <PackageReference Include="AWSSDK.SimpleEmailV2" Version="4.0.104.1" />
     <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageReference Include="JsonSchema.Net" Version="9.4.0" />

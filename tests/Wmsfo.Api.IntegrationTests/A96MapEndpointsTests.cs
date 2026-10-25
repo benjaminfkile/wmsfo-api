@@ -831,6 +831,8 @@ returning id;", conn);
             new PendingMapSweeper(connections, store, NullLogger<PendingMapSweeper>.Instance),
             new MapSizeMeasurer(connections, store, NullLogger<MapSizeMeasurer>.Instance),
             new ContactInboxImporter(connections, store, NullLogger<ContactInboxImporter>.Instance),
+            new SignupBlockSync(connections, new SecretsManagerSignupBlockPublisher(null, options,
+                NullLogger<SecretsManagerSignupBlockPublisher>.Instance), NullLogger<SignupBlockSync>.Instance),
             new SignUpsSwitch(new ServiceCollection().BuildServiceProvider(), options, connections,
                 NullLogger<SignUpsSwitch>.Instance),
             new FakeChoreClock(ChoreClockStart),

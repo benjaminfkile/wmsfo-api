@@ -80,6 +80,17 @@ public static partial class SignupBlocks
         return patterns;
     }
 
+    // sql.md 9.9: every stored pattern oldest first (created_at, then id), the
+    // order the published copy of the list keeps.
+    public static async Task<List<string>> ReadPatternsInOrderAsync(NpgsqlConnection conn, CancellationToken ct)
+    {
+        var patterns = new List<string>();
+        await using var cmd = new NpgsqlCommand("select pattern from signup_block order by created_at, id;", conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct)) patterns.Add(reader.GetString(0));
+        return patterns;
+    }
+
     // Contracts 4.4: a subscription address that matches a block is
     // `409 blocked`, checked after validation and before any write.
     public static async Task RequireSubscriptionAddressAllowedAsync(NpgsqlConnection conn, string address, CancellationToken ct)

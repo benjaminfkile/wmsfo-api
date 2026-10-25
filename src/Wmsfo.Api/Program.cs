@@ -1,5 +1,6 @@
 using Amazon;
 using Amazon.S3;
+using Amazon.SecretsManager;
 using Amazon.SimpleEmailV2;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -94,6 +95,17 @@ else
     builder.Services.AddSingleton<IObjectStore>(sp =>
         new S3ObjectStore(sp.GetRequiredService<IAmazonS3>(), options.S3Bucket));
 }
+// api.md 4: the Secrets Manager client the block list publisher writes the
+// sign-up gate's secret through (WMSFO_SIGNUP_BLOCK_SECRET_ID). The dev static
+// token mode has none, so publishing is off there.
+if (!options.DevStaticTokens)
+{
+    builder.Services.AddSingleton<IAmazonSecretsManager>(_ =>
+        new AmazonSecretsManagerClient(RegionEndpoint.GetBySystemName(options.AwsRegion)));
+}
+builder.Services.AddSingleton<ISignupBlockPublisher>(sp => new SecretsManagerSignupBlockPublisher(
+    sp.GetService<IAmazonSecretsManager>(), options,
+    sp.GetRequiredService<ILogger<SecretsManagerSignupBlockPublisher>>()));
 
 // api.md 6.3: the admin TOTP gate's checker asks Cognito, and so does the
 // person upsert on first sight of a sub (api.md 6.2); the dev static token
@@ -177,6 +189,7 @@ builder.Services.AddSingleton<NightlyCleanup>();
 builder.Services.AddSingleton<PendingMapSweeper>();
 builder.Services.AddSingleton<MapSizeMeasurer>();
 builder.Services.AddSingleton<ContactInboxImporter>();
+builder.Services.AddSingleton<SignupBlockSync>();
 builder.Services.AddSingleton<SignUpsSwitch>();
 builder.Services.AddHostedService<ChoreHost>();
 

@@ -30,6 +30,7 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | `<allowlist-secret>` | Secrets Manager secret holding the dev allow list, a JSON array of addresses and patterns (sections 4.1, 5, 6.2b). |
 | `<instance-role>` | The gateway fleet's instance role, which carries the inline policy `wmsfo-api` (6.1). |
 | `<dev-gate-function>` | The dev gate Lambda, `wmsfo-dev-gate` (6.2b). |
+| `<signup-block-secret>` | Secrets Manager secret holding the environment's block list, a JSON array of patterns the API writes and the sign-up gate reads (3.2, 6.1). One per environment; where the two appear side by side (6.1) the prod one is `<signup-block-secret-prod>`. |
 
 ### 0.2 What differs between dev and prod
 
@@ -430,6 +431,7 @@ Dev value (contracts 8.1, with the platform's values filled in):
   "WMSFO_ADMIN_GROUP": "admin",
   "WMSFO_EDITOR_GROUP": "editor",
   "WMSFO_CANVASSER_GROUP": "canvasser",
+  "WMSFO_SIGNUP_BLOCK_SECRET_ID": "<signup-block-secret>",
   "WMSFO_SCAN_SALT": "<random string; salts the scan IP hash>",
   "WMSFO_SES_FROM_ADDRESS": "Western Montana Santa Flyover <alerts@<mail-domain>>",
   "WMSFO_SES_CONFIGURATION_SET": "wmsfo-dev",
@@ -454,6 +456,7 @@ Prod differs in exactly these values:
 | `WMSFO_COGNITO_ISSUER`, `WMSFO_COGNITO_CLIENT_IDS`, `WMSFO_COGNITO_USER_POOL_ID` | the prod people pool and its `wmsfo-site` client |
 | `WMSFO_COGNITO_ADMIN_ISSUER`, `WMSFO_COGNITO_ADMIN_CLIENT_IDS`, `WMSFO_COGNITO_ADMIN_USER_POOL_ID` | the prod admin pool and its `wmsfo-admin` client |
 | `WMSFO_SES_CONFIGURATION_SET` | `wmsfo-prod` |
+| `WMSFO_SIGNUP_BLOCK_SECRET_ID` | the prod `<signup-block-secret>` |
 | `WMSFO_ENROLLMENT_ENCRYPTION_KEY`, `WMSFO_SCAN_SALT` | a different random key and a different random salt |
 
 Rules:
@@ -466,6 +469,7 @@ Rules:
 - Creating the secret: `aws secretsmanager create-secret --name <secret-name> --secret-string file://secret.json` from an operator identity. The file never enters a repository.
 - Changing any value: `aws secretsmanager put-secret-value --secret-id <secret-name> --secret-string file://secret.json`. The gateway sees the env drift within about 60 s and blue-green-replaces the container; no CI run is needed. A changed value therefore lands as a container restart, so change values outside the live window.
 - The secret name must fall inside the resource scope of the instance role's existing `secretsmanager:GetSecretValue` grant; if that grant is scoped to a name prefix, the secret is created under that prefix (section 6.1).
+- `<signup-block-secret>` is a second secret per environment, separate from `<secret-name>`: the API writes the block list to it and the sign-up gate reads it (api.md 4). The operator creates it once holding `[]`: `aws secretsmanager create-secret --name <signup-block-secret> --secret-string '[]'`. Its value is never edited by hand; a hand edit is overwritten by the leader within 5 minutes (api.md 13). Writing it is not a change to the container env, so it never restarts the container.
 
 ### 3.3 Internal listener
 
@@ -608,12 +612,15 @@ The fleet's instance role already grants S3 full access, Secrets Manager read, S
       "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] },
     { "Sid": "WmsfoPeople", "Effect": "Allow",
       "Action": ["cognito-idp:AdminUserGlobalSignOut", "cognito-idp:AdminDeleteUser"],
-      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] }
+      "Resource": ["arn:aws:cognito-idp:<region>:<account-id>:userpool/<pool-id>"] },
+    { "Sid": "WmsfoSignupBlocks", "Effect": "Allow", "Action": "secretsmanager:PutSecretValue",
+      "Resource": ["arn:aws:secretsmanager:<region>:<account-id>:secret:<signup-block-secret>-*",
+                   "arn:aws:secretsmanager:<region>:<account-id>:secret:<signup-block-secret-prod>-*"] }
   ]
 }
 ```
 
-The first two statements are the SES grant of section 5, written by the dev gate Lambda (6.2b) and not edited by hand: it reads the list in `<allowlist-secret>`, rewrites exactly these two statements, and leaves every other statement and their order alone. Before its first run the policy holds the earlier single statement with no Sid (the two actions on the identity and both configuration sets); the first run replaces it with the pair in its place, and later runs find the pair by Sid. The `cognito-idp:AdminGetUser` statement is required and lists the admin pool ARN and the people pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool, and the person upsert calls it on the people pool (`WMSFO_COGNITO_USER_POOL_ID`) the first time it sees a `sub` with no row (contracts 3.1). Without the people pool grant every new person's first request answers `500 internal_error` and no row is written; people who already have a row are unaffected, because the hot path never calls Cognito. The `DescribeUserPool` statement lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. `WmsfoPeople` lists the people pool ARN of each environment (`WMSFO_COGNITO_USER_POOL_ID`): the API removes a person's sign-in itself when an admin deletes the person, calling `AdminUserGlobalSignOut` and then `AdminDeleteUser` before it deletes the row (contracts 4.5), so no console step follows a delete. Without it every person delete answers `502 upstream_failed` and nothing is deleted. The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` needs no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
+The first two statements are the SES grant of section 5, written by the dev gate Lambda (6.2b) and not edited by hand: it reads the list in `<allowlist-secret>`, rewrites exactly these two statements, and leaves every other statement and their order alone. Before its first run the policy holds the earlier single statement with no Sid (the two actions on the identity and both configuration sets); the first run replaces it with the pair in its place, and later runs find the pair by Sid. The `cognito-idp:AdminGetUser` statement is required and lists the admin pool ARN and the people pool ARN of each environment: the API's admin TOTP check calls `AdminGetUser` on the admin pool, and the person upsert calls it on the people pool (`WMSFO_COGNITO_USER_POOL_ID`) the first time it sees a `sub` with no row (contracts 3.1). Without the people pool grant every new person's first request answers `500 internal_error` and no row is written; people who already have a row are unaffected, because the hot path never calls Cognito. The `DescribeUserPool` statement lists the people pool ARN of each environment, the pool `WMSFO_COGNITO_ISSUER` names: the `sign_ups_open` setting's write calls `DescribeUserPool` and then `UpdateUserPool` on it to open or close self sign-up (api.md 6.5), and the boot drift check calls `DescribeUserPool`. Without it the write answers `502 upstream_failed` and the setting keeps its value. `WmsfoPeople` lists the people pool ARN of each environment (`WMSFO_COGNITO_USER_POOL_ID`): the API removes a person's sign-in itself when an admin deletes the person, calling `AdminUserGlobalSignOut` and then `AdminDeleteUser` before it deletes the row (contracts 4.5), so no console step follows a delete. Without it every person delete answers `502 upstream_failed` and nothing is deleted. `WmsfoSignupBlocks` lists the dev and the prod `<signup-block-secret>` (`WMSFO_SIGNUP_BLOCK_SECRET_ID`): the API writes the block list there after every block write and from the leader's 5 minute sync (api.md 4, 13). `GetSecretValue`, which the API calls first to skip an unchanged value, is already granted on every secret. Without the statement every publish logs `wmsfo_signup_block_publish_failed` and the requests still succeed; blocked addresses are then refused at first sight only (contracts 3.1). The existing `secretsmanager:GetSecretValue` grant is scoped to `secret:*`, so `<secret-name>` and `<signup-block-secret>` need no prefix. The S3 grant is already broader than contracts 8.6 asks (it covers the object, tagging, list, and presign needs of the media pipeline); narrowing it is a fleet-wide change outside this design. The tracker maps and themes need no IAM change: the same grant covers the multipart calls on `maps/*` (`CreateMultipartUpload`, the presigned `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`, `ListMultipartUploads`), the ranged reads, and the writes and deletes on `themes/*`.
 
 ### 6.2 CI role
 
@@ -925,6 +932,7 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - One email address is one person (2026-10-25): the API calls `AdminGetUser` on the people pool only for a `sub` it has no row for, so the cost and the rate limit of that call scale with new sign-ups, not with requests; a deleted user's token answers `401 unknown_user` and never recreates the row (contracts 3.1).
 - Deleting a person removes their sign-in (2026-10-25): the API signs the user out everywhere and deletes the Cognito user before it deletes the row, and deletes nothing when Cognito fails (contracts 4.5), so a person is never removed in the console by hand.
 - The pools run on the Essentials tier (2026-10-25); Lite is not in use.
+- The block list's secret is a copy (2026-10-25): `signup_block` is the truth and `<signup-block-secret>` holds it for the sign-up gate, so a sign-up never depends on the API answering. The API writes the secret after each committed block write, never inside the transaction, and a failed write never fails the request; the leader's 5 minute sync reconciles any difference (a failed write, a mirror run, a hand edit). One secret per environment, written through `WmsfoSignupBlocks` (6.1).
 - CI pushes through an OIDC role; no access keys in GitHub.
 - A second Vercel project per frontend with `dev` as its production branch, rather than relying on pull request previews (which are refused by every allow list).
 - Alarms in both environments, the dev copies under the dev prefix; both have metric filters for the dashboard.
