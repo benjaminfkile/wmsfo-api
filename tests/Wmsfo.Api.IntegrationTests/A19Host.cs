@@ -131,6 +131,9 @@ public sealed class A19Host : IAsyncDisposable
         builder.Services.AddSingleton<SnapshotBootstrap>();
         // Real DB person upsert so cookies (with a foreign key to person) persist.
         builder.Services.AddSingleton<IPersonUpsert, DbPersonUpsert>();
+        // The block list publisher, off: no secret id and no client.
+        builder.Services.AddSingleton<ISignupBlockPublisher>(new SecretsManagerSignupBlockPublisher(null, options,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SecretsManagerSignupBlockPublisher>.Instance));
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);

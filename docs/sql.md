@@ -2294,6 +2294,14 @@ A missing object or a failed HEAD keeps the stored size and logs one Warning wit
 
 An object that fails to parse or to pass the rules of contracts 4.3 is deleted with a Warning naming its key and runs no statement. A database failure rolls the transaction back and leaves the object for the next run. A delete that fails after the commit is a Warning; the next run's `select` finds the row (same `email`, same `created_at` to the millisecond) and the object is deleted without an insert. `contact_message` has no index on `email`; the check reads a table of tens of rows a year. One log line per run carries the counts. The bucket's lifecycle rule expires the prefix after 7 days (platform.md 1.1), the backstop while the chore is down.
 
+### 9.9 Sign-up block sync (every 5 minutes)
+
+```sql
+select pattern from signup_block order by created_at, id;
+```
+
+The same statement runs after every committed write of `POST` and `DELETE /admin/people/blocks` (8.15), on the same connection once the transaction has committed. The patterns, already lowercased, go to the publisher as a JSON array in this order; it compares them with the secret named by `WMSFO_SIGNUP_BLOCK_SECRET_ID` and writes only when the string differs (api.md 13). The table is the truth and the secret is a copy; nothing reads the secret back into the table. No index: the table holds tens of rows.
+
 ---
 
 ## 10. Hot-path queries and their plans

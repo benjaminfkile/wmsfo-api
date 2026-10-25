@@ -17,6 +17,7 @@ public sealed class ChoreHost : BackgroundService
     public static readonly TimeSpan StaleCadence = TimeSpan.FromSeconds(15);
     public static readonly TimeSpan OrphanCadence = TimeSpan.FromHours(1);
     public static readonly TimeSpan ContactInboxCadence = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan SignupBlockSyncCadence = TimeSpan.FromMinutes(5);
     public static readonly TimeSpan NightlyPollCadence = TimeSpan.FromMinutes(1);
 
     // Nightly cleanup fires at 09:00 UTC exactly once per day, the pending
@@ -35,6 +36,7 @@ public sealed class ChoreHost : BackgroundService
     private readonly PendingMapSweeper _mapSweep;
     private readonly MapSizeMeasurer _mapSizes;
     private readonly ContactInboxImporter _contactInbox;
+    private readonly SignupBlockSync _signupBlocks;
     private readonly SignUpsSwitch _signUps;
     private readonly IChoreClock _clock;
     private readonly ILogger<ChoreHost> _logger;
@@ -52,6 +54,7 @@ public sealed class ChoreHost : BackgroundService
         PendingMapSweeper mapSweep,
         MapSizeMeasurer mapSizes,
         ContactInboxImporter contactInbox,
+        SignupBlockSync signupBlocks,
         SignUpsSwitch signUps,
         IChoreClock clock,
         ILogger<ChoreHost> logger)
@@ -66,6 +69,7 @@ public sealed class ChoreHost : BackgroundService
         _mapSweep = mapSweep;
         _mapSizes = mapSizes;
         _contactInbox = contactInbox;
+        _signupBlocks = signupBlocks;
         _signUps = signUps;
         _clock = clock;
         _logger = logger;
@@ -85,10 +89,11 @@ public sealed class ChoreHost : BackgroundService
         var staleTask = RunOnCadenceAsync("stale-beacon", StaleCadence, _stale.RunOnceAsync, stoppingToken);
         var orphanTask = RunOnCadenceAsync("media-orphan", OrphanCadence, _orphan.RunOnceAsync, stoppingToken);
         var contactInboxTask = RunOnCadenceAsync("contact-inbox", ContactInboxCadence, _contactInbox.RunOnceAsync, stoppingToken);
+        var signupBlockTask = RunOnCadenceAsync("signup-block-sync", SignupBlockSyncCadence, _signupBlocks.RunOnceAsync, stoppingToken);
         var nightlyTask = RunNightlyAsync(stoppingToken);
         var leaderStartTask = RunLeaderStartOnceAsync(stoppingToken);
 
-        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, nightlyTask, leaderStartTask).ConfigureAwait(false);
+        await Task.WhenAll(outboxTask, alertTask, staleTask, orphanTask, contactInboxTask, signupBlockTask, nightlyTask, leaderStartTask).ConfigureAwait(false);
     }
 
     // The leader start work runs once, on the first tick (at the outbox

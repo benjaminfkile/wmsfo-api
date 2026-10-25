@@ -26,6 +26,9 @@ namespace Wmsfo.Api.Endpoints;
 //   everything back and answers 502 upstream_failed.
 // - DELETE /admin/people/blocks/{id}: removes the block; the address may sign
 //   up again as a new person.
+// After either write commits, the full pattern list is published to the
+// sign-up gate's secret (SignupBlockPublish); a publish failure is logged and
+// leaves the response unchanged.
 public static class AdminSignupBlockEndpoints
 {
     private const string BlockColumns = "b.id, b.pattern, b.note, b.created_by, b.created_at";
@@ -96,7 +99,8 @@ public static class AdminSignupBlockEndpoints
     {
         app.MapPost("/admin/people/blocks",
             async (CreateSignupBlockRequest body, HttpContext ctx, AuditRecorder audit, IPersonDirectory directory,
-                ILoggerFactory loggers, WmsfoConnectionStrings connections, CancellationToken ct) =>
+                ISignupBlockPublisher publisher, ILoggerFactory loggers, WmsfoConnectionStrings connections,
+                CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 var (pattern, kind, note) = Validate(body);
@@ -150,6 +154,7 @@ public static class AdminSignupBlockEndpoints
                     block.Id.ToString(CultureInfo.InvariantCulture),
                     before: null, after: AuditAfter(block, removed), actor, ct);
                 await tx.CommitAsync(ct);
+                await SignupBlockPublish.AfterWriteAsync(conn, publisher, logger);
                 return Results.Json(block, statusCode: StatusCodes.Status201Created);
             })
             .WithTags("AdminInbox")
@@ -164,7 +169,8 @@ public static class AdminSignupBlockEndpoints
     private static void MapDelete(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/people/blocks/{id:long}",
-            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit, ISignupBlockPublisher publisher,
+                ILoggerFactory loggers, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
@@ -194,6 +200,8 @@ public static class AdminSignupBlockEndpoints
                 await audit.RecordAsync(conn, tx, "delete", "signup_block",
                     id.ToString(CultureInfo.InvariantCulture), before, after: null, ct);
                 await tx.CommitAsync(ct);
+                await SignupBlockPublish.AfterWriteAsync(conn, publisher,
+                    loggers.CreateLogger(typeof(AdminSignupBlockEndpoints).FullName!));
                 return Results.NoContent();
             })
             .WithTags("AdminInbox")

@@ -24,6 +24,8 @@ public static class LogMarkers
     public const string SignupsSwitchDrift = "wmsfo_signups_switch_drift";
     // The leader's once-a-minute line while the current event is live.
     public const string LiveTick = "wmsfo_live_tick";
+    // The block list could not be written to the sign-up gate's secret.
+    public const string SignupBlockPublishFailed = "wmsfo_signup_block_publish_failed";
 
     // The list every marker test iterates. Order matches api.md 16.
     public static readonly string[] All =
@@ -41,5 +43,6 @@ public static class LogMarkers
         IconLibraryWritten,
         SignupsSwitchDrift,
         LiveTick,
+        SignupBlockPublishFailed,
     };
 }

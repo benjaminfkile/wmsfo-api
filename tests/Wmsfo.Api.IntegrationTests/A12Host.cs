@@ -49,7 +49,7 @@ public sealed class A12Host : IAsyncDisposable
     }
 
     public static async Task<A12Host> StartAsync(string connectionString, RateLimitTable? rateLimits = null,
-        IPersonDirectory? directory = null)
+        IPersonDirectory? directory = null, ISignupBlockPublisher? signupBlockPublisher = null)
     {
         var options = new WmsfoOptions
         {
@@ -124,6 +124,10 @@ public sealed class A12Host : IAsyncDisposable
         {
             builder.Services.AddSingleton(directory);
         }
+        // The block list publisher; with no secret id and no client it is off
+        // unless the test passes its own (A146).
+        builder.Services.AddSingleton(signupBlockPublisher ?? new SecretsManagerSignupBlockPublisher(null, options,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SecretsManagerSignupBlockPublisher>.Instance));
 
         builder.Services.ConfigureForwardedHeaders(options.TrustedProxyHops);
         builder.Services.AddWmsfoCors(options);

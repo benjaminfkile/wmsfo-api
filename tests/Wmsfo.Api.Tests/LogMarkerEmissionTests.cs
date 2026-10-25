@@ -48,6 +48,7 @@ public class LogMarkerEmissionTests
         [LogMarkers.IconLibraryWritten] = "Node/FleetFirstBootHook.cs",
         [LogMarkers.SignupsSwitchDrift] = "Auth/SignUpsSwitch.cs",
         [LogMarkers.LiveTick] = "Node/ReconcileTick.cs",
+        [LogMarkers.SignupBlockPublishFailed] = "Auth/SignupBlockPublisher.cs",
     };
 
     [Fact]
