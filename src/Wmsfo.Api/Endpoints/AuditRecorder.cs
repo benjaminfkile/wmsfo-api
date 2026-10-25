@@ -47,7 +47,7 @@ public sealed class AuditRecorder
     // (action, by, at) of the row just written so the endpoint's response DTO
     // can carry the stamp of the row this write inserted (contracts 4.5 Audit:
     // `audit` is the newest row for the entity).
-    public async Task<AuditStampDto> RecordAsync(
+    public Task<AuditStampDto> RecordAsync(
         NpgsqlConnection conn,
         NpgsqlTransaction tx,
         string action,
@@ -56,8 +56,20 @@ public sealed class AuditRecorder
         object? before,
         object? after,
         CancellationToken ct)
+        => RecordAsync(conn, tx, action, entity, entityId, before, after, Actor(), ct);
+
+    // The same row with an actor the caller already resolved (PersonRemoval).
+    public async Task<AuditStampDto> RecordAsync(
+        NpgsqlConnection conn,
+        NpgsqlTransaction tx,
+        string action,
+        string entity,
+        string entityId,
+        object? before,
+        object? after,
+        string actor,
+        CancellationToken ct)
     {
-        var actor = Actor();
         var requestId = _http.HttpContext?.TraceIdentifier;
         var beforeJson = SerializeOrNull(before);
         var afterJson = SerializeOrNull(after);

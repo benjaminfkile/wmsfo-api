@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using NpgsqlTypes;
 using Wmsfo.Api.Auth;
@@ -21,7 +22,8 @@ namespace Wmsfo.Api.Endpoints;
 // - GET /admin/subscribers/summary (counts across the three states)
 // - GET /admin/email/quota (the SES numbers plus queued + verifiedSubscribers)
 // - GET /admin/people (with cookieCount across every event)
-// - DELETE row is a hard delete (people cascade to their subscribers and cookies)
+// - DELETE row is a hard delete (people cascade to their subscribers and cookies;
+//   PersonRemoval removes the person's Cognito user first)
 public static class AdminInboxEndpoints
 {
     public static void MapAll(IEndpointRouteBuilder app)
@@ -480,42 +482,17 @@ left join lateral (
     private static void MapDeletePerson(IEndpointRouteBuilder app)
     {
         app.MapDelete("/admin/people/{id:long}",
-            async (long id, HttpContext ctx, AuditRecorder audit, WmsfoConnectionStrings connections, CancellationToken ct) =>
+            async (long id, HttpContext ctx, AuditRecorder audit, IPersonDirectory directory,
+                ILoggerFactory loggers, WmsfoConnectionStrings connections, CancellationToken ct) =>
             {
                 _ = AdminHelpers.RequireAdminEmail(ctx);
                 await using var conn = new NpgsqlConnection(connections.App);
                 await conn.OpenAsync(ct);
                 await using var tx = await conn.BeginTransactionAsync(ct);
-                PersonDto? before = null;
-                await using (var read = new NpgsqlCommand(
-                    "select id, email, created_at, last_seen_at from person where id = $1 for update;", conn, tx))
-                {
-                    read.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    await using var reader = await read.ExecuteReaderAsync(ct);
-                    if (await reader.ReadAsync(ct))
-                    {
-                        before = new PersonDto
-                        {
-                            Id = reader.GetInt64(0),
-                            Email = reader.GetString(1),
-                            CreatedAt = reader.GetFieldValue<DateTimeOffset>(2),
-                            LastSeenAt = reader.GetFieldValue<DateTimeOffset>(3),
-                        };
-                    }
-                }
-                if (before is null)
+                var removed = await PersonRemoval.RemoveAsync(conn, tx, directory, audit, id, audit.Actor(),
+                    loggers.CreateLogger(typeof(PersonRemoval).FullName!), ct);
+                if (removed is null)
                     throw new ApiException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "person not found");
-                var impact = await Impact.PersonImpactQueries.PreviewAsync(conn, tx, id, ct);
-                await Impact.PersonImpactQueries.ApplyAsync(conn, tx, id, ct);
-                await using (var del = new NpgsqlCommand(
-                    "delete from person where id = $1;", conn, tx))
-                {
-                    del.Parameters.Add(new NpgsqlParameter { NpgsqlDbType = NpgsqlDbType.Bigint, Value = id });
-                    await del.ExecuteNonQueryAsync(ct);
-                }
-                await audit.RecordAsync(conn, tx, "delete", "person",
-                    id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    before: Impact.ImpactBefore.Combine(before, impact), after: null, ct);
                 await tx.CommitAsync(ct);
                 return Results.NoContent();
             })

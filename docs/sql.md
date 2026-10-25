@@ -1871,7 +1871,7 @@ The jsonb equality compares numbers by value. Publish reads the route row `for s
 ### 8.15 People and admin deletes
 
 ```sql
-delete from person where id = $person;                                        -- cascades subscriber (and its alert_delivery rows) and cookie
+delete from person where id = $person;                                        -- after the Cognito user is removed (contracts 4.5); cascades subscriber (and its alert_delivery rows) and cookie
 delete from subscriber where id = $subscriber;                                -- cascades alert_delivery
 delete from contact_message where id = $id;
 delete from sponsor where id = $sponsor;                                      -- inside the section 8.5 frame; cascades sponsor_year; objects deleted after commit
