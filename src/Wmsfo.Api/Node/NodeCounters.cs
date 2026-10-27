@@ -30,6 +30,17 @@ public sealed class NodeCounters
     public void IncrementLocationStored() => Interlocked.Increment(ref _locationsStored);
     public void IncrementLocationPublished() => Interlocked.Increment(ref _locationsPublished);
     public void IncrementLocationCarried() => Interlocked.Increment(ref _locationsCarried);
+
+    // An accepted fix (api.md 16): stored or carried by its outcome, and
+    // published whenever the beacon publishes, whichever the outcome, so the
+    // node counter agrees with the `LocationPublished` metric filter.
+    public void RecordLocationAccepted(string outcome, bool published)
+    {
+        if (outcome == "stored") IncrementLocationStored();
+        else IncrementLocationCarried();
+        if (published) IncrementLocationPublished();
+    }
+
     public void IncrementLocationsRateLimited() => Interlocked.Increment(ref _locationsRateLimited);
     public void IncrementLivePutOk() => Interlocked.Increment(ref _livePutsOk);
     public void IncrementLivePutFailed() => Interlocked.Increment(ref _livePutsFailed);
