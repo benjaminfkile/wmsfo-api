@@ -395,16 +395,9 @@ where id = $1;", conn, tx);
         _rateLimiter.RecordAccept(beaconId, now, seq, published);
 
         // api.md 16: log `location accepted` with the outcome property. The
-        // CloudWatch `LocationPublished` metric filter keys on outcome=stored.
-        if (outcome == "stored")
-        {
-            _counters.IncrementLocationStored();
-            if (published) _counters.IncrementLocationPublished();
-        }
-        else
-        {
-            _counters.IncrementLocationCarried();
-        }
+        // CloudWatch `LocationPublished` metric filter counts every published
+        // fix with outcome stored or carried, and so does the node counter.
+        _counters.RecordLocationAccepted(outcome, published);
         _logger.LogInformation(
             "location accepted seq={Seq} beaconId={BeaconId} eventId={EventId} published={Published} outcome={Outcome}",
             seq, beaconId, eventId, published, outcome);

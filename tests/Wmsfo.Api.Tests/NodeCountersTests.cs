@@ -64,6 +64,40 @@ public class NodeCountersTests
     }
 
     [Fact]
+    public void A_carried_published_fix_counts_as_published_and_carried()
+    {
+        var c = new NodeCounters();
+        c.RecordLocationAccepted("carried", published: true);
+        var s = c.Snapshot();
+        Assert.Equal(1, s.LocationsPublished);
+        Assert.Equal(1, s.LocationsCarried);
+        Assert.Equal(0, s.LocationsStored);
+    }
+
+    [Fact]
+    public void A_stored_published_fix_counts_as_published_and_stored()
+    {
+        var c = new NodeCounters();
+        c.RecordLocationAccepted("stored", published: true);
+        var s = c.Snapshot();
+        Assert.Equal(1, s.LocationsPublished);
+        Assert.Equal(1, s.LocationsStored);
+        Assert.Equal(0, s.LocationsCarried);
+    }
+
+    [Fact]
+    public void An_unpublished_fix_is_not_counted_as_published()
+    {
+        var c = new NodeCounters();
+        c.RecordLocationAccepted("stored", published: false);
+        c.RecordLocationAccepted("carried", published: false);
+        var s = c.Snapshot();
+        Assert.Equal(0, s.LocationsPublished);
+        Assert.Equal(1, s.LocationsStored);
+        Assert.Equal(1, s.LocationsCarried);
+    }
+
+    [Fact]
     public async Task Concurrent_increments_do_not_lose_counts()
     {
         var c = new NodeCounters();

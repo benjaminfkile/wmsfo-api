@@ -121,8 +121,8 @@ public class LogMarkerEmissionTests
     {
         // api.md 16: the location handler logs `location accepted` at Information
         // with seq, beaconId, eventId, published, and outcome. Platform's
-        // `LocationPublished` metric filter keys on that literal message prefix
-        // with `outcome=stored`.
+        // `LocationPublished` metric filter reads that line and counts it when
+        // `published` is true and `outcome` is `stored` or `carried`.
         var root = FindRepoRoot();
         var path = Path.Combine(root, "src", "Wmsfo.Api", "Endpoints", "LocationIngest.cs");
         var source = File.ReadAllText(path);
