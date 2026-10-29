@@ -12,11 +12,13 @@ export function lagMs(now, publishedAt) {
   return Number.isFinite(at) ? now - at : null;
 }
 
-// The seq values missed between two hub events: zero unless `seq` is more than
-// one past `prevSeq`, and zero when either is null.
-export function gapsBetween(prevSeq, seq) {
-  if (typeof prevSeq !== "number" || typeof seq !== "number") return 0;
-  return seq > prevSeq + 1 ? seq - prevSeq - 1 : 0;
+// Whether a hub event's seq failed to move forward: a repeat or a step back
+// from `prevSeq`. Seq values are not consecutive on the hub (every stored fix
+// of the event takes one, spare beacons included), so a skipped value says
+// nothing; only a repeat or a step back does. False when either is null.
+export function seqRegressed(prevSeq, seq) {
+  if (typeof prevSeq !== "number" || typeof seq !== "number") return false;
+  return seq <= prevSeq;
 }
 
 function intervalOf(live, fallbackMs) {

@@ -86,7 +86,8 @@ test("open, handshake, join, ack, location events, a gap, an eviction, a re-join
   assert.equal(metrics.counters.events, 3);
   assert.deepEqual(metrics.samples.event_lag_ms, [150, 2500, 20]);
   assert.deepEqual(metrics.samples.events_on_time, [true, false, true]);
-  assert.equal(metrics.counters.seq_gaps, 2);
+  assert.deepEqual(metrics.samples.event_gap_ms, [1000, 1000]);
+  assert.equal(metrics.counters.seq_regressions, undefined);
   assert.equal(visitor.live.seq, 14);
   assert.equal(visitor.live.pollIntervalMs, 4000);
   assert.equal(visitor.cadence(clock.t), 4000);
@@ -105,8 +106,14 @@ test("open, handshake, join, ack, location events, a gap, an eviction, a re-join
   assert.equal(metrics.counters.joins_ok, 2);
   clock.t += 1000;
   connection.message(frame(channelEvent("location", live(15, clock.t - 10))));
-  assert.equal(metrics.counters.seq_gaps, 2);
+  assert.deepEqual(metrics.samples.event_gap_ms, [1000, 1000, 1030]);
   assert.equal(metrics.counters.events, 4);
+
+  // a repeated seq and a step back are regressions; a skipped value is not
+  clock.t += 1000;
+  connection.message(frame(channelEvent("location", live(15, clock.t)), channelEvent("location", live(12, clock.t)), channelEvent("location", live(40, clock.t))));
+  assert.equal(metrics.counters.seq_regressions, 2);
+  assert.equal(metrics.counters.events, 7);
 
   // the session end closes cleanly
   connection.end();
@@ -220,7 +227,7 @@ test("an unexpected close is an error; the next connection re-joins and counts t
   second.connection.message(frame(channelEvent("joined", { channel: CHANNEL }), channelEvent("location", live(6, clock.t))));
   assert.equal(metrics.counters.joins_ok, 2);
   assert.equal(metrics.counters.ws_opened, 2);
-  assert.equal(metrics.counters.seq_gaps, 2);
+  assert.equal(metrics.counters.seq_regressions, undefined);
 });
 
 test("a server close message fails the connection", () => {

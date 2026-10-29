@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { gapsBetween, lagMs, pollCadence, pollsFor, stagesFor, startVusFor } from "./live.js";
+import { lagMs, pollCadence, pollsFor, seqRegressed, stagesFor, startVusFor } from "./live.js";
 
 test("lag is now minus publishedAt", () => {
   const at = Date.parse("2026-12-22T01:31:07.430Z");
@@ -10,13 +10,13 @@ test("lag is now minus publishedAt", () => {
   assert.equal(lagMs(at, undefined), null);
 });
 
-test("gaps count the seq values skipped", () => {
-  assert.equal(gapsBetween(null, 7), 0);
-  assert.equal(gapsBetween(7, 8), 0);
-  assert.equal(gapsBetween(7, 7), 0);
-  assert.equal(gapsBetween(7, 5), 0);
-  assert.equal(gapsBetween(7, 10), 2);
-  assert.equal(gapsBetween(7, null), 0);
+test("a seq regressed when it repeats or steps back", () => {
+  assert.equal(seqRegressed(null, 7), false);
+  assert.equal(seqRegressed(7, 8), false);
+  assert.equal(seqRegressed(7, 10), false);
+  assert.equal(seqRegressed(7, 7), true);
+  assert.equal(seqRegressed(7, 5), true);
+  assert.equal(seqRegressed(7, null), false);
 });
 
 test("the cadence is the interval, or the quiet cadence while live", () => {

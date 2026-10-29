@@ -5,7 +5,7 @@
 // to it; the specs wire fakes.
 
 import { HANDSHAKE, PING, envelopeOf, handshakeError, invocation, isClose, isCompletion, splitFrames } from "./signalr.js";
-import { gapsBetween, lagMs, pollCadence } from "./live.js";
+import { lagMs, pollCadence, seqRegressed } from "./live.js";
 
 export const KEEPALIVE_MS = 15000;
 export const SERVER_TIMEOUT_MS = 30000;
@@ -86,9 +86,9 @@ export function createVisitor({ params, metrics, now, polls }) {
         metrics.add("events_on_time", lag <= params.allowedLagMs);
       }
       if (data.eventId !== visitor.prevEventId) visitor.prevSeq = null;
-      const gaps = gapsBetween(visitor.prevSeq, data.seq);
-      if (gaps > 0) metrics.add("seq_gaps", gaps);
+      if (seqRegressed(visitor.prevSeq, data.seq)) metrics.add("seq_regressions", 1);
       if (typeof data.seq === "number") visitor.prevSeq = data.seq;
+      if (visitor.lastHubEventAt !== null) metrics.add("event_gap_ms", at - visitor.lastHubEventAt);
       visitor.prevEventId = data.eventId;
       visitor.lastHubEventAt = at;
       visitor.remember(data);

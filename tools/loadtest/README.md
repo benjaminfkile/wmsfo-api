@@ -11,7 +11,7 @@ It mirrors the site's hub client and data loop (docs/contracts.md 2.2, 2.3, 1.9)
 1. Opens a websocket to `hubUrl` with no Origin header and `User-Agent: wmsfo-loadtest/1`, negotiation skipped, and sends the SignalR JSON hub handshake `{"protocol":"json","version":1}` plus U+001E. The answer `{}` opens the session; `{"error":"..."}` fails the connection.
 2. Invokes `JoinChannel(channel)` and waits for its completion. A completion with an `error` is a denied join (`joins_denied`), retried after 10 s, then 1, 2, 3, 5 s. The caller-only `joined` ack on the channel is the join (`joins_ok`, and `join_ms` from socket open to the ack).
 3. Sends a `{"type":6}` ping every 15 s, and drops a connection the server has left silent for 30 s.
-4. On every `location` event on the channel: records `event_lag_ms` (now minus `publishedAt`) and `events_on_time`, counts `events`, adds to `seq_gaps` the seq values skipped since the previous event, and keeps `pollIntervalMs` and `eventStatusId`. On `channelEvicted` it counts `evictions`; `auth_expired` re-joins at once, `service_removed` retries the join every 5 s. Other channels and events are ignored.
+4. On every `location` event on the channel: records `event_lag_ms` (now minus `publishedAt`) and `events_on_time`, counts `events`, records `event_gap_ms` (the time since the previous `location` event, reconnects included), counts `seq_regressions` when `seq` repeats or steps back, and keeps `pollIntervalMs` and `eventStatusId`. On `channelEvicted` it counts `evictions`; `auth_expired` re-joins at once, `service_removed` retries the join every 5 s. Other channels and events are ignored.
 5. If it is a polling user (`__VU` modulo 100 below `pollFraction` times 100), GETs `<cdnBaseUrl>/live/location.json` every `pollIntervalMs` (the newest live object's, else the param), at max(1000, interval / 2) while the event is live (status 3) and no hub `location` event arrived within twice the interval or the user is not joined. The next poll is due a cadence after the previous one ends, so polls never overlap. Polling goes on while the socket is down.
 6. Holds the session for ramp plus hold seconds from the start of the run, then closes. An unexpected close or error counts `ws_errors` and `ws_closed`, and the user reconnects after 1, 2, 3, then every 5 s and joins again; it never gives up before the session end.
 
@@ -58,8 +58,9 @@ Beside k6's own (`vus`, `ws_*`, `http_*`), which the script leaves as they are:
 | `joins_denied` | Counter | `JoinChannel` completions carrying an error |
 | `join_ms` | Trend | Socket open to the `joined` ack |
 | `events` | Counter | Hub `location` events on the channel |
-| `event_lag_ms` | Trend | Arrival time minus the event's `publishedAt` (the generator's clock against the API's) |
-| `seq_gaps` | Counter | Seq values skipped between consecutive `location` events of one event, reconnects included |
+| `event_lag_ms` | Trend | Arrival time minus the event's `publishedAt`, by the generator's clock against the API's: a generator keeps time with chrony, so the figure is the delivery lag; a laptop whose clock is off shows the offset instead, negative when the laptop runs behind |
+| `event_gap_ms` | Trend | Time between consecutive `location` events, reconnects included; a stall shows as a high max |
+| `seq_regressions` | Counter | `location` events whose `seq` repeated or stepped back within one event (a skipped value is not a fault: every stored fix of the event takes a seq, spare beacons included) |
 | `evictions` | Counter | `channelEvicted` envelopes on the channel |
 | `polls` | Counter | CDN polls |
 | `poll_errors` | Counter | Polls answered with a non-2xx status or failed on the network |
@@ -74,7 +75,7 @@ With k6 installed, against dev, from the repository root:
 k6 run -e GATEWAY_LOAD_VUS=1 -e GATEWAY_LOAD_HOLD_SECONDS=300 -e GATEWAY_LOAD_PARAMS='{"hubUrl":"wss://<gateway-domain>/hub","channel":"wmsfo-api-dev:location","cdnBaseUrl":"https://<cdn-domain>"}' tools/loadtest/scenario.js
 ```
 
-A good five minutes while the event is live and the beacon sends once a second: `events` near 300 (one per second), `seq_gaps` 0, `event_lag_ms` p(99) well under `allowedLagMs` and `events_on_time` near 100%, `joins_ok` at least 1 with `joins_denied` and `ws_errors` 0, and `poll_errors` 0. A user stays on the channel across the gateway's roughly 15 minute allow, so a longer hold shows `evictions` with a matching `joins_ok` each.
+A good five minutes while the event is live and the beacon sends once a second: `events` near 300 (one per second), `event_gap_ms` max near 1000, `seq_regressions` 0, `event_lag_ms` p(99) well under `allowedLagMs` and `events_on_time` near 100%, `joins_ok` at least 1 with `joins_denied` and `ws_errors` 0, and `poll_errors` 0. A user stays on the channel across the gateway's roughly 15 minute allow, so a longer hold shows `evictions` with a matching `joins_ok` each.
 
 ## Layout
 
@@ -82,7 +83,7 @@ A good five minutes while the event is live and the beacon sends once a second: 
 |---|---|
 | `scenario.js` | The k6 entry: `options` (one `ramping-vus` scenario), `setup` that validates the run, and the user function wiring `k6/ws` and `k6/http` to `lib/session.js` |
 | `lib/signalr.js` | The JSON hub protocol: handshake and ping text, `splitFrames`, `invocation`, message kind helpers |
-| `lib/live.js` | `lagMs`, `gapsBetween`, `pollCadence` (the quiet rule), `pollsFor`, `stagesFor` |
+| `lib/live.js` | `lagMs`, `seqRegressed`, `pollCadence` (the quiet rule), `pollsFor`, `stagesFor` |
 | `lib/params.js` | `readRun`: the run variables and the params, defaulted, with the problems listed |
 | `lib/session.js` | The visitor and its connections: every message, tick, poll, and close, with the socket, the GET, the clock, and the metrics handed in |
 
