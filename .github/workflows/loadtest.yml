@@ -22,3 +22,5 @@ jobs:
       - name: no infrastructure identifiers or credentials in the tree
         run: node scripts/check-no-infra.mjs
       - run: node --test tools/loadtest
+      - name: the one-file bundle builds and parses
+        run: node tools/loadtest/bundle.mjs --out "$RUNNER_TEMP/scenario.js" && node --check "$RUNNER_TEMP/scenario.js"
