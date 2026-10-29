@@ -313,6 +313,10 @@ curl -sI -H "Range: bytes=0-126" https://<cdn-domain>/maps/<packageKey>/tiles.pm
 # expect: HTTP/2 206 (the 127 byte PMTiles header the API's confirm reads)
 ```
 
+### 1.9 The load scenario
+
+`wmsfo-api/tools/loadtest` is the k6 script the gateway's load feature runs against this API: one anonymous tracker visitor per virtual user, joined to `<service>:location` on the hub and polling `live/location.json` on the CDN as the site does (contracts 2.3, 1.9), reporting what it sees as k6 metrics. It runs on the gateway's generator instances, which hand it the run in `GATEWAY_LOAD_*` variables, and never in the API image; it carries no URL and no credential. Its library has no npm dependency and no lockfile and is tested offline with `node --test` (section 9.1d). See `tools/loadtest/README.md` for the params, the metrics, and how to run one user by hand.
+
 ---
 
 ## 2. Database
@@ -742,6 +746,10 @@ The deploy client credential is the existing CI app client on the ops pool with 
 ### 9.1b Tile CLI
 
 `wmsfo-api/.github/workflows/tiles.yml` runs on pull requests and on pushes to `dev` and `main` that touch `tools/tiles/**`: `node scripts/check-no-infra.mjs`, then `node --test tools/tiles` on Node 22, beside the lambda's workflow (9.1a). There is no install step: the CLI has no npm dependency and no lockfile, and its tests are offline (`fetch` replaced, the `pmtiles` spawn injected). It deploys nothing: the CLI runs on an operator's machine (1.8) and is not part of the API image.
+
+### 9.1d Load scenario
+
+`wmsfo-api/.github/workflows/loadtest.yml` runs on pull requests and on pushes to `dev` and `main` that touch `tools/loadtest/**`: `node scripts/check-no-infra.mjs`, then `node --test tools/loadtest` on Node 22, beside the tile CLI's workflow (9.1b). There is no install step and no k6 in CI: the script has no npm dependency and no lockfile, and its tests are offline (a fake socket and a fake GET driven through the same session functions the script uses). It deploys nothing: the script runs on the gateway's generator instances (1.9) and is not part of the API image.
 
 ### 9.2 Site and admin panel
 

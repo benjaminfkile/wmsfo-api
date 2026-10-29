@@ -1,0 +1,12 @@
+{
+  "name": "wmsfo-loadtest",
+  "private": true,
+  "type": "module",
+  "main": "index.test.mjs",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
