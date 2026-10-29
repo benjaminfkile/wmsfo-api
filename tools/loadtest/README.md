@@ -77,6 +77,50 @@ k6 run -e GATEWAY_LOAD_VUS=1 -e GATEWAY_LOAD_HOLD_SECONDS=300 -e GATEWAY_LOAD_PA
 
 A good five minutes while the event is live and the beacon sends once a second: `events` near 300 (one per second), `event_gap_ms` max near 1000, `seq_regressions` 0, `event_lag_ms` p(99) well under `allowedLagMs` and `events_on_time` near 100%, `joins_ok` at least 1 with `joins_denied` and `ws_errors` 0, and `poll_errors` 0. A user stays on the channel across the gateway's roughly 15 minute allow, so a longer hold shows `evictions` with a matching `joins_ok` each.
 
+## Registering the scenario
+
+The gateway stores a scenario as one script body, and its runner writes that body to a single file before `k6 run`, so the relative imports of `scenario.js` cannot resolve on a generator. `bundle.mjs` (Node 22, no dependency) joins `scenario.js` and the `lib` files it imports into one k6 file: the k6 imports once at the top, then each lib module in dependency order with its relative imports removed and its `export` keywords stripped, then the scenario with `options`, `setup`, and the default function still exported. It understands named imports and `export function`, `export const`, `export let`, `export class` only; any other import or export form, or a top-level name declared in two files, fails with the file and line.
+
+The bundle is a build artifact and is never committed: it is written to stdout or to the file `--out` names, outside the tree.
+
+1. Build it, from the repository root:
+
+   ```sh
+   node tools/loadtest/bundle.mjs --out /tmp/wmsfo-tracker.js
+   ```
+
+2. Run the bundle by hand once, the same way as the one-user run. The bundle is what the generators run, so the validation is done on it:
+
+   ```sh
+   k6 run -e GATEWAY_LOAD_VUS=1 -e GATEWAY_LOAD_HOLD_SECONDS=300 -e GATEWAY_LOAD_PARAMS='{"hubUrl":"wss://<gateway-domain>/hub","channel":"wmsfo-api-dev:location","cdnBaseUrl":"https://<cdn-domain>"}' /tmp/wmsfo-tracker.js
+   ```
+
+3. Register it with the gateway's management API, `PUT /mgmt/load/scenarios/wmsfo-tracker`, with a bearer token from the ops client that holds scope `mgmt/load`. The body names the commit the bundle was built from:
+
+   ```sh
+   TOKEN='<ops-client-access-token>' node -e '
+   const script = require("fs").readFileSync("/tmp/wmsfo-tracker.js", "utf8");
+   const body = {
+     repository: "<owner>/wmsfo-api",
+     commitSha: "<sha>",
+     script,
+     paramsDefault: {
+       hubUrl: "wss://<gateway-domain>/hub",
+       channel: "wmsfo-api-dev:location",
+       cdnBaseUrl: "https://<cdn-domain>",
+       pollFraction: "1",
+       allowedLagMs: "2000",
+     },
+     maxVusPerGenerator: 2000,
+   };
+   fetch("https://<gateway-domain>/mgmt/load/scenarios/wmsfo-tracker", {
+     method: "PUT",
+     headers: { authorization: `Bearer ${process.env.TOKEN}`, "content-type": "application/json" },
+     body: JSON.stringify(body),
+   }).then(async (res) => console.log(res.status, await res.text()));
+   '
+   ```
+
 ## Layout
 
 | File | What it is |
@@ -86,6 +130,7 @@ A good five minutes while the event is live and the beacon sends once a second: 
 | `lib/live.js` | `lagMs`, `seqRegressed`, `pollCadence` (the quiet rule), `pollsFor`, `stagesFor` |
 | `lib/params.js` | `readRun`: the run variables and the params, defaulted, with the problems listed |
 | `lib/session.js` | The visitor and its connections: every message, tick, poll, and close, with the socket, the GET, the clock, and the metrics handed in |
+| `bundle.mjs` | The one-file bundle of `scenario.js` and the lib for registration with the gateway (above) |
 
 The `lib/*.js` files are plain ES modules with no node built-in and no top-level await, so k6 and Node 22 load the same files.
 
@@ -95,4 +140,4 @@ The `lib/*.js` files are plain ES modules with no node built-in and no top-level
 node --test tools/loadtest   # from the repository root, or npm test here
 ```
 
-The tests are offline and need no k6: `lib/session.spec.mjs` drives a fake socket through open, handshake, join, ack, location events, a gap, an eviction, and a re-join with the functions `scenario.js` uses.
+The tests are offline and need no k6: `lib/session.spec.mjs` drives a fake socket through open, handshake, join, ack, location events, a gap, an eviction, and a re-join with the functions `scenario.js` uses. `bundle.spec.mjs` builds the bundle into a temporary directory and checks that it has no relative import, keeps the k6 imports once and the three scenario exports, passes `node --check`, and keeps every custom metric, and that the bundler refuses a name declared twice and the import and export forms it does not understand.
