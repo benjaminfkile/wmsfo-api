@@ -1,0 +1,26 @@
+# docs/platform.md section 9.1d: the load scenario. k6 runs it on the gateway's
+# generator instances and it is not part of the API image, so the workflow tests
+# and never deploys. It has no npm dependency and no lockfile, so there is no
+# install, and its tests are offline, so there is no k6.
+name: loadtest
+
+on:
+  push:
+    branches: [dev, main]
+    paths: ["tools/loadtest/**"]
+  pull_request:
+    paths: ["tools/loadtest/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: no infrastructure identifiers or credentials in the tree
+        run: node scripts/check-no-infra.mjs
+      - run: node --test tools/loadtest
+      - name: the one-file bundle builds and parses
+        run: node tools/loadtest/bundle.mjs --out "$RUNNER_TEMP/scenario.js" && node --check "$RUNNER_TEMP/scenario.js"
