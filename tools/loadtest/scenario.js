@@ -50,6 +50,8 @@ const metrics = {
   poll_errors: new Counter("poll_errors"),
   poll_ms: new Trend("poll_ms", true),
   events_on_time: new Rate("events_on_time"),
+  bytes_received: new Counter("bytes_received"),
+  bytes_sent: new Counter("bytes_sent"),
 };
 const sink = { add: (name, value) => metrics[name].add(value) };
 

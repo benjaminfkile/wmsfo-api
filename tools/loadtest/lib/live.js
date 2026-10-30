@@ -49,6 +49,17 @@ export function stagesFor(ramp, hold, vus) {
   return ramp > 0 ? [{ duration: `${ramp}s`, target: vus }, holdStage] : [holdStage];
 }
 
+// The UTF-8 byte length of a string, for the byte counters (k6 counts bytes only
+// when an iteration ends, and a visitor is one iteration that lasts the run).
+export function utf8Length(text) {
+  let n = 0;
+  for (const ch of String(text)) {
+    const c = ch.codePointAt(0);
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+  }
+  return n;
+}
+
 export function startVusFor(ramp, vus) {
   return ramp > 0 ? 0 : vus;
 }

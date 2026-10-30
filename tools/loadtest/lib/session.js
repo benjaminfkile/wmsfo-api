@@ -5,7 +5,7 @@
 // to it; the specs wire fakes.
 
 import { HANDSHAKE, PING, envelopeOf, handshakeError, invocation, isClose, isCompletion, splitFrames } from "./signalr.js";
-import { lagMs, pollCadence, seqRegressed } from "./live.js";
+import { lagMs, pollCadence, seqRegressed, utf8Length } from "./live.js";
 
 export const KEEPALIVE_MS = 15000;
 export const SERVER_TIMEOUT_MS = 30000;
@@ -64,6 +64,7 @@ export function createVisitor({ params, metrics, now, polls }) {
         res = { status: 0, durationMs: null, body: null };
       }
       metrics.add("polls", 1);
+      if (typeof res.body === "string") metrics.add("bytes_received", utf8Length(res.body));
       if (typeof res.durationMs === "number") metrics.add("poll_ms", res.durationMs);
       if (!(res.status >= 200 && res.status < 300)) {
         metrics.add("poll_errors", 1);
@@ -102,6 +103,12 @@ export function createConnection(visitor, socket) {
   const { params, metrics, now } = visitor;
   let openedAt = null;
   let joinSentAt = null;
+
+  // Every frame out passes through here so bytes_sent counts them all.
+  function send(text) {
+    metrics.add("bytes_sent", utf8Length(text));
+    socket.send(text);
+  }
   let handshaken = false;
   let lastReceivedAt = null;
   let lastPingAt = null;
@@ -119,7 +126,7 @@ export function createConnection(visitor, socket) {
     pendingJoin = String(nextId);
     joinAt = null;
     joinSentAt = now();
-    socket.send(invocation("JoinChannel", [params.channel], pendingJoin));
+    send(invocation("JoinChannel", [params.channel], pendingJoin));
   }
 
   function rejoinLater(ms) {
@@ -191,11 +198,12 @@ export function createConnection(visitor, socket) {
       lastReceivedAt = openedAt;
       lastPingAt = openedAt;
       metrics.add("ws_opened", 1);
-      socket.send(HANDSHAKE);
+      send(HANDSHAKE);
     },
 
     message(text) {
       lastReceivedAt = now();
+      metrics.add("bytes_received", utf8Length(text));
       for (const message of splitFrames(text)) {
         if (!handshaken) {
           const error = handshakeError(message);
@@ -217,7 +225,7 @@ export function createConnection(visitor, socket) {
       if (at - lastReceivedAt > SERVER_TIMEOUT_MS) return fail();
       if (handshaken && at - lastPingAt >= KEEPALIVE_MS) {
         lastPingAt = at;
-        socket.send(PING);
+        send(PING);
       }
       if (handshaken && joinAt !== null && at >= joinAt && pendingJoin === null) sendJoin();
     },

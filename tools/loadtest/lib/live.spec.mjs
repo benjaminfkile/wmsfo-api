@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { lagMs, pollCadence, pollsFor, seqRegressed, stagesFor, startVusFor } from "./live.js";
+import { lagMs, pollCadence, pollsFor, seqRegressed, stagesFor, startVusFor, utf8Length } from "./live.js";
 
 test("lag is now minus publishedAt", () => {
   const at = Date.parse("2026-12-22T01:31:07.430Z");
@@ -56,4 +56,13 @@ test("stages ramp then hold; a zero ramp is one stage", () => {
   assert.deepEqual(stagesFor(0, 300, 1), [{ duration: "300s", target: 1 }]);
   assert.equal(startVusFor(0, 7), 7);
   assert.equal(startVusFor(60, 7), 0);
+});
+
+test("utf8Length counts bytes, not characters", () => {
+  assert.equal(utf8Length(""), 0);
+  assert.equal(utf8Length("abc"), 3);
+  assert.equal(utf8Length("café"), 5);
+  assert.equal(utf8Length("€"), 3);
+  assert.equal(utf8Length("🎅"), 4);
+  assert.equal(utf8Length(JSON.stringify({ type: 6 }) + ""), 11);
 });

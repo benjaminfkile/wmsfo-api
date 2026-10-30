@@ -287,3 +287,21 @@ test("a user outside the poll fraction never polls", () => {
   const visitor = createVisitor({ params: PARAMS, metrics: fakeMetrics(), now: () => T0, polls: false });
   assert.ok(!visitor.pollDue(T0));
 });
+
+test("bytes in and out are counted on every frame, polls included", () => {
+  const { clock, metrics, visitor, connect } = harness();
+  const { socket, connection } = connect();
+  connection.open();
+  connection.message("{}" + RS);
+  clock.t += 20;
+  connection.message(frame({ type: 3, invocationId: "1" }, channelEvent("joined", { channel: CHANNEL })));
+  clock.t += 15000;
+  connection.tick();
+  const sent = socket.sent.reduce((n, t) => n + Buffer.byteLength(t, "utf8"), 0);
+  assert.equal(socket.sent.length, 3);
+  assert.equal(metrics.counters.bytes_sent, sent);
+  const received = Buffer.byteLength("{}" + RS, "utf8") + Buffer.byteLength(frame({ type: 3, invocationId: "1" }, channelEvent("joined", { channel: CHANNEL })), "utf8");
+  assert.equal(metrics.counters.bytes_received, received);
+  visitor.poll(() => ({ status: 200, durationMs: 5, body: JSON.stringify({ seq: 1, publishedAt: "2026-01-01T00:00:00Z" }) }));
+  assert.equal(metrics.counters.bytes_received, received + Buffer.byteLength(JSON.stringify({ seq: 1, publishedAt: "2026-01-01T00:00:00Z" }), "utf8"));
+});

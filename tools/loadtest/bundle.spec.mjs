@@ -53,7 +53,7 @@ test("the bundle passes node --check", () => {
 
 test("the bundle keeps every custom metric", () => {
   const names = [...readFileSync(new URL("./scenario.spec.mjs", import.meta.url), "utf8").matchAll(/"(?:Counter|Trend|Rate) ([a-z_]+)"/g)].map((m) => m[1]);
-  assert.equal(names.length, 15);
+  assert.equal(names.length, 17);
   for (const name of names) assert.ok(text.includes(`("${name}"`), name);
 });
 

@@ -36,6 +36,8 @@ test("the scenario declares the custom metrics of the brief", () => {
     "Counter poll_errors",
     "Trend poll_ms",
     "Rate events_on_time",
+    "Counter bytes_received",
+    "Counter bytes_sent",
   ]);
   assert.match(source, /executor: "ramping-vus"/);
 });

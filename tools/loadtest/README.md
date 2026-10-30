@@ -10,7 +10,7 @@ It mirrors the site's hub client and data loop (docs/contracts.md 2.2, 2.3, 1.9)
 
 1. Opens a websocket to `hubUrl` with no Origin header and `User-Agent: wmsfo-loadtest/1`, negotiation skipped, and sends the SignalR JSON hub handshake `{"protocol":"json","version":1}` plus U+001E. The answer `{}` opens the session; `{"error":"..."}` fails the connection.
 2. Invokes `JoinChannel(channel)` and waits for its completion. A completion with an `error` is a denied join (`joins_denied`), retried after 10 s, then 1, 2, 3, 5 s. The caller-only `joined` ack on the channel is the join (`joins_ok`, and `join_ms` from the `JoinChannel` invocation to the ack, the first join and every re-join alike).
-3. Sends a `{"type":6}` ping every 15 s, and drops a connection the server has left silent for 30 s.
+3. Sends a `{"type":6}` ping every 15 s, and drops a connection the server has left silent for 30 s. Counts the UTF-8 bytes of every frame it sends as `bytes_sent` and of every frame it receives as `bytes_received` (k6's own `data_sent` and `data_received` only count when an iteration ends, and a visitor is one iteration that lasts the whole run).
 4. On every `location` event on the channel: records `event_lag_ms` (now minus `publishedAt`) and `events_on_time`, counts `events`, records `event_gap_ms` (the time since the previous `location` event, reconnects included), counts `seq_regressions` when `seq` repeats or steps back, and keeps `pollIntervalMs` and `eventStatusId`. On `channelEvicted` it counts `evictions`; `auth_expired` re-joins at once, `service_removed` retries the join every 5 s. Other channels and events are ignored.
 5. Polling is off unless `pollFraction` says otherwise: the CDN is not the system under test and every poll is a paid request, so a run polls only when the operator wants the site's whole footprint. If it is a polling user (`__VU` modulo 100 below `pollFraction` times 100), GETs `<cdnBaseUrl>/live/location.json` every `pollIntervalMs` (the newest live object's, else the param), at max(1000, interval / 2) while the event is live (status 3) and no hub `location` event arrived within twice the interval or the user is not joined. The next poll is due a cadence after the previous one ends, so polls never overlap. Polling goes on while the socket is down.
 6. Holds the session for ramp plus hold seconds from the start of the run, then closes. An unexpected close or error counts `ws_errors` and `ws_closed`, and the user reconnects after 1, 2, 3, then every 5 s and joins again; it never gives up before the session end.
@@ -65,6 +65,8 @@ Beside k6's own (`vus`, `ws_*`, `http_*`), which the script leaves as they are:
 | `polls` | Counter | CDN polls |
 | `poll_errors` | Counter | Polls answered with a non-2xx status or failed on the network |
 | `poll_ms` | Trend | Poll duration |
+| `bytes_received` | Counter | UTF-8 bytes of every websocket frame received, and of every CDN poll body when polling is on |
+| `bytes_sent` | Counter | UTF-8 bytes of every websocket frame sent (handshake, joins, pings) |
 | `events_on_time` | Rate | Share of events with `event_lag_ms` at or under `allowedLagMs` |
 
 ## One user by hand
