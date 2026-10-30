@@ -9,10 +9,10 @@ The script never carries a URL or a credential: the hub, the channel, and the CD
 It mirrors the site's hub client and data loop (docs/contracts.md 2.2, 2.3, 1.9), nothing more:
 
 1. Opens a websocket to `hubUrl` with no Origin header and `User-Agent: wmsfo-loadtest/1`, negotiation skipped, and sends the SignalR JSON hub handshake `{"protocol":"json","version":1}` plus U+001E. The answer `{}` opens the session; `{"error":"..."}` fails the connection.
-2. Invokes `JoinChannel(channel)` and waits for its completion. A completion with an `error` is a denied join (`joins_denied`), retried after 10 s, then 1, 2, 3, 5 s. The caller-only `joined` ack on the channel is the join (`joins_ok`, and `join_ms` from socket open to the ack).
+2. Invokes `JoinChannel(channel)` and waits for its completion. A completion with an `error` is a denied join (`joins_denied`), retried after 10 s, then 1, 2, 3, 5 s. The caller-only `joined` ack on the channel is the join (`joins_ok`, and `join_ms` from the `JoinChannel` invocation to the ack, the first join and every re-join alike).
 3. Sends a `{"type":6}` ping every 15 s, and drops a connection the server has left silent for 30 s.
 4. On every `location` event on the channel: records `event_lag_ms` (now minus `publishedAt`) and `events_on_time`, counts `events`, records `event_gap_ms` (the time since the previous `location` event, reconnects included), counts `seq_regressions` when `seq` repeats or steps back, and keeps `pollIntervalMs` and `eventStatusId`. On `channelEvicted` it counts `evictions`; `auth_expired` re-joins at once, `service_removed` retries the join every 5 s. Other channels and events are ignored.
-5. If it is a polling user (`__VU` modulo 100 below `pollFraction` times 100), GETs `<cdnBaseUrl>/live/location.json` every `pollIntervalMs` (the newest live object's, else the param), at max(1000, interval / 2) while the event is live (status 3) and no hub `location` event arrived within twice the interval or the user is not joined. The next poll is due a cadence after the previous one ends, so polls never overlap. Polling goes on while the socket is down.
+5. Polling is off unless `pollFraction` says otherwise: the CDN is not the system under test and every poll is a paid request, so a run polls only when the operator wants the site's whole footprint. If it is a polling user (`__VU` modulo 100 below `pollFraction` times 100), GETs `<cdnBaseUrl>/live/location.json` every `pollIntervalMs` (the newest live object's, else the param), at max(1000, interval / 2) while the event is live (status 3) and no hub `location` event arrived within twice the interval or the user is not joined. The next poll is due a cadence after the previous one ends, so polls never overlap. Polling goes on while the socket is down.
 6. Holds the session for ramp plus hold seconds from the start of the run, then closes. An unexpected close or error counts `ws_errors` and `ws_closed`, and the user reconnects after 1, 2, 3, then every 5 s and joins again; it never gives up before the session end.
 
 It uses `k6/ws`: `ws.connect` holds its socket, timers, and handlers for as long as the socket is open, so one connection spans the whole session, and the reconnect loop runs around it inside the one iteration.
@@ -39,7 +39,7 @@ Every variable may be absent when run by hand.
 | `hubUrl` | required | The gateway's SignalR hub, `wss://<gateway-domain>/hub` |
 | `channel` | required | The location channel, `<service>:location`, e.g. `wmsfo-api-dev:location` |
 | `cdnBaseUrl` | required when `pollFraction` is above 0 | `https://<cdn-domain>`, no trailing path |
-| `pollFraction` | `"1"` | The share of users that poll the CDN, 0 to 1; `"1"` is everyone, `"0"` nobody |
+| `pollFraction` | `"0"` | The share of users that poll the CDN, 0 to 1; `"0"` is nobody (the default: the CDN is not under test and polls cost money), `"1"` everyone |
 | `pollIntervalMs` | `"5000"` | The poll cadence until a live object names one |
 | `allowedLagMs` | `"2000"` | The lag at or under which an event counts as on time in `events_on_time` |
 
@@ -56,7 +56,7 @@ Beside k6's own (`vus`, `ws_*`, `http_*`), which the script leaves as they are:
 | `ws_errors` | Counter | Connections that failed: a refused dial or handshake, a socket error, a close the user did not ask for, a server close message, or 30 s of server silence |
 | `joins_ok` | Counter | `joined` acks on the channel |
 | `joins_denied` | Counter | `JoinChannel` completions carrying an error |
-| `join_ms` | Trend | Socket open to the `joined` ack |
+| `join_ms` | Trend | The `JoinChannel` invocation to the `joined` ack, re-joins included |
 | `events` | Counter | Hub `location` events on the channel |
 | `event_lag_ms` | Trend | Arrival time minus the event's `publishedAt`, by the generator's clock against the API's: a generator keeps time with chrony, so the figure is the delivery lag; a laptop whose clock is off shows the offset instead, negative when the laptop runs behind |
 | `event_gap_ms` | Trend | Time between consecutive `location` events, reconnects included; a stall shows as a high max |
@@ -108,7 +108,7 @@ The bundle is a build artifact and is never committed: it is written to stdout o
        hubUrl: "wss://<gateway-domain>/hub",
        channel: "wmsfo-api-dev:location",
        cdnBaseUrl: "https://<cdn-domain>",
-       pollFraction: "1",
+       pollFraction: "0",
        allowedLagMs: "2000",
      },
      maxVusPerGenerator: 2000,

@@ -2,8 +2,10 @@
 // JSON object of string params in GATEWAY_LOAD_PARAMS. Every one may be absent
 // when the script is run by hand. Pure: reads the object it is given.
 
-export const PARAM_DEFAULTS = {
-  pollFraction: "1",
+export // Polling is off unless a run asks for it: the CDN is not the system under
+// test and every poll is a paid request.
+const PARAM_DEFAULTS = {
+  pollFraction: "0",
   pollIntervalMs: "5000",
   allowedLagMs: "2000",
 };

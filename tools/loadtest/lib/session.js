@@ -101,6 +101,7 @@ export function createVisitor({ params, metrics, now, polls }) {
 export function createConnection(visitor, socket) {
   const { params, metrics, now } = visitor;
   let openedAt = null;
+  let joinSentAt = null;
   let handshaken = false;
   let lastReceivedAt = null;
   let lastPingAt = null;
@@ -117,6 +118,7 @@ export function createConnection(visitor, socket) {
     nextId += 1;
     pendingJoin = String(nextId);
     joinAt = null;
+    joinSentAt = now();
     socket.send(invocation("JoinChannel", [params.channel], pendingJoin));
   }
 
@@ -145,7 +147,7 @@ export function createConnection(visitor, socket) {
         serviceRemoved = false;
         joinAt = null;
         metrics.add("joins_ok", 1);
-        metrics.add("join_ms", now() - openedAt);
+        metrics.add("join_ms", now() - joinSentAt);
       }
     } else if (env.event === "location") {
       visitor.onLocation(data);

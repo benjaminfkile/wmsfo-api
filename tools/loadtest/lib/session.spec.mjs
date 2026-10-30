@@ -71,7 +71,7 @@ test("open, handshake, join, ack, location events, a gap, an eviction, a re-join
   connection.message(frame({ type: 3, invocationId: "1" }, channelEvent("joined", { channel: CHANNEL })));
   assert.equal(connection.joined, true);
   assert.equal(metrics.counters.joins_ok, 1);
-  assert.deepEqual(metrics.samples.join_ms, [100]);
+  assert.deepEqual(metrics.samples.join_ms, [60]);
 
   // events on other channels and other events are ignored
   connection.message(frame(channelEvent("location", live(1, clock.t), "other:location"), channelEvent("cookie", {})));
@@ -104,6 +104,8 @@ test("open, handshake, join, ack, location events, a gap, an eviction, a re-join
   clock.t += 30;
   connection.message(frame({ type: 3, invocationId: "2" }, channelEvent("joined", { channel: CHANNEL })));
   assert.equal(metrics.counters.joins_ok, 2);
+  // timed from the re-join invocation, not from the socket open
+  assert.deepEqual(metrics.samples.join_ms, [60, 30]);
   clock.t += 1000;
   connection.message(frame(channelEvent("location", live(15, clock.t - 10))));
   assert.deepEqual(metrics.samples.event_gap_ms, [1000, 1000, 1030]);

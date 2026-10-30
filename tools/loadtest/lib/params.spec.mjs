@@ -7,12 +7,12 @@ const PARAMS = JSON.stringify({ hubUrl: "wss://<gateway-domain>/hub", channel: "
 test("everything absent: the run defaults and the required params are missing", () => {
   const { run, params, missing, problems } = readRun({});
   assert.deepEqual(run, { runId: null, scenario: null, index: 0, count: 1, vus: 1, rampSeconds: 0, holdSeconds: 300, target: null });
-  assert.equal(params.pollFraction, 1);
+  assert.equal(params.pollFraction, 0);
   assert.equal(params.pollIntervalMs, 5000);
   assert.equal(params.allowedLagMs, 2000);
-  assert.deepEqual(missing, ["hubUrl", "channel", "cdnBaseUrl"]);
+  assert.deepEqual(missing, ["hubUrl", "channel"]);
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /missing required params in GATEWAY_LOAD_PARAMS: hubUrl, channel, cdnBaseUrl/);
+  assert.match(problems[0], /missing required params in GATEWAY_LOAD_PARAMS: hubUrl, channel$/);
 });
 
 test("a full run", () => {
@@ -33,7 +33,7 @@ test("a full run", () => {
     hubUrl: "wss://<gateway-domain>/hub",
     channel: "wmsfo-api-dev:location",
     cdnBaseUrl: "https://<cdn-domain>",
-    pollFraction: 1,
+    pollFraction: 0,
     pollIntervalMs: 5000,
     allowedLagMs: 2000,
   });
