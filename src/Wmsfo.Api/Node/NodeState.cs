@@ -61,6 +61,9 @@ public sealed class NodeStateService
         lock (_flagsLock) _lastWrittenVersion = version;
     }
 
+    // Raised by LiveObjectWriter.WriteForLocationAsync when the write is
+    // requested, before its PUT, so a tick that observes a version change while
+    // the write is in flight still rewrites (api.md 9).
     public void MarkWroteForLocation()
     {
         lock (_flagsLock) _wroteForLocationSinceVersionChange = true;

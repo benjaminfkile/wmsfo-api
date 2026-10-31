@@ -73,8 +73,15 @@ public sealed class LiveObjectWriter
 
     // Called by the location handler after its response is queued (api.md 10.1).
     // Builds from the fields the transaction read plus in-memory tally and settings.
-    public Task WriteForLocationAsync(LocationSourceFields fields, CancellationToken ct) =>
-        RunAsync(reason: "location", location: fields, adminPath: false, ct);
+    // The "wrote for location" flag is raised here, before the PUT, so a
+    // reconcile tick that observes a version change while this write is still
+    // in flight counts it and asks for the rewrite (api.md 9); the rewrite
+    // coalesces behind this write and runs from refreshed state.
+    public Task WriteForLocationAsync(LocationSourceFields fields, CancellationToken ct)
+    {
+        _state.MarkWroteForLocation();
+        return RunAsync(reason: "location", location: fields, adminPath: false, ct);
+    }
 
     // Called after an admin commit, moderation while live, tick rewrite, republish, first boot.
     public Task WriteFromStateAsync(string reason, CancellationToken ct) =>
@@ -106,6 +113,28 @@ public sealed class LiveObjectWriter
                     // WriteFromState refreshes state first (api.md 10.1).
                     await _state.RefreshAsync(currentReason, ct).ConfigureAwait(false);
                 }
+                else if (currentLocation is not null && currentLocation.SnapshotVersion > _state.Current.SnapshotVersion)
+                {
+                    // The location transaction saw a snapshot version this node's
+                    // memory has not caught up with (an admin write committed on
+                    // another node inside the last tick). Refresh once so the
+                    // status, snapshot URL, settings and tally in this object are
+                    // the truth of that version, not the previous one (api.md 10.1).
+                    // A failed refresh builds from the transaction's fields, which
+                    // win over the older memory in Build.
+                    try
+                    {
+                        await _state.RefreshAsync("location-version", ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "node state refresh for a newer location version failed; building from the transaction's fields");
+                    }
+                }
 
                 var current = _state.Current;
                 var onlineCount = await ResolveOnlineCountAsync(current, ct).ConfigureAwait(false);
@@ -120,7 +149,6 @@ public sealed class LiveObjectWriter
                 var publishOk = await _gateway.PublishAsync(_options.ServiceName + ":location", "location", bytes, ct).ConfigureAwait(false);
                 if (publishOk) _counters.IncrementPublishOk();
                 else _counters.IncrementPublishFailed();
-                if (currentLocation is not null) _state.MarkWroteForLocation();
                 await UpdateLiveStateAsync(putOk, obj, ct).ConfigureAwait(false);
 
                 if (_pending)
@@ -220,17 +248,23 @@ where id = 1;", conn);
         return Build(state, location, publishedAt: now);
     }
 
+    // contracts 1.8: for a stored location the object carries the event status
+    // and snapshot URL the location transaction read under the event lock. The
+    // transaction's fields win whenever the snapshot version they came with is
+    // at least the version in memory; memory wins only when it is newer (an
+    // admin write on this node committed and refreshed after the transaction).
     public (LiveObject Object, byte[] Bytes) Build(
         NodeSnapshot state, LocationSourceFields? location, DateTimeOffset publishedAt, int? onlineCount = null)
     {
+        var transactionWins = location is not null && location.SnapshotVersion >= state.SnapshotVersion;
         var obj = new LiveObject
         {
             SchemaVersion = 1,
-            EventId = state.CurrentEvent?.Id,
-            EventStatusId = state.CurrentEvent?.StatusId,
+            EventId = transactionWins ? location!.EventId : state.CurrentEvent?.Id,
+            EventStatusId = transactionWins ? location!.EventStatusId : state.CurrentEvent?.StatusId,
             PollIntervalMs = state.Settings.PollIntervalMs,
             HubEnabled = state.Settings.HubEnabled,
-            SnapshotUrl = state.SnapshotUrl,
+            SnapshotUrl = transactionWins ? location!.SnapshotUrl : state.SnapshotUrl,
             CookieTally = BuildTally(state),
             Seq = null,
             Lat = null,
@@ -245,9 +279,10 @@ where id = 1;", conn);
             OnlineCount = onlineCount,
         };
 
-        // Prefer the transaction-local fields when provided; otherwise the state's
-        // latest published location for the current event.
-        if (location is not null && location.EventId == state.CurrentEvent?.Id)
+        // The position: the transaction's fix when it wins or belongs to the
+        // event memory holds as current; otherwise the state's latest published
+        // location for the current event.
+        if (location is not null && (transactionWins || location.EventId == state.CurrentEvent?.Id))
         {
             obj.Seq = location.Seq;
             obj.Lat = location.Lat;

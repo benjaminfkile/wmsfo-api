@@ -11,7 +11,9 @@ namespace Wmsfo.Api.Node;
 //   - Refresh("tick")
 //   - if the version moved and this node has not written that version yet:
 //       - if wroteForLocationSinceVersionChange: liveObjectWriter.WriteFromState("tick-rewrite")
-//         (once; clears the flag)
+//         (once; clears the flag). The flag is raised when a location write is
+//         requested, before its PUT, so a write still in flight at this tick
+//         counts: the rewrite coalesces behind it and lands right after it.
 //       - else: refresh only, no write, no publish
 //   - otherwise, on the leader only, when the refreshed tally differs from the
 //     tally in the object this node last wrote while the event is live:
