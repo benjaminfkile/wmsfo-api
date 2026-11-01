@@ -247,7 +247,8 @@ public sealed class EmailTemplatesTests
         // HTML part: the layout frame, the logo, the footer, escaped values.
         Assert.StartsWith("<!DOCTYPE html>", rendered.Html);
         Assert.Contains("<img src=\"" + logoUrl + "\" width=\"128\" height=\"64\"", rendered.Html);
-        Assert.Contains("alt=\"Western Montana Santa Flyover\"", rendered.Html);
+        Assert.Contains("<img src=\"" + logoUrl + "\" width=\"128\" height=\"64\" alt=\"\"", rendered.Html);
+        Assert.Contains("<a class=\"name\" href=\"" + SiteBase + "\" style=\"text-decoration:none;color:#0f1a30;\">Western Montana Santa Flyover</a></td>", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Ornaments.Url + "\" width=\"560\" height=\"110\" alt=\"\"", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Lights.Url + "\" width=\"560\" height=\"4\" alt=\"\"", rendered.Html);
         Assert.Equal(3, CountOf(rendered.Html, "<img "));
@@ -294,8 +295,8 @@ public sealed class EmailTemplatesTests
 
         Assert.Contains("<img src=\"" + CdnBase + "/email/abc.png\" width=\"128\"", rendered.Html);
         Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
-        Assert.Contains("alt=\"North Pole &amp; Co\"", rendered.Html);
-        Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</td>", rendered.Html);
+        Assert.DoesNotContain("alt=\"North Pole", rendered.Html);
+        Assert.Contains("color:#0f1a30;\">North Pole &amp; Co</a></td>", rendered.Html);
         Assert.Equal(3, CountOf(rendered.Html, "<img "));
         Assert.StartsWith("North Pole & Co\n", rendered.Text);
     }
@@ -306,7 +307,7 @@ public sealed class EmailTemplatesTests
         var templates = EmailTemplates.Load(TemplatesDir, CdnBase, SiteBase);
         var rendered = templates.Render(EmailTemplates.EventLive, TrickyValues(EmailTemplates.EventLive));
 
-        Assert.Contains("color:#0f1a30;\">Western Montana Santa Flyover</td>", rendered.Html);
+        Assert.Contains("color:#0f1a30;\">Western Montana Santa Flyover</a></td>", rendered.Html);
         Assert.StartsWith("Western Montana Santa Flyover\n", rendered.Text);
     }
 
