@@ -82,8 +82,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
             var rendered = templates.Render(message.TemplateName, message.Values);
             Assert.Contains("<img src=\"" + url + "\"", rendered.Html);
             Assert.DoesNotContain(templates.Logo.Url, rendered.Html);
-            Assert.Contains("alt=\"North Pole Flight Desk\"", rendered.Html);
-            Assert.Contains(">North Pole Flight Desk</td>", rendered.Html);
+            Assert.Contains("<img src=\"" + url + "\" width=\"128\" height=\"64\" alt=\"\"", rendered.Html);
+            Assert.Contains(">North Pole Flight Desk</a></td>", rendered.Html);
             Assert.StartsWith("North Pole Flight Desk\n", rendered.Text);
         }
 
@@ -118,7 +118,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
         Assert.Contains("<img src=\"" + templates.Logo.Url + "\"", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Ornaments.Url + "\"", rendered.Html);
         Assert.Contains("<img src=\"" + templates.Lights.Url + "\"", rendered.Html);
-        Assert.Contains("alt=\"Western Montana Santa Flyover\"", rendered.Html);
+        Assert.Contains("<img src=\"" + templates.Logo.Url + "\" width=\"128\" height=\"64\" alt=\"\"", rendered.Html);
+        Assert.Contains(">Western Montana Santa Flyover</a></td>", rendered.Html);
         Assert.StartsWith("Western Montana Santa Flyover\n", rendered.Text);
     }
 
@@ -143,7 +144,8 @@ public sealed class A76EmailLogoTests : IClassFixture<PostgresFixture>, IAsyncLi
         var message = Assert.Single(host.Sender.Sent);
         var rendered = templates.Render(message.TemplateName, message.Values);
         Assert.Contains("<img src=\"" + templates.Logo.Url + "\"", rendered.Html);
-        Assert.Contains("alt=\"Svg Site\"", rendered.Html);
+        Assert.Contains("<img src=\"" + templates.Logo.Url + "\" width=\"128\" height=\"64\" alt=\"\"", rendered.Html);
+        Assert.Contains(">Svg Site</a></td>", rendered.Html);
     }
 
     // ---------- helpers ----------
