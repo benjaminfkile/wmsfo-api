@@ -118,6 +118,42 @@
       ]
     },
     {
+      "id": "cookie-chocolate-chip",
+      "name": "Chocolate chip cookie",
+      "tags": [
+        "food",
+        "cookie",
+        "chocolate"
+      ]
+    },
+    {
+      "id": "cookie-gingerbread",
+      "name": "Gingerbread cookie",
+      "tags": [
+        "food",
+        "cookie",
+        "gingerbread"
+      ]
+    },
+    {
+      "id": "cookie-snickerdoodle",
+      "name": "Snickerdoodle",
+      "tags": [
+        "food",
+        "cookie",
+        "cinnamon"
+      ]
+    },
+    {
+      "id": "cookie-sugar",
+      "name": "Sugar cookie",
+      "tags": [
+        "food",
+        "cookie",
+        "frosting"
+      ]
+    },
+    {
       "id": "drum",
       "name": "Drum",
       "tags": [
