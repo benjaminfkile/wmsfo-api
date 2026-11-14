@@ -20,7 +20,7 @@ The technical designs that make this exact live in each repository's `docs/` fol
 | Realtime | gateway hub | public channel for the site, private channel for beacons, publish from the container |
 | Data | new Postgres schema | legacy rows migrated once; content (pages, sections, media) lives here too and publishes into the snapshot |
 | Simulator beacon | new, Node and TypeScript, on the fleet behind the gateway, control page on Vercel | an enrolled beacon that replays a past year's flight at a chosen speed; its control page signs in through the admin pool; reads flights through an API key with the `events` capability |
-| Legacy beacon | new, Node and TypeScript, a systemd service on one host on the operator's network | one process that polls the legacy Heroku tracker once a second and posts what it reports, normalized, to dev and prod as an enrolled beacon in each; a control page on the local network sets the tracker's mode |
+| Legacy beacon | new, Node and TypeScript, a systemd service on one host on the operator's network | one process that polls the legacy Heroku tracker every 3 seconds and posts what it reports, normalized, to dev and prod as an enrolled beacon in each; a control page on the local network sets the tracker's mode |
 | Alerts | SES email only (year one) | opt in, double opt in, unsubscribe link in every message; SMS numbers kept in §6 for later |
 | Auth | two Cognito pools per environment: a people pool (`wmsfo-dev`, `wmsfo-prod`) and an admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) | people self sign up in the people pool; admins and editors are operator-created in the admin pool as groups with MFA enforced; a role counts only on an admin-pool token |
 
