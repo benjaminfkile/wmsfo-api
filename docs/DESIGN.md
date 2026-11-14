@@ -20,7 +20,7 @@ The technical designs that make this exact live in each repository's `docs/` fol
 | Realtime | gateway hub | public channel for the site, private channel for beacons, publish from the container |
 | Data | new Postgres schema | legacy rows migrated once; content (pages, sections, media) lives here too and publishes into the snapshot |
 | Simulator beacon | new, Node and TypeScript, on the fleet behind the gateway, control page on Vercel | an enrolled beacon that replays a past year's flight at a chosen speed; its control page signs in through the admin pool; reads flights through an API key with the `events` capability |
-| Legacy beacon | new, Node and TypeScript, on the fleet behind the gateway | an enrolled beacon that polls the legacy Heroku tracker once a second and posts what it reports, normalized; no user interface |
+| Legacy beacon | new, Node and TypeScript, a systemd service on one host on the operator's network | one process that polls the legacy Heroku tracker once a second and posts what it reports, normalized, to dev and prod as an enrolled beacon in each; a control page on the local network sets the tracker's mode |
 | Alerts | SES email only (year one) | opt in, double opt in, unsubscribe link in every message; SMS numbers kept in §6 for later |
 | Auth | two Cognito pools per environment: a people pool (`wmsfo-dev`, `wmsfo-prod`) and an admin pool (`wmsfo-admin-dev`, `wmsfo-admin-prod`) | people self sign up in the people pool; admins and editors are operator-created in the admin pool as groups with MFA enforced; a role counts only on an admin-pool token |
 
@@ -305,7 +305,7 @@ Cut-over: freeze the old API, run the migration, point the site and the panel at
 - Cookies (2026-09-12): no moderation, no admin cookie view; a cookie type can be deleted while nothing references it.
 - Large images (2026-09-12): a Deep Zoom tile pyramid cut at upload and served from the CDN; the site's viewer is OpenSeadragon with fullscreen.
 - Site accounts (2026-09-12): the site's own themed auth pages over the Cognito API; the hosted UI is used only by the admin panel.
-- Two more beacons (2026-09-12): a simulator beacon (replays a past year, control page behind the admin pool) and a legacy beacon (polls the Heroku tracker), both fleet services and ordinary enrolled beacons.
+- Two more beacons (2026-09-12): a simulator beacon (replays a past year, control page behind the admin pool) and a legacy beacon (polls the Heroku tracker), both ordinary enrolled beacons. Since 2026-11-14 the legacy beacon runs on one host on the operator's network, feeds dev and prod from one poll, and sets the tracker's mode only from its control page.
 - Admin panel usability (2026-09-12): every editable row has an edit control; the flight recording upload shows the JSON shape it expects.
 - Beacon state (2026-10-18): one opaque JSON document per beacon, read and written by the beacon with a version check, so a restarted service or a new leader resumes where the last one stopped; the beacon keeps no second store of it.
 - One site route (2026-10-18): the route is a default setting on the site, not on each event or poster; events and posters inherit it, and changing it later is a settings edit, a publish, and new posters.

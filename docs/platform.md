@@ -37,7 +37,7 @@ Every environment-specific value is a placeholder with a dev value and a prod va
 | Item | dev | prod |
 |---|---|---|
 | Manifest service, hub channel prefix, `WMSFO_SERVICE_NAME` | `wmsfo-api-dev` | `wmsfo-api` |
-| Beacon services on the fleet (section 3.6) | `simulator-beacon-dev`, `legacy-beacon-dev` | `legacy-beacon`; the simulator is never registered in prod |
+| Beacon services on the fleet (section 3.6) | `simulator-beacon-dev` | none; the simulator is never registered in prod, and the legacy beacon runs off the fleet (section 3.6) |
 | Simulator control page | `<simulator-domain>` (Vercel, from `main`): the only one, driving the dev simulator | none |
 | Git branch that deploys it | `dev` | `main` |
 | GitHub Actions environment | `dev` | `prod` |
@@ -505,14 +505,15 @@ The callback paths `/realtime/authorize` and `/realtime/message` are reachable t
 
 ### 3.6 The beacon services
 
-The simulator beacon and the legacy beacon (contracts 9.5) are two more manifest services, Node 22 containers on port 3000, deployed exactly like the API (CI builds to ECR and calls `deploy`; the manifest entry is created once from the dashboard). Neither joins the hub as a browser and neither publishes, so they carry no realtime fields; they run on every instance like any service, and each elects its own single worker through `GET /internal/leader` (contracts 7.5), because a replay or a Heroku poll must run once per fleet, not once per node. The follower nodes serve only the health probe (and, for the simulator, its control API, which forwards start and stop to the database row the leader watches).
+The simulator beacon (contracts 9.5) is one more manifest service, a Node 22 container on port 3000, deployed exactly like the API (CI builds to ECR and calls `deploy`; the manifest entry is created once from the dashboard). It does not join the hub as a browser and does not publish, so it carries no realtime fields; it runs on every instance like any service and elects its single worker through `GET /internal/leader` (contracts 7.5), because a replay must run once per fleet, not once per node. The follower nodes serve only the health probe and its control API, which forwards start and stop to the state document the leader watches.
+
+The legacy beacon is not a fleet service. It is one systemd service on one host on the operator's network (`legacy-beacon/docs/legacy-beacon.md` 7), configured by an environment file on that host, holding the `wbk_` key of the beacon named `legacy` in each environment and posting each polled fix to both hubs; it has no manifest entry, secret, ECR repository, or deploy workflow.
 
 | Entry | Image | Port | Secret keys (flat JSON, one secret per environment) |
 |---|---|---|---|
 | `simulator-beacon-dev` (no prod entry: the simulator is a test beacon and is never registered in prod) | `<account-id>.dkr.ecr.<region>.amazonaws.com/simulator-beacon:<sha>-dev` | 3000 | `SIM_ENV`, `SIM_API_BASE_URL` (the WMSFO API), `SIM_API_KEY` (a `wak_` key with the `events` capability, minted in the panel), `SIM_BEACON_KEY` (the `wbk_` key of the beacon named `simulator`), `SIM_HUB_URL`, `SIM_INGEST_CHANNEL`, `SIM_GATEWAY_INTERNAL_URL`, `SIM_COGNITO_ISSUER` (the admin pool), `SIM_COGNITO_CLIENT_IDS` (`wmsfo-simulator`), `SIM_ADMIN_GROUP`, `SIM_CORS_ORIGINS` (the control page origins), `SIM_LOG_LEVEL` |
-| `legacy-beacon` / `legacy-beacon-dev` | `<account-id>.dkr.ecr.<region>.amazonaws.com/legacy-beacon:<sha>-<env>` | 3000 | `LB_ENV`, `LB_API_BASE_URL`, `LB_BEACON_KEY` (the beacon named `legacy-tracker`), `LB_HUB_URL`, `LB_INGEST_CHANNEL`, `LB_GATEWAY_INTERNAL_URL`, `LB_SOURCE_URL` (`https://<legacy-tracker-host>/get?id=<tracker id>`), `LB_POLL_MS` (`1000`), `LB_LOG_LEVEL`, and optionally `LB_MODE_URL` and `LB_MODE_AUTH`, set together and carried only by the environment whose beacon drives the real tracker (`docs/legacy-beacon.md` 6) |
 
-`GATEWAY_REALTIME_TOKEN` is injected into both by the gateway once their entries have been upserted from the dashboard; they use it only for `/internal/leader`. Health: `GET /api/health` on each, `200` once the worker loop is running (leader or follower). Neither beacon has a database: each keeps its working state in its beacon state document through the API (contracts 9.5).
+`GATEWAY_REALTIME_TOKEN` is injected by the gateway once the entry has been upserted from the dashboard; the simulator uses it only for `/internal/leader`. Health: `GET /api/health`, `200` once the worker loop is running (leader or follower). The simulator has no database: it keeps its working state in its beacon state document through the API (contracts 9.5).
 
 ---
 
@@ -757,7 +758,7 @@ Vercel git integration; no workflow file is required. Each repository has a `ci.
 
 ### 9.2a The beacon services
 
-`simulator-beacon/.github/workflows/deploy.yml` and `legacy-beacon/.github/workflows/deploy.yml` mirror the API's: `npm ci`, the contracts check, `npm test`, `tsc --noEmit`, OIDC assume role, `docker buildx build --platform linux/arm64,linux/amd64` pushed as `<repo>:<sha>-<env>`, then the gateway `deploy` call and the wait. The simulator has a dev service only. Its `web/` is deployed by Vercel's git integration from `main`, one project.
+`simulator-beacon/.github/workflows/deploy.yml` mirrors the API's: `npm ci`, the contracts check, `npm test`, `tsc --noEmit`, OIDC assume role, `docker buildx build --platform linux/arm64,linux/amd64` pushed as `<repo>:<sha>-<env>`, then the gateway `deploy` call and the wait. The simulator has a dev service only. Its `web/` is deployed by Vercel's git integration from `main`, one project.
 
 ### 9.3 Red-Nose
 
@@ -972,7 +973,8 @@ Rollback before step 8 is nothing: the static legacy site still runs. Rollback a
 - Alarms in both environments, the dev copies under the dev prefix; both have metric filters for the dashboard.
 - The no-location alarm reads the event status through the `EventLive` metric (the API's `live tick` line) and is never toggled by hand (2026-10-22).
 - The legacy database is kept 90 days after cut-over.
-- The simulator beacon and the legacy beacon are manifest services with their own secrets and ECR repositories, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12). The simulator is a test beacon: never registered in prod, one fleet service against the dev API, one control page from `main` (2026-09-18). The prod to dev mirror keeps the dev `simulator` beacon row whole (`KEEP_DEV_BEACONS`), back under its stable id at or above 1000 (the hub presence identity is `<id>:<keyVersion>`, so the id must not move) and as dev's active beacon, so the service's key and hub session survive every run (2026-10-28, id rule 2026-10-29). The simulator has no database: its run lives in its beacon state document (contracts 9.5), and its old database and roles were dropped (2026-10-18).
+- The simulator beacon is a manifest service with its own secret and ECR repository, leader-gated through `/internal/leader` like the API's chores; the simulator's control page is a Vercel project signed in through a second client on the admin pool (2026-09-12). The simulator is a test beacon: never registered in prod, one fleet service against the dev API, one control page from `main` (2026-09-18). The prod to dev mirror keeps the dev `simulator` beacon row whole (`KEEP_DEV_BEACONS`), back under its stable id at or above 1000 (the hub presence identity is `<id>:<keyVersion>`, so the id must not move) and as dev's active beacon, so the service's key and hub session survive every run (2026-10-28, id rule 2026-10-29). The simulator has no database: its run lives in its beacon state document (contracts 9.5), and its old database and roles were dropped (2026-10-18).
+- The legacy beacon left the fleet (2026-11-14): one systemd service on one host on the operator's network posts each polled fix to dev and prod as the beacon `legacy` in each, with a control page on the local network that sets the tracker's mode on request; its manifest entry `legacy-beacon-dev`, secret, ECR repository, and deploy workflow are gone.
 - The people pool's hosted UI is unused: the site signs people in through the Cognito API (2026-09-12).
 
 ## 17. Needs a decision
